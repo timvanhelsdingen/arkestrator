@@ -168,7 +168,7 @@
   });
 
   $effect(() => {
-    if (connection.connected && !defaultProjectDirLoaded) {
+    if (connection.isConnected && !defaultProjectDirLoaded) {
       defaultProjectDirLoaded = true;
       void loadDefaultProjectDir();
     }
