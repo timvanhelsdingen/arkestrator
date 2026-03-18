@@ -70,18 +70,9 @@ Arkestrator uses a hub-and-spoke model with three components:
 
 ### Bridges
 
-> **Bridges live in a separate repository:** [arkestrator-bridges](https://github.com/timvanhelsdingen/arkestrator-bridges)
+Bridge plugins connect DCC apps (Godot, Blender, Houdini, Unreal Engine 5, Unity, ComfyUI) to the server via WebSocket. Any program that can open a WebSocket and run scripts can become a bridge.
 
-| DCC / Tool | Language | Status | Context Captured |
-|---|---|---|---|
-| Godot 4.x | GDScript addon | Beta | Scenes, nodes, scripts, selections |
-| Blender | Python addon | Beta | Objects, meshes, node trees, text blocks |
-| Houdini | Python package | Beta | Networks, nodes, VEX/Python snippets |
-| Unreal Engine 5 | Python plugin | Alpha | Levels, actors, assets, materials, blueprints |
-| Unity | C# plugin | Alpha | GameObjects, scenes, assets, components |
-| ComfyUI | Python bridge | Beta | Node types, system stats, queue state |
-
-Any program that can open a WebSocket and run scripts can become a bridge. See the [Bridge Development Guide](docs/bridge-development.md).
+See the [arkestrator-bridges](https://github.com/timvanhelsdingen/arkestrator-bridges) repository for installation, supported apps, and context details. See the [Bridge Development Guide](docs/bridge-development.md) for building your own.
 
 ### AI Engines
 
