@@ -1,5 +1,7 @@
 # Bridge Usage
 
+> **Bridge source code lives in a separate repository:** [arkestrator-bridges](https://github.com/timvanhelsdingen/arkestrator-bridges)
+
 ## What Bridges Are
 
 Bridges are thin plugins inside DCC apps that connect to the Arkestrator server over WebSocket. They are **execution endpoints only** — they do not submit jobs, display dashboards, or manage queues. All prompt submission and job management happens through the desktop client.
@@ -21,7 +23,7 @@ If the desktop client is connected to a remote server, it starts a localhost rel
 
 ### Godot (GDScript Addon)
 
-1. Copy `bridges/godot/addons/arkestrator_bridge/` into your Godot project's `addons/` directory
+1. Copy `arkestrator-bridges/godot/addons/arkestrator_bridge/` into your Godot project's `addons/` directory
 2. Enable the plugin: **Project > Project Settings > Plugins > Godot Arkestrator Bridge**
 3. The bridge panel appears in the editor dock (right side)
 4. With auto-connect enabled (default), it connects on plugin load
@@ -40,7 +42,7 @@ If the desktop client is connected to a remote server, it starts a localhost rel
 
 ### Blender (Python Addon)
 
-1. Install via **Edit > Preferences > Add-ons > Install** — select the `bridges/blender/arkestrator_bridge/` directory
+1. Install via **Edit > Preferences > Add-ons > Install** — select the `arkestrator-bridges/blender/arkestrator_bridge/` directory
 2. Enable the addon
 3. The panel appears in the 3D Viewport N-panel under the "Arkestrator" tab
 4. Auto-connects on addon load
@@ -54,7 +56,7 @@ If the desktop client is connected to a remote server, it starts a localhost rel
 
 ### Houdini (Python Package)
 
-1. Copy the `bridges/houdini/arkestrator_bridge` directory to your Houdini preferences (e.g., `$HOUDINI_USER_PREF_DIR/pythonX.Xlibs/`) or use the `arkestrator_bridge.json` package descriptor
+1. Copy the `arkestrator-bridges/houdini/arkestrator_bridge` directory to your Houdini preferences (e.g., `$HOUDINI_USER_PREF_DIR/pythonX.Xlibs/`) or use the `arkestrator_bridge.json` package descriptor
 2. Registration happens automatically through multiple startup hooks (pythonrc, ready, uiready, 123/456 scripts)
 3. For manual setup: `import arkestrator_bridge; arkestrator_bridge.register()`
 4. Also works in headless/hython mode with a thread-based fallback
@@ -75,7 +77,7 @@ if bridge:
 
 ### Unreal Engine 5 (Python Plugin)
 
-1. Copy `bridges/unreal/ArkestratorBridge/` to your UE5 engine's Plugins directory
+1. Copy `arkestrator-bridges/unreal/ArkestratorBridge/` to your UE5 engine's Plugins directory
 2. Enable **PythonScriptPlugin** in Edit > Plugins > Scripting
 3. Enable **Arkestrator Bridge** in Edit > Plugins > Editor
 4. Restart the editor
@@ -89,7 +91,7 @@ if bridge:
 
 ### Unity (C# Plugin)
 
-1. Copy `bridges/unity/ArkestratorBridge/` into your Unity project's `Assets/` directory, or run:
+1. Copy `arkestrator-bridges/unity/ArkestratorBridge/` into your Unity project's `Assets/` directory, or run:
    ```powershell
    .\scripts\install-unity-bridge.ps1 -UnityProjectPath "C:\Path\To\UnityProject"
    ```

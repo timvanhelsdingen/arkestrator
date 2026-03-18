@@ -8,7 +8,7 @@ Hub-and-spoke system for managing AI agent tasks across DCC apps (Godot, Blender
 - **Server:** Bun + Hono + SQLite (user accounts with Argon2, session auth)
 - **Client:** Tauri v2 + Svelte 5 (runes, custom titlebar, dark theme)
 - **Protocol:** Zod schemas (shared TypeScript types)
-- **Bridges:** GDScript (Godot), Python (Blender/Houdini)
+- **Bridges:** GDScript (Godot), Python (Blender/Houdini) — live in a [separate repo](https://github.com/timvanhelsdingen/arkestrator-bridges)
 
 ## Working in This Repo
 
@@ -62,8 +62,7 @@ Each module has its own documentation file that tracks its current state (files,
 - **Server:** `server/MODULE.md`
 - **Client:** `client/MODULE.md`
 - **Admin:** `admin/MODULE.md`
-- **Godot Bridge:** `bridges/godot/MODULE.md`
-- **Blender Bridge:** `bridges/blender/MODULE.md` (create when bridge is added)
+- **Bridges:** Live in a separate repo: [arkestrator-bridges](https://github.com/timvanhelsdingen/arkestrator-bridges). Do not look for bridge source code in this repo.
 
 Update these docs whenever you add, remove, or rename files, routes, components, message types, schemas, or significant functionality. Keep descriptions concise - these are reference docs, not tutorials.
 

@@ -70,6 +70,8 @@ Arkestrator uses a hub-and-spoke model with three components:
 
 ### Bridges
 
+> **Bridges live in a separate repository:** [arkestrator-bridges](https://github.com/timvanhelsdingen/arkestrator-bridges)
+
 | DCC / Tool | Language | Status | Context Captured |
 |---|---|---|---|
 | Godot 4.x | GDScript addon | Beta | Scenes, nodes, scripts, selections |

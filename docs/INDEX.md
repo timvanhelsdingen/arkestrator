@@ -19,6 +19,7 @@
 ## Extending
 
 - **[Bridge Development](bridge-development.md)** — Protocol reference for building a bridge for a new tool
+- **[arkestrator-bridges repo](https://github.com/timvanhelsdingen/arkestrator-bridges)** — Source code for all bridge plugins (Godot, Blender, Houdini, Unreal, Unity, ComfyUI)
 
 ## Deploying
 

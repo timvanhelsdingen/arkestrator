@@ -1,5 +1,7 @@
 # Bridge Development Guide
 
+> **All bridge source code lives in the [arkestrator-bridges](https://github.com/timvanhelsdingen/arkestrator-bridges) repository.** New bridges should be developed there.
+
 ## Goal
 
 Arkestrator is program-agnostic. A "bridge" is a thin adapter that lets any host program participate in orchestration. If your program can open a WebSocket, run scripts, and read/write files, you can build a bridge for it.
