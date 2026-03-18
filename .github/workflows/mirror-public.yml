@@ -1,0 +1,41 @@
+name: Mirror Release to Public Repo
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to mirror (e.g. v0.1.40). Leave empty to mirror current main.'
+        required: false
+        type: string
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout private repo
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || 'main' }}
+          fetch-depth: 0
+
+      - name: Remove internal-only files
+        run: |
+          rm -f CLAUDE.md AGENTS.md LESSONS.md TODO.md PROJECT_PLAN.md
+          find . -name 'MODULE.md' -not -path './.git/*' -delete
+          rm -rf docs/reports/
+          rm -rf .claude/
+
+      - name: Push to public repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && echo "No changes to mirror" && exit 0
+          git commit -m "release: ${{ inputs.tag || 'latest' }}"
+          git remote add public https://x-access-token:${{ secrets.PUBLIC_REPO_PAT }}@github.com/timvanhelsdingen/arkestrator.git
+          git push public HEAD:main --force
+          TAG="${{ inputs.tag }}"
+          if [ -n "$TAG" ]; then
+            git tag -f "$TAG"
+            git push public "$TAG" --force
+          fi

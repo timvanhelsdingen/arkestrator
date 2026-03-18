@@ -1,0 +1,63 @@
+name: Publish Server Image
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}
+      BUILDKIT_PROGRESS: plain
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=main,enable={{is_default_branch}}
+            type=ref,event=tag
+            type=sha,prefix=sha-
+
+      - name: Build and push image
+        timeout-minutes: 25
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            ARKESTRATOR_APT_PACKAGES=${{ vars.ARKESTRATOR_APT_PACKAGES }}
+            ARKESTRATOR_BUN_GLOBAL_PACKAGES=${{ vars.ARKESTRATOR_BUN_GLOBAL_PACKAGES }}
+            ARKESTRATOR_PIP_PACKAGES=${{ vars.ARKESTRATOR_PIP_PACKAGES }}
+            ARKESTRATOR_INSTALL_COMMANDS=${{ vars.ARKESTRATOR_INSTALL_COMMANDS }}
+            ARKESTRATOR_INSTALL_COMMANDS_TIMEOUT_SECONDS=${{ vars.ARKESTRATOR_INSTALL_COMMANDS_TIMEOUT_SECONDS }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

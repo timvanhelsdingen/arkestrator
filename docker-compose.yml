@@ -1,0 +1,22 @@
+services:
+  arkestrator:
+    build:
+      context: .
+      args:
+        ARKESTRATOR_APT_PACKAGES: ${ARKESTRATOR_APT_PACKAGES:-}
+        ARKESTRATOR_BUN_GLOBAL_PACKAGES: ${ARKESTRATOR_BUN_GLOBAL_PACKAGES:-}
+        ARKESTRATOR_PIP_PACKAGES: ${ARKESTRATOR_PIP_PACKAGES:-}
+        ARKESTRATOR_INSTALL_COMMANDS: ${ARKESTRATOR_INSTALL_COMMANDS:-}
+    ports:
+      - "7800:7800"
+    volumes:
+      - agent-data:/data
+    environment:
+      - PORT=7800
+      - DB_PATH=/data/arkestrator.db
+      - MAX_CONCURRENT_AGENTS=2
+      - LOG_LEVEL=info
+    restart: unless-stopped
+
+volumes:
+  agent-data:
