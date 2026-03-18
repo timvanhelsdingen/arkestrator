@@ -98,3 +98,9 @@ Each module has a `MODULE.md` file that tracks its current state. After making c
 - [ ] Cross-platform compatibility (no platform-specific assumptions)
 - [ ] No secrets, generated artifacts, or runtime files committed
 - [ ] No stale hardcoded data (model lists, provider catalogs, etc.)
+
+## Bridge Contributions
+
+Bridge plugins (Godot, Blender, Houdini, etc.) live in a separate repository:
+[arkestrator-bridges](https://github.com/timvanhelsdingen/arkestrator-bridges).
+PRs for bridge-specific changes should be submitted there.
