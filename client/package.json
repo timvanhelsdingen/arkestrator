@@ -1,0 +1,31 @@
+{
+  "name": "@arkestrator/client",
+  "version": "0.1.49",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "pretauri": "node scripts/ensure-sidecar.mjs",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@arkestrator/protocol": "workspace:*",
+    "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/plugin-autostart": "^2.5.1",
+    "@tauri-apps/plugin-dialog": "^2.6.0",
+    "@tauri-apps/plugin-shell": "^2.0.0",
+    "@tauri-apps/plugin-updater": "^2.9.1",
+    "qrcode": "^1.5.4",
+    "svelte": "^5.53.7"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^5.0.0",
+    "@tauri-apps/cli": "^2.0.0",
+    "@types/qrcode": "^1.5.6",
+    "svelte-check": "^4.0.0",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.0"
+  }
+}

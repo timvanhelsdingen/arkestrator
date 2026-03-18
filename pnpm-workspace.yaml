@@ -1,0 +1,12 @@
+packages:
+  - packages/*
+  - server
+  - client
+  - admin
+  - extensions/vscode
+
+allowBuild: esbuild
+
+onlyBuiltDependencies:
+  - '@tauri-apps/cli'
+  - esbuild

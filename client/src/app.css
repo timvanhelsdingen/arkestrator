@@ -1,0 +1,227 @@
+@font-face {
+  font-family: "Sora";
+  src: url("./assets/fonts/Sora-Variable.ttf") format("truetype");
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: dark;
+
+  /* Background layers */
+  --bg-base: #1e1e1e;
+  --bg-surface: #252526;
+  --bg-elevated: #2d2d2d;
+  --bg-hover: #363636;
+  --bg-active: #404040;
+
+  /* Text */
+  --text-primary: #cccccc;
+  --text-secondary: #999999;
+  --text-muted: #666666;
+
+  /* Accent */
+  --accent: #0078d4;
+  --accent-hover: #1a8cef;
+
+  /* Status */
+  --status-queued: #e2b93d;
+  --status-running: #0078d4;
+  --status-completed: #4ec9b0;
+  --status-failed: #f44747;
+  --status-cancelled: #999999;
+
+  /* Priority */
+  --priority-critical: #f44747;
+  --priority-high: #e2b93d;
+  --priority-normal: #cccccc;
+  --priority-low: #666666;
+
+  /* Borders */
+  --border: #3c3c3c;
+  --border-focus: #0078d4;
+
+  /* Sizing */
+  --sidebar-width: 48px;
+  --titlebar-height: 32px;
+  --statusbar-height: 24px;
+
+  /* Font */
+  --font-sans: "Sora", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "Cascadia Code", "Fira Code", "JetBrains Mono", monospace;
+  --font-size-sm: 12px;
+  --font-size-base: 13px;
+  --font-size-lg: 14px;
+
+  /* Radius */
+  --radius-sm: 3px;
+  --radius-md: 6px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  height: 100%;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-base);
+  overflow: hidden;
+  user-select: none;
+}
+
+#app {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--bg-active);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+}
+
+input,
+textarea,
+select {
+  font-family: inherit;
+  font-size: inherit;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  outline: none;
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 15px;
+  height: 15px;
+  border: 1px solid var(--border);
+  background: var(--bg-base);
+  display: inline-grid;
+  place-content: center;
+  vertical-align: middle;
+  padding: 0;
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
+}
+
+input[type="checkbox"] {
+  border-radius: 4px;
+}
+
+input[type="checkbox"]::before {
+  content: "";
+  width: 7px;
+  height: 4px;
+  border-left: 2px solid #ffffff;
+  border-bottom: 2px solid #ffffff;
+  transform: rotate(-45deg) scale(0);
+  transform-origin: center;
+  transition: transform 120ms ease;
+}
+
+input[type="checkbox"]:checked {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+input[type="checkbox"]:checked::before {
+  transform: rotate(-45deg) scale(1);
+}
+
+input[type="radio"] {
+  border-radius: 50%;
+}
+
+input[type="radio"]::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #ffffff;
+  transform: scale(0);
+  transition: transform 120ms ease;
+}
+
+input[type="radio"]:checked {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+input[type="radio"]:checked::before {
+  transform: scale(1);
+}
+
+input[type="checkbox"]:focus-visible,
+input[type="radio"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.25);
+}
+
+input[type="checkbox"]:disabled,
+input[type="radio"]:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+option,
+optgroup {
+  background: var(--bg-base);
+  color: var(--text-primary);
+}
+
+textarea {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  resize: vertical;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: var(--border-focus);
+}
+
+/* Re-enable text selection in content areas (body has user-select: none for desktop feel) */
+p, span, pre, code, h1, h2, h3, h4, h5, h6, li, td, th, blockquote,
+.selectable,
+[class*="message"], [class*="log"], [class*="detail"], [class*="content"] {
+  user-select: text;
+}
+
+input, textarea {
+  user-select: text;
+}

@@ -1,0 +1,38 @@
+<script lang="ts">
+  let { text, variant = "default" }: { text: string; variant?: string } = $props();
+</script>
+
+<span class="badge {variant}">{text}</span>
+
+<style>
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .queued { background: var(--status-queued); color: #1e1e1e; }
+  .paused { background: #6b6b6b; color: white; }
+  .running { background: var(--status-running); color: white; }
+  .completed { background: var(--status-completed); color: #1e1e1e; }
+  .failed { background: var(--status-failed); color: white; }
+  .cancelled { background: var(--status-cancelled); color: white; }
+  .critical { background: var(--priority-critical); color: white; }
+  .high { background: var(--priority-high); color: #1e1e1e; }
+  .normal { background: var(--bg-active); color: var(--text-primary); }
+  .low { background: var(--bg-elevated); color: var(--text-muted); }
+  .default { background: var(--bg-active); color: var(--text-primary); }
+  .command { background: #3d3552; color: #b8a9c9; }
+  .repo { background: #2f4038; color: #a9c9b8; }
+  .sync { background: #40382f; color: #c9b8a9; }
+  .godot { background: #2d4a6f; color: #6da1d4; }
+  .blender { background: #5c3a1e; color: #e8923a; }
+  .houdini { background: #5c1e1e; color: #e84040; }
+  .comfyui { background: #163b25; color: #34d399; }
+  .unity { background: #334155; color: #e2e8f0; }
+  .unreal { background: #3d3552; color: #c4b5fd; }
+  .blocked { background: #5c4a1e; color: #e8c23a; }
+</style>

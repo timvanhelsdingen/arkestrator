@@ -1,0 +1,46 @@
+import { z } from "zod";
+import { AgentEngine } from "./common.js";
+
+export const AgentConfig = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  engine: AgentEngine,
+  command: z.string(),
+  args: z.array(z.string()).default([]),
+  model: z.string().optional(),
+  /** Optional fallback config used by AUTO routing when this config should escalate. */
+  fallbackConfigId: z.string().uuid().optional(),
+  maxTurns: z.number().int().positive().default(300),
+  systemPrompt: z.string().optional(),
+  /**
+   * Per-model system prompt overrides.  Map of model name → custom prompt text.
+   * @deprecated Use `modelOverrides` instead. Kept for backward compatibility.
+   */
+  modelSystemPrompts: z.record(z.string(), z.string()).optional(),
+  /**
+   * Structured per-model overrides.  Map of model name → override settings.
+   * Allows overriding system prompt, max turns, etc. per model.
+   */
+  modelOverrides: z.record(z.string(), z.object({
+    systemPrompt: z.string().optional(),
+    maxTurns: z.number().int().positive().optional(),
+  })).optional(),
+  priority: z.number().int().min(0).max(100).default(50),
+  /**
+   * Where local-oss (Ollama) models are hosted.
+   * - `"server"` — use Ollama on the server machine itself
+   * - `"client"` — auto-distribute to any online worker with localLlmEnabled
+   * Defaults to `"client"` when unset.  Only meaningful for `engine === "local-oss"`.
+   */
+  localModelHost: z.enum(["server", "client"]).optional(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type AgentConfig = z.infer<typeof AgentConfig>;
+
+export const AgentConfigCreate = AgentConfig.omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type AgentConfigCreate = z.infer<typeof AgentConfigCreate>;

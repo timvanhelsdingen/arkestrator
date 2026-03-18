@@ -1,0 +1,85 @@
+{
+  "name": "arkestrator-vscode",
+  "displayName": "Arkestrator",
+  "description": "Connect to Arkestrator server - submit jobs, stream chat, and interact with DCC bridges from VS Code",
+  "version": "0.1.49",
+  "publisher": "agent-manager",
+  "engines": {
+    "vscode": "^1.93.0"
+  },
+  "categories": [
+    "AI",
+    "Chat"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "chatParticipants": [
+      {
+        "id": "arkestrator.chat",
+        "fullName": "Arkestrator",
+        "name": "arkestrator",
+        "description": "Chat with AI via Arkestrator server",
+        "isSticky": false,
+        "commands": [
+          {
+            "name": "job",
+            "description": "Submit a prompt as a job to the queue"
+          },
+          {
+            "name": "bridge",
+            "description": "Send a command to a connected bridge"
+          },
+          {
+            "name": "status",
+            "description": "Show connected bridges and workers"
+          }
+        ]
+      }
+    ],
+    "commands": [
+      {
+        "command": "arkestrator.openChat",
+        "title": "Arkestrator: Open Chat Panel"
+      },
+      {
+        "command": "arkestrator.submitJob",
+        "title": "Arkestrator: Submit Job"
+      },
+      {
+        "command": "arkestrator.showStatus",
+        "title": "Arkestrator: Show Status"
+      },
+      {
+        "command": "arkestrator.configure",
+        "title": "Arkestrator: Configure Connection"
+      }
+    ],
+    "configuration": {
+      "title": "Arkestrator",
+      "properties": {
+        "arkestrator.serverUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Server URL (e.g. http://localhost:7800). Leave empty to auto-discover from ~/.arkestrator/config.json"
+        },
+        "arkestrator.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API key for authentication. Leave empty to auto-discover from ~/.arkestrator/config.json"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap",
+    "watch": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap --watch",
+    "package": "vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.93.0",
+    "esbuild": "^0.25.0"
+  }
+}

@@ -1,0 +1,194 @@
+name: Release
+
+# Triggered when you push a version tag.
+# Release builds run on the PUBLIC repo only — use:
+#   scripts/sync-to-public.sh --tag vX.Y.Z
+# Do NOT push tags to the private repo.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  PNPM_VERSION: "10"
+  NODE_VERSION: "20"
+
+jobs:
+  # ─── 1. Create a draft release ──────────────────────────────────────
+  create-release:
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.release.outputs.id }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Create draft release
+        id: release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          name: Arkestrator ${{ github.ref_name }}
+
+  # ─── 2. Build Tauri desktop client (per platform) ───────────────────
+  build-client:
+    needs: create-release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-22.04
+            # Skip AppImage: linuxdeploy's eu-strip crashes on modern .relr.dyn
+            # ELF sections (tauri-apps/tauri#14796). Ship deb + rpm for now.
+            # Re-enable when tauri-apps/tauri#12491 (new AppImage bundler) ships.
+            args: "--bundles deb,rpm"
+          - platform: macos-latest        # arm64 (Apple Silicon)
+            args: ""
+          - platform: windows-latest      # x64
+            args: ""
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4.2.0
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Linux needs WebKit + GTK dev libs for Tauri
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Install dependencies
+        run: pnpm install
+
+      # Build protocol + compile server into sidecar binary
+      - name: Build sidecar
+        run: pnpm build:sidecar
+
+      # Build admin SPA and copy into Tauri resources
+      - name: Build admin SPA
+        run: pnpm --filter @arkestrator/admin build
+
+      - name: Copy admin dist to Tauri resources
+        shell: bash
+        run: |
+          mkdir -p client/src-tauri/resources/admin-dist
+          cp -r admin/dist/* client/src-tauri/resources/admin-dist/
+
+      # Build Tauri app and upload installers to the draft release
+      - name: Build and upload Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # macOS code signing (empty values are harmless on other platforms)
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          releaseId: ${{ needs.create-release.outputs.release_id }}
+          tauriScript: pnpm tauri
+          projectPath: client
+          args: ${{ matrix.args }}
+
+  # ─── 3. Build standalone server binaries ────────────────────────────
+  #  For users who want to run the server without Docker or Tauri.
+  build-server:
+    needs: create-release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            name: linux-x64
+            ext: ""
+          - os: macos-latest
+            name: darwin-arm64
+            ext: ""
+          - os: windows-latest
+            name: win-x64
+            ext: ".exe"
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4.2.0
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build protocol
+        run: pnpm --filter @arkestrator/protocol build
+
+      - name: Build admin SPA
+        run: pnpm --filter @arkestrator/admin build
+
+      - name: Compile standalone server binary
+        shell: bash
+        run: |
+          cd server
+          bun build --compile src/index.ts \
+            --outfile "../arkestrator-server-${{ matrix.name }}${{ matrix.ext }}"
+
+      - name: Upload server binary to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: arkestrator-server-${{ matrix.name }}${{ matrix.ext }}
+
+  # ─── 4. Publish the release (remove draft status) ──────────────────
+  publish-release:
+    needs: [create-release, build-client, build-server]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.updateRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: ${{ needs.create-release.outputs.release_id }},
+              draft: false
+            });

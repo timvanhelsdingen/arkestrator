@@ -1,0 +1,14 @@
+node_modules
+*/node_modules
+.git
+*.md
+client/*
+!client/resources/
+client/resources/*
+!client/resources/admin-dist/
+!client/resources/admin-dist/**
+bridges/
+server/data/
+admin/dist/
+admin/node_modules/
+.claude/
