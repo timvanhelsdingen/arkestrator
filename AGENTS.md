@@ -80,6 +80,15 @@ Update these docs whenever you add, remove, or rename files, routes, components,
 
 This is mandatory. Do not skip documentation updates or rebuilds - they are how other agents (and future you) understand what changed, and how users see the changes.
 
+### Version Consistency
+**Every component must reflect the same version number at build/release time.** The version is bumped via `node scripts/bump-version.mjs <version>`, which updates all `package.json` files, `Cargo.toml`, and `tauri.conf.json`. After bumping, you **must** rebuild the admin SPA and copy it to the bundled dist:
+```bash
+pnpm --filter @arkestrator/protocol build
+pnpm --filter @arkestrator/admin build
+cp -r admin/dist/* client/resources/admin-dist/
+```
+The admin dashboard embeds its version at build time (`__ADMIN_VERSION__`). If the bundled `client/resources/admin-dist/` is not rebuilt, the admin will display a stale version. This also applies to Docker images — they serve the bundled admin dist as-is.
+
 ### Cross-Platform
 This must work on Windows, macOS, and Linux. Avoid platform-specific assumptions. Many users will run the server on Windows.
 

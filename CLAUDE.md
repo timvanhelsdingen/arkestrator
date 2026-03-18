@@ -89,18 +89,30 @@ When the user asks to release, sync to public, or build a release:
 1. **Bump version** across all packages:
    ```bash
    node scripts/bump-version.mjs <version>   # e.g. 0.1.48
+   ```
+
+2. **Rebuild all artifacts** so every component reflects the new version:
+   ```bash
+   pnpm --filter @arkestrator/protocol build
+   pnpm --filter @arkestrator/admin build
+   cp -r admin/dist/* client/resources/admin-dist/
+   ```
+   **Critical:** The admin SPA embeds the version at build time (`__ADMIN_VERSION__`). If you skip this rebuild, the admin dashboard will display a stale version number. The bundled `client/resources/admin-dist/` is what the server serves — it must match the release version.
+
+3. **Commit and push:**
+   ```bash
    git add -A
-   git commit -m "chore: bump version to <version>"
+   git commit -m "Arkestrator v<version>"
    git push origin main
    ```
 
-2. **Sync to public repo** (strips .claude/, deploy configs, private scripts):
+4. **Sync to public repo** (strips .claude/, deploy configs, private scripts):
    ```bash
    ./scripts/sync-to-public.sh --tag v<version>
    ```
    This pushes a clean copy to `https://github.com/timvanhelsdingen/arkestrator` and creates a tag that triggers the release CI.
 
-3. **Release CI** runs automatically on the public repo when a `v*` tag is pushed. It builds macOS (dmg+updater), Windows (NSIS+updater), and Linux (AppImage+deb) installers via GitHub Actions.
+5. **Release CI** runs automatically on the public repo when a `v*` tag is pushed. It builds macOS (dmg+updater), Windows (NSIS+updater), and Linux (AppImage+deb) installers via GitHub Actions.
 
 **Key files:**
 - `.public-exclude` — patterns stripped from public repo (deploy configs, private scripts, .claude/)
