@@ -77,7 +77,7 @@ Arkestrator uses a hub-and-spoke model with three components:
 | Godot 4.x | GDScript addon | Beta | Scenes, nodes, scripts, selections |
 | Blender | Python addon | Beta | Objects, meshes, node trees, text blocks |
 | Houdini | Python package | Beta | Networks, nodes, VEX/Python snippets |
-| Unreal Engine 5 | Python plugin | Alpha | Levels, actors, assets, materials |
+| Unreal Engine 5 | Python plugin | Alpha | Levels, actors, assets, materials, blueprints |
 | Unity | C# plugin | Alpha | GameObjects, scenes, assets, components |
 | ComfyUI | Python bridge | Beta | Node types, system stats, queue state |
 

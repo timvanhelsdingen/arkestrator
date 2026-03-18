@@ -85,7 +85,7 @@ if bridge:
 
 **Context menu**: "Add to Arkestrator Context" in level viewport, content browser, asset browser, and Tools menu.
 
-**Editor context captured**: Active level, selected actors (with class, path, location), selected assets, selected folders, material nodes, engine version, actor count.
+**Editor context captured**: Active level, selected actors (with class, path, location), selected assets, selected folders, material nodes, blueprints (parent class, components, variables, functions, interfaces), engine version, actor count.
 
 **Commands**: Python (`exec()`) and UE Console commands (`unreal.SystemLibrary.execute_console_command()`).
 
