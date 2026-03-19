@@ -2,6 +2,8 @@
 
 ## Recent Update (2026-03-19)
 
+- Fine-grained API key permissions: API keys now carry per-key `permissions` (same shape as user permissions) instead of relying solely on role-based access. Three new permissions added: `executeCommands`, `deliverFiles`, `submitJobs`. Server routes (bridge-commands, jobs, MCP) now use a unified `principalHasPermission()` check for both users and API keys. MCP auth uses permission-based gating instead of role-based for API keys. Admin API Keys page fully rewritten with grouped permission checkboxes on create, role-based defaults, "Edit Permissions" modal for existing keys, and access summary column. Admin Users page includes the 3 new permissions in the Operations group.
+
 - Job execution reliability overhaul (sandbox, guidance, asset transfer, error handling):
   - **Sandbox fix**: `getClaudeRuntimeDecision()` now always allows `--dangerously-skip-permissions` even when running as root without a known drop-user. Added fallback user chain (bun → node → nobody) and configurable `dropUser` option. Prevents bwrap namespace failures on restricted environments (TrueNAS Docker, containers without user namespace support).
   - **Guidance delivery**: claude-code jobs now use `stdin: "pipe"` (was `"ignore"`), enabling `tryDeliverGuidanceViaStdin()` to push guidance directly to running processes. Polling instruction block strengthened to MANDATORY with specific frequency (every 2-3 tool calls).
