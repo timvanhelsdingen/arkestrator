@@ -82,7 +82,9 @@
         map[b.id] = b;
       }
       installed = map;
-    } catch {}
+    } catch (e) {
+      console.warn("[bridges] Failed to load installed bridges:", e);
+    }
   }
 
   async function openInstallDialog(bridge: BridgeEntry) {
@@ -107,7 +109,9 @@
         if (detectedPaths.length > 0) {
           selectedPath = detectedPaths[0].path;
         }
-      } catch {}
+      } catch (e) {
+        console.warn("[bridges] Path detection failed:", e);
+      }
       detecting = false;
     }
   }

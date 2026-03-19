@@ -293,7 +293,44 @@ pub async fn download_and_install_bridge(
             .map_err(|e| format!("Failed to remove existing installation: {e}"))?;
     }
 
-    // Extract files
+    // Detect the common top-level prefix in the zip so we can strip it.
+    // Many GitHub release zips wrap everything under a single root folder
+    // (e.g. "arkestrator-godot-bridge-0.1.51/") which doesn't match the
+    // user's chosen install path. We strip that prefix and extract directly
+    // into `dest`.
+    let common_prefix = {
+        let mut prefix: Option<PathBuf> = None;
+        for i in 0..archive.len() {
+            let file = archive
+                .by_index(i)
+                .map_err(|e| format!("Failed to read zip entry: {e}"))?;
+            let entry_path = match file.enclosed_name() {
+                Some(p) => p.to_path_buf(),
+                None => continue,
+            };
+            let first_component = entry_path
+                .components()
+                .next()
+                .map(|c| PathBuf::from(c.as_os_str()));
+            match (&prefix, first_component) {
+                (None, Some(comp)) => prefix = Some(comp),
+                (Some(existing), Some(comp)) if *existing != comp => {
+                    // Multiple top-level entries — no common prefix to strip
+                    prefix = None;
+                    break;
+                }
+                _ => {}
+            }
+        }
+        // Only strip if the prefix is a directory (has children), not a single file
+        prefix.filter(|p| {
+            (0..archive.len()).any(|i| {
+                archive.by_index(i).ok().and_then(|f| f.enclosed_name().map(|n| n.to_path_buf())).map(|n| n.components().count() > 1).unwrap_or(false)
+            })
+        })
+    };
+
+    // Extract files — strip common prefix and place directly into dest
     for i in 0..archive.len() {
         let mut file = archive
             .by_index(i)
@@ -304,7 +341,22 @@ pub async fn download_and_install_bridge(
             .ok_or("Invalid zip entry name")?
             .to_path_buf();
 
-        let out_path = dest.parent().unwrap_or(Path::new(".")).join(&entry_path);
+        // Strip common top-level prefix if present
+        let relative = if let Some(ref prefix) = common_prefix {
+            match entry_path.strip_prefix(prefix) {
+                Ok(stripped) => stripped.to_path_buf(),
+                Err(_) => entry_path.clone(),
+            }
+        } else {
+            entry_path.clone()
+        };
+
+        // Skip empty relative paths (the prefix directory itself)
+        if relative.as_os_str().is_empty() {
+            continue;
+        }
+
+        let out_path = dest.join(&relative);
 
         if file.name().ends_with('/') {
             fs::create_dir_all(&out_path)
