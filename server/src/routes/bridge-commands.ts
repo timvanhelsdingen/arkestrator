@@ -16,8 +16,8 @@ import {
   resolveBridgeTargets,
 } from "../agents/resource-control.js";
 import {
-  apiKeyRoleAllowed,
   getAuthPrincipal,
+  principalHasPermission,
   type AuthPrincipal,
 } from "../middleware/auth.js";
 import { newId } from "../utils/id.js";
@@ -179,7 +179,7 @@ export async function executeBridgeCommand(
       });
       if (workerResult.handled) {
         if (!workerResult.success) {
-          return { error: workerResult.error || "Headless execution failed", status: 409 };
+          return { error: workerResult.error || "Headless execution failed", result: workerResult.result, status: 409 };
         }
         return { result: workerResult.result, bridgesUsed: [target] };
       }
@@ -372,9 +372,6 @@ export function createBridgeCommandRoutes(
   async function authenticate(c: any): Promise<AuthPrincipal | null> {
     const principal = await getAuthPrincipal(c, usersRepo, apiKeysRepo);
     if (!principal) return null;
-    if (principal.kind === "apiKey" && !apiKeyRoleAllowed(principal.apiKey, ["admin", "client"])) {
-      return null;
-    }
     return principal;
   }
 
@@ -382,6 +379,9 @@ export function createBridgeCommandRoutes(
     const principal = await authenticate(c);
     if (!principal) {
       return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+    }
+    if (!principalHasPermission(principal, "executeCommands")) {
+      return errorResponse(c, 403, "Missing executeCommands permission", "FORBIDDEN");
     }
 
     let body: any;
@@ -499,6 +499,81 @@ export function createBridgeCommandRoutes(
       return errorResponse(c, status, result.error, code);
     }
     return c.json({ output: result.output });
+  });
+
+  // --- File Delivery (cross-machine asset transfer) ---
+  // POST /api/bridge-command/file-deliver
+  // Sends files to a target bridge or client via WebSocket.
+  app.post("/file-deliver", async (c) => {
+    const principal = await authenticate(c);
+    if (!principal) {
+      return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+    }
+    if (!principalHasPermission(principal, "deliverFiles")) {
+      return errorResponse(c, 403, "Missing deliverFiles permission", "FORBIDDEN");
+    }
+
+    let body: any;
+    try {
+      body = await c.req.json();
+    } catch {
+      return errorResponse(c, 400, "Invalid JSON body", "INVALID_JSON");
+    }
+
+    const target = String(body.target ?? "").trim();
+    const targetType = String(body.targetType ?? body.target_type ?? "program").trim();
+    const files = body.files;
+    const projectPath = body.projectPath ?? body.project_path;
+    const targetWorkerName = body.targetWorkerName ?? body.target_worker;
+
+    if (!target) {
+      return errorResponse(c, 400, "Missing 'target' field", "INVALID_INPUT");
+    }
+    if (!Array.isArray(files) || files.length === 0) {
+      return errorResponse(c, 400, "Missing or empty 'files' array", "INVALID_INPUT");
+    }
+
+    const deliverPayload = {
+      type: "file_deliver" as const,
+      id: newId(),
+      payload: { files, projectPath, source: body.source },
+    };
+
+    let delivered = 0;
+
+    // Try bridges first
+    if (targetType === "program" || targetType === "id") {
+      const resolved = resolveBridgeTargets(hub, target, targetType as "program" | "id", targetWorkerName);
+      for (const ws of resolved.targets) {
+        ws.send(JSON.stringify(deliverPayload));
+        delivered++;
+      }
+    }
+
+    // Also try clients (by worker name)
+    if (targetType === "worker" || (delivered === 0 && targetType === "program")) {
+      const clientTarget = targetType === "worker" ? target : targetWorkerName;
+      if (clientTarget) {
+        for (const client of hub.getClients()) {
+          const workerName = String(client.workerName ?? "").trim().toLowerCase();
+          if (workerName === clientTarget.toLowerCase()) {
+            hub.send(client.id, deliverPayload);
+            delivered++;
+          }
+        }
+      }
+    }
+
+    if (delivered === 0) {
+      const bridges = hub.getBridges().map((b) => b.program).filter(Boolean);
+      const workers = hub.getClients().map((c) => c.workerName).filter(Boolean);
+      return errorResponse(c, 404, `No bridge or client found for target: ${target}`, "NOT_FOUND", {
+        availableBridges: [...new Set(bridges)],
+        availableWorkers: [...new Set(workers)],
+      });
+    }
+
+    return c.json({ delivered, files: files.length });
   });
 
   return app;

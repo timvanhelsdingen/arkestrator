@@ -1,4 +1,5 @@
 import type { UserRole } from "../db/users.repo.js";
+import type { ApiKeyRole } from "../db/apikeys.repo.js";
 
 export interface UserPermissions {
   manageUsers: boolean;
@@ -14,6 +15,9 @@ export interface UserPermissions {
   editCoordinator: boolean;
   useMcp: boolean;
   interveneJobs: boolean;
+  executeCommands: boolean;
+  deliverFiles: boolean;
+  submitJobs: boolean;
 }
 
 export const USER_PERMISSION_KEYS = [
@@ -30,6 +34,9 @@ export const USER_PERMISSION_KEYS = [
   "editCoordinator",
   "useMcp",
   "interveneJobs",
+  "executeCommands",
+  "deliverFiles",
+  "submitJobs",
 ] as const;
 
 export type UserPermissionKey = (typeof USER_PERMISSION_KEYS)[number];
@@ -49,6 +56,9 @@ const ROLE_DEFAULTS: Record<UserRole, UserPermissions> = {
     editCoordinator: true,
     useMcp: true,
     interveneJobs: true,
+    executeCommands: true,
+    deliverFiles: true,
+    submitJobs: true,
   },
   user: {
     manageUsers: false,
@@ -64,6 +74,9 @@ const ROLE_DEFAULTS: Record<UserRole, UserPermissions> = {
     editCoordinator: false,
     useMcp: true,
     interveneJobs: true,
+    executeCommands: true,
+    deliverFiles: true,
+    submitJobs: true,
   },
   viewer: {
     manageUsers: false,
@@ -79,6 +92,50 @@ const ROLE_DEFAULTS: Record<UserRole, UserPermissions> = {
     editCoordinator: false,
     useMcp: false,
     interveneJobs: false,
+    executeCommands: false,
+    deliverFiles: false,
+    submitJobs: false,
+  },
+};
+
+/** Default permissions for API key roles. */
+const API_KEY_ROLE_DEFAULTS: Record<ApiKeyRole, UserPermissions> = {
+  admin: { ...ROLE_DEFAULTS.admin },
+  client: {
+    manageUsers: false,
+    manageAgents: false,
+    manageProjects: false,
+    managePolicies: false,
+    manageApiKeys: false,
+    manageConnections: false,
+    manageWorkers: false,
+    manageSecurity: false,
+    viewAuditLog: false,
+    viewUsage: false,
+    editCoordinator: false,
+    useMcp: true,
+    interveneJobs: true,
+    executeCommands: true,
+    deliverFiles: true,
+    submitJobs: true,
+  },
+  bridge: {
+    manageUsers: false,
+    manageAgents: false,
+    manageProjects: false,
+    managePolicies: false,
+    manageApiKeys: false,
+    manageConnections: false,
+    manageWorkers: false,
+    manageSecurity: false,
+    viewAuditLog: false,
+    viewUsage: false,
+    editCoordinator: false,
+    useMcp: false,
+    interveneJobs: false,
+    executeCommands: true,
+    deliverFiles: false,
+    submitJobs: false,
   },
 };
 
@@ -142,4 +199,29 @@ export function applyUserPermissionPatch(
     ...current,
     ...patch,
   });
+}
+
+// --- API Key Permissions ---
+
+export function getDefaultApiKeyPermissions(role: ApiKeyRole): UserPermissions {
+  return { ...API_KEY_ROLE_DEFAULTS[role] };
+}
+
+export function normalizeApiKeyPermissions(role: ApiKeyRole, value: unknown): UserPermissions {
+  const defaults = getDefaultApiKeyPermissions(role);
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return defaults;
+  }
+
+  const input = value as Record<string, unknown>;
+  const out: UserPermissions = { ...defaults };
+
+  for (const key of USER_PERMISSION_KEYS) {
+    const next = input[key];
+    if (typeof next === "boolean") {
+      out[key] = next;
+    }
+  }
+
+  return out;
 }

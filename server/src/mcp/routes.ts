@@ -4,7 +4,7 @@ import type { JSONRPCMessage, MessageExtraInfo } from "@modelcontextprotocol/sdk
 import { createMcpServer, type McpDeps } from "./tool-server.js";
 import type { ApiKeysRepo } from "../db/apikeys.repo.js";
 import type { UsersRepo } from "../db/users.repo.js";
-import { apiKeyRoleAllowed, getAuthPrincipal, type AuthPrincipal } from "../middleware/auth.js";
+import { getAuthPrincipal, principalHasPermission, type AuthPrincipal } from "../middleware/auth.js";
 import { logger } from "../utils/logger.js";
 import { errorResponse } from "../utils/errors.js";
 
@@ -83,38 +83,38 @@ export function createMcpRoutes(
       const auth = c.req.header("authorization");
       if (!auth?.startsWith("Bearer ")) return null;
       const apiKey = await apiKeysRepo.validate(auth.slice(7));
-      if (!apiKey || !apiKeyRoleAllowed(apiKey, ["admin", "client"])) return null;
-      return {
-        kind: "apiKey",
-        apiKey,
-        source: "header",
-      };
+      if (!apiKey) return null;
+      const principal: AuthPrincipal = { kind: "apiKey", apiKey, source: "header" };
+      if (!principalHasPermission(principal, "useMcp")) return null;
+      return principal;
     }
 
     const principal = await getAuthPrincipal(c, usersRepo, apiKeysRepo);
     if (!principal) return null;
-    if (principal.kind === "user") {
-      if (principal.user.permissions.useMcp !== true) {
-        return null;
+
+    // Check useMcp permission uniformly for both users and API keys
+    if (!principalHasPermission(principal, "useMcp")) {
+      // Special case: auto-user API keys inherit from the owning user
+      if (principal.kind === "apiKey") {
+        const autoUserPrefix = "auto:user:";
+        if (principal.apiKey.name.startsWith(autoUserPrefix)) {
+          const userId = principal.apiKey.name.slice(autoUserPrefix.length).trim();
+          if (!userId) return null;
+          const owner = usersRepo.getById(userId);
+          if (!owner || owner.permissions.useMcp !== true) return null;
+          // Owner has useMcp — allow this key
+          return principal;
+        }
       }
-      return principal;
-    }
-    if (!apiKeyRoleAllowed(principal.apiKey, ["admin", "client"])) return null;
-    const autoUserPrefix = "auto:user:";
-    if (principal.apiKey.name.startsWith(autoUserPrefix)) {
-      const userId = principal.apiKey.name.slice(autoUserPrefix.length).trim();
-      if (!userId) return null;
-      const owner = usersRepo.getById(userId);
-      if (!owner || owner.permissions.useMcp !== true) {
-        return null;
-      }
+      return null;
     }
     return principal;
   }
 
   // POST /mcp — main MCP message endpoint
   app.post("/", async (c) => {
-    if (!(await authenticate(c))) {
+    const principal = await authenticate(c);
+    if (!principal) {
       return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
     }
 
@@ -142,6 +142,7 @@ export function createMcpRoutes(
         requestOrigin,
         requestAuthHeader,
         requestCookieHeader,
+        principal,
       });
       const transport = new StatelessTransport();
       await server.connect(transport);

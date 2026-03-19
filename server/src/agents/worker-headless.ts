@@ -191,12 +191,23 @@ export async function executeWorkerHeadlessCommands(params: {
       },
       params.timeoutMs,
     );
+    let error: string | undefined;
+    if (!result.success) {
+      const parts: string[] = [];
+      if (Array.isArray(result.errors) && result.errors.length > 0) {
+        parts.push(...result.errors.map((e: string) => String(e).trim()).filter(Boolean));
+      }
+      if (result.stderr && typeof result.stderr === "string" && result.stderr.trim()) {
+        parts.push(`stderr: ${result.stderr.trim()}`);
+      }
+      error = parts.length > 0 ? parts.join("\n") : `Headless execution failed for ${program}`;
+    }
     return {
       handled: true,
       success: result.success,
       program,
       result,
-      error: result.success ? undefined : (result.errors[0] || `Headless execution failed for ${program}`),
+      error,
     };
   } catch (err: any) {
     return {

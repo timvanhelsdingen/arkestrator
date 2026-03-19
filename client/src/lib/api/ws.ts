@@ -527,9 +527,44 @@ function dispatch(msg: any) {
         msg.payload.files ?? [],
       );
       break;
+    case "file_deliver":
+      void handleFileDeliver(msg.payload);
+      break;
     case "error":
       connection.lastError = `${msg.payload.code}: ${msg.payload.message}`;
       break;
+  }
+}
+
+/** Handle incoming file delivery from the server (cross-machine asset transfer). */
+async function handleFileDeliver(payload: {
+  files?: Array<{
+    path: string;
+    content?: string;
+    binaryContent?: string;
+    encoding?: string;
+    action: string;
+  }>;
+  projectPath?: string;
+}) {
+  const files = payload.files;
+  if (!Array.isArray(files) || files.length === 0) return;
+
+  // If a projectPath is specified, resolve file paths relative to it.
+  const resolvedFiles = files.map((f) => {
+    if (payload.projectPath && !f.path.startsWith("/") && !f.path.match(/^[A-Za-z]:\\/)) {
+      // Relative path — prepend projectPath
+      const sep = payload.projectPath.includes("\\") ? "\\" : "/";
+      return { ...f, path: `${payload.projectPath}${sep}${f.path}` };
+    }
+    return f;
+  });
+
+  try {
+    const applied = await invoke<string[]>("fs_apply_file_changes", { changes: resolvedFiles });
+    console.log(`[file_deliver] Applied ${applied.length} file change(s)`);
+  } catch (err) {
+    console.error("[file_deliver] Failed to apply file changes:", err);
   }
 }
 

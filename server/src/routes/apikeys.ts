@@ -7,6 +7,10 @@ import { writeSharedConfig } from "../utils/shared-config.js";
 import { loadConfig } from "../config.js";
 import { errorResponse } from "../utils/errors.js";
 import { readNonEmptyTrimmedString } from "../utils/credentials.js";
+import {
+  parseUserPermissionPatch,
+  normalizeApiKeyPermissions,
+} from "../utils/user-permissions.js";
 
 export function createApiKeyRoutes(
   apiKeysRepo: ApiKeysRepo,
@@ -41,7 +45,17 @@ export function createApiKeyRoutes(
       return errorResponse(c, 400, "Invalid role", "INVALID_INPUT");
     }
 
-    const { apiKey, rawKey } = await apiKeysRepo.create(name, role);
+    // Parse optional custom permissions (overrides role defaults)
+    let customPermissions: Record<string, boolean> | undefined;
+    if (body.permissions && typeof body.permissions === "object") {
+      const parsed = parseUserPermissionPatch(body.permissions);
+      if (!parsed.ok) {
+        return errorResponse(c, 400, parsed.error, "INVALID_INPUT");
+      }
+      customPermissions = parsed.patch as Record<string, boolean>;
+    }
+
+    const { apiKey, rawKey } = await apiKeysRepo.create(name, role, customPermissions);
 
     // Update shared config so bridges can auto-discover this key
     try {
@@ -119,6 +133,48 @@ export function createApiKeyRoutes(
     });
 
     return c.json({ ok: true, path: (await import("../utils/shared-config.js")).getSharedConfigPath() });
+  });
+
+  router.put("/:id/permissions", async (c) => {
+    const user = requirePermission(c, usersRepo, "manageApiKeys");
+    if (!user) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+
+    const id = c.req.param("id");
+    const existing = apiKeysRepo.getById(id);
+    if (!existing || existing.revokedAt) {
+      return errorResponse(c, 404, "Not found or revoked", "NOT_FOUND");
+    }
+
+    let body: any;
+    try {
+      body = await c.req.json();
+    } catch {
+      return errorResponse(c, 400, "Invalid JSON body", "INVALID_JSON");
+    }
+
+    const parsed = parseUserPermissionPatch(body);
+    if (!parsed.ok) {
+      return errorResponse(c, 400, parsed.error, "INVALID_INPUT");
+    }
+
+    const merged = normalizeApiKeyPermissions(existing.role, {
+      ...existing.permissions,
+      ...parsed.patch,
+    });
+
+    apiKeysRepo.updatePermissions(id, merged);
+
+    auditRepo.log({
+      userId: user.id,
+      username: user.username,
+      action: "update_api_key_permissions",
+      resource: "api_key",
+      resourceId: id,
+      details: JSON.stringify(parsed.patch),
+      ipAddress: getClientIp(c),
+    });
+
+    return c.json({ ...existing, permissions: merged });
   });
 
   router.delete("/:id", (c) => {

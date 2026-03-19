@@ -18,6 +18,9 @@
     editCoordinator: boolean;
     useMcp: boolean;
     interveneJobs: boolean;
+    executeCommands: boolean;
+    deliverFiles: boolean;
+    submitJobs: boolean;
   }
 
   interface User {
@@ -48,6 +51,9 @@
     { key: "editCoordinator", label: "Edit coordinator files", short: "Coordinator" },
     { key: "useMcp", label: "Use MCP server", short: "MCP" },
     { key: "interveneJobs", label: "Guide running jobs", short: "Guide" },
+    { key: "executeCommands", label: "Execute bridge commands", short: "Commands" },
+    { key: "deliverFiles", label: "Deliver files to bridges/clients", short: "Deliver" },
+    { key: "submitJobs", label: "Submit jobs", short: "Submit" },
   ];
 
   const permissionLabels: Record<keyof UserPermissions, string> = {
@@ -64,6 +70,9 @@
     editCoordinator: "Edit coordinator files",
     useMcp: "Use MCP server",
     interveneJobs: "Guide running jobs",
+    executeCommands: "Execute bridge commands",
+    deliverFiles: "Deliver files to bridges/clients",
+    submitJobs: "Submit jobs",
   };
 
   const permissionGroups: Array<{
@@ -78,8 +87,8 @@
     },
     {
       title: "Operations",
-      hint: "Agents, projects, workers, and live connections.",
-      keys: ["manageAgents", "manageProjects", "manageWorkers", "manageConnections"],
+      hint: "Agents, projects, workers, live connections, and bridge operations.",
+      keys: ["manageAgents", "manageProjects", "manageWorkers", "manageConnections", "executeCommands", "deliverFiles", "submitJobs"],
     },
     {
       title: "Observability & Coordinator",
@@ -102,6 +111,9 @@
     editCoordinator: false,
     useMcp: false,
     interveneJobs: false,
+    executeCommands: false,
+    deliverFiles: false,
+    submitJobs: false,
   };
 
   let users = $state<User[]>([]);
@@ -181,6 +193,9 @@
         manageConnections: true,
         viewUsage: true,
         interveneJobs: true,
+        executeCommands: true,
+        deliverFiles: true,
+        submitJobs: true,
       };
     }
     // viewer: read-only access

@@ -102,6 +102,23 @@ export function requirePermission(
   return user;
 }
 
+/**
+ * Check if a principal (user or API key) has a specific permission.
+ * Works uniformly for both authentication types.
+ */
+export function principalHasPermission(
+  principal: AuthPrincipal,
+  permission: UserPermissionKey,
+): boolean {
+  if (principal.kind === "user") {
+    return !!principal.user.permissions[permission];
+  }
+  if (principal.kind === "apiKey") {
+    return !!principal.apiKey.permissions[permission];
+  }
+  return false;
+}
+
 export function getClientIp(c: Context): string | undefined {
   const trustProxyHeaders = /^(1|true|yes|on)$/i.test(
     String(process.env.TRUST_PROXY_HEADERS ?? ""),

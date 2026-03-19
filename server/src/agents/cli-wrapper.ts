@@ -30,6 +30,7 @@ function printUsage() {
   console.log("  am exec <target> [--lang <language>] [--project-path <path>] <script>");
   console.log("  am exec <target> [--lang <language>] [--project-path <path>] -f <file>");
   console.log("  am exec-multi <target> [--project-path <path>] -f <commands.json>");
+  console.log("  am file-push <target> <local-path> [remote-path] [--target-type program|worker|id] [--project-path <path>]");
   console.log("  am agent-configs");
   console.log("  am jobs list [status] [limit]");
   console.log("  am jobs status <jobId>");
@@ -271,6 +272,44 @@ async function cmdJobs(rest) {
   throw new Error("Unknown jobs subcommand: " + sub);
 }
 
+async function cmdFilePush(rest) {
+  const args = [...rest];
+  const target = args.shift();
+  if (!target) throw new Error("Usage: am file-push <target> <local-path> [remote-path] [--target-type program|worker|id] [--project-path <path>]");
+
+  const targetType = takeOption(args, ["--target-type", "--type"]) || "program";
+  const projectPath = takeOption(args, ["--project-path", "--project"]) || PROJECT_PATH;
+
+  const localPath = args.shift();
+  if (!localPath) throw new Error("Missing <local-path> argument");
+  const remotePath = args.shift() || require("path").basename(localPath);
+
+  // Read file and encode as base64 for binary safety
+  const buffer = fs.readFileSync(localPath);
+  const isText = !buffer.some((b, i) => i < Math.min(buffer.length, 1024) && b === 0);
+  const fileChange = {
+    path: remotePath,
+    action: "create",
+  };
+  if (isText) {
+    fileChange.content = buffer.toString("utf-8");
+    fileChange.encoding = "utf8";
+  } else {
+    fileChange.binaryContent = buffer.toString("base64");
+    fileChange.encoding = "base64";
+  }
+
+  const body = {
+    target,
+    targetType,
+    projectPath,
+    files: [fileChange],
+    source: "am file-push (job " + JOB_ID + ")",
+  };
+  const data = await request("/api/bridge-command/file-deliver", { method: "POST", body: JSON.stringify(body) });
+  console.log(JSON.stringify(data, null, 2));
+}
+
 async function cmdHeadlessCheck(rest) {
   const args = [...rest];
   const program = args.shift();
@@ -327,6 +366,7 @@ async function main() {
     if (cmd === "context") return await cmdContext(rest);
     if (cmd === "exec" || cmd === "execute") return await cmdExec(rest);
     if (cmd === "exec-multi" || cmd === "execute-multiple") return await cmdExecMulti(rest);
+    if (cmd === "file-push" || cmd === "push") return await cmdFilePush(rest);
     if (cmd === "agent-configs" || cmd === "configs") return await cmdAgentConfigs();
     if (cmd === "jobs") return await cmdJobs(rest);
     if (cmd === "headless-check") return await cmdHeadlessCheck(rest);

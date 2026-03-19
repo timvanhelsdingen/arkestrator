@@ -1,6 +1,6 @@
 import { lstat, readdir, readFile, readlink } from "node:fs/promises";
 import { watch, existsSync, type FSWatcher } from "node:fs";
-import { join, relative } from "node:path";
+import { join, relative, extname } from "node:path";
 import type { FileChange } from "@arkestrator/protocol";
 
 const SKIP_DIRS = new Set(["node_modules", "__pycache__"]);
@@ -131,13 +131,28 @@ async function safeReadPathSnapshot(fullPath: string): Promise<string | null> {
     if (!stats.isFile()) return null;
     const buffer = await readFile(fullPath);
     if (isLikelyBinary(buffer)) {
-      return `[binary] ${buffer.byteLength} bytes`;
+      return formatBinaryPlaceholder(fullPath, buffer.byteLength);
     }
     return buffer.toString("utf-8");
   } catch {
     // Unreadable path (deleted mid-read, permissions, etc.)
     return null;
   }
+}
+
+/** Produce a descriptive placeholder for binary files: `[binary:fbx] 2.4MB` */
+function formatBinaryPlaceholder(filePath: string, bytes: number): string {
+  const ext = extname(filePath).replace(/^\./, "").toLowerCase();
+  const tag = ext || "bin";
+  const size = formatFileSize(bytes);
+  return `[binary:${tag}] ${size}`;
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)}GB`;
 }
 
 async function safeReadLink(fullPath: string): Promise<string | null> {

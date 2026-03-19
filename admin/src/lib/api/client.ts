@@ -16,6 +16,9 @@ export interface AdminUserPermissions {
   editCoordinator?: boolean;
   useMcp: boolean;
   interveneJobs: boolean;
+  executeCommands?: boolean;
+  deliverFiles?: boolean;
+  submitJobs?: boolean;
 }
 
 export interface UserInsightsUsageTotals {
@@ -78,6 +81,7 @@ export interface AdminApiKey {
   id: string;
   name: string;
   role: "bridge" | "client" | "admin";
+  permissions: AdminUserPermissions;
   createdAt: string;
   revokedAt: string | null;
 }
@@ -655,13 +659,18 @@ export const api = {
 
   keys: {
     list: () => request("/api/keys") as Promise<AdminApiKey[]>,
-    create: (name: string, role: "bridge" | "client" | "admin") =>
+    create: (name: string, role: "bridge" | "client" | "admin", permissions?: AdminUserPermissions) =>
       request("/api/keys", {
         method: "POST",
-        body: JSON.stringify({ name, role }),
+        body: JSON.stringify({ name, role, permissions }),
       }) as Promise<AdminApiKeyCreateResponse>,
     revoke: (id: string) =>
       request(`/api/keys/${id}`, { method: "DELETE" }) as Promise<{ ok: true }>,
+    updatePermissions: (id: string, permissions: AdminUserPermissions) =>
+      request(`/api/keys/${id}/permissions`, {
+        method: "PUT",
+        body: JSON.stringify({ permissions }),
+      }) as Promise<{ ok: true }>,
   },
 
   agents: {

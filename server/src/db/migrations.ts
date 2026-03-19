@@ -282,6 +282,8 @@ const COLUMN_ADDITIONS = [
   `ALTER TABLE agent_configs ADD COLUMN model_system_prompts TEXT`,
   // Structured per-model overrides (JSON map: { "model_name": { systemPrompt?, maxTurns? } })
   `ALTER TABLE agent_configs ADD COLUMN model_overrides TEXT`,
+  // API key fine-grained permissions (JSON, same structure as user permissions)
+  `ALTER TABLE api_keys ADD COLUMN permissions TEXT`,
 ];
 
 // Reset any jobs stuck in 'running' state (server crashed while they were active)

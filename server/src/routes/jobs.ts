@@ -17,6 +17,7 @@ import {
   apiKeyRoleAllowed,
   getAuthPrincipal,
   getClientIp,
+  principalHasPermission,
   type AuthPrincipal,
 } from "../middleware/auth.js";
 import { validateJobSubmission } from "../policies/enforcer.js";
@@ -221,10 +222,7 @@ export function createJobRoutes(
 
   function canInterveneJob(principal: AuthPrincipal, job: { submittedBy?: string }): boolean {
     if (!canMutateJob(principal, job)) return false;
-    if (principal.kind === "apiKey") {
-      return apiKeyRoleAllowed(principal.apiKey, ["admin", "client"]);
-    }
-    return principal.user.role === "admin" || principal.user.permissions.interveneJobs === true;
+    return principalHasPermission(principal, "interveneJobs");
   }
 
   function canListJobInterventions(
@@ -278,12 +276,13 @@ export function createJobRoutes(
 
   function canAccessJobs(principal: AuthPrincipal): boolean {
     if (principal.kind === "user") return true;
-    return apiKeyRoleAllowed(principal.apiKey, ["admin", "client"]);
+    // API keys: allow if they have any job-related permission
+    return principalHasPermission(principal, "submitJobs") ||
+           principalHasPermission(principal, "interveneJobs");
   }
 
   function canCreateJobs(principal: AuthPrincipal): boolean {
-    if (principal.kind === "user") return true;
-    return apiKeyRoleAllowed(principal.apiKey, ["admin", "client"]);
+    return principalHasPermission(principal, "submitJobs");
   }
 
   function canMutateJob(principal: AuthPrincipal, job: { submittedBy?: string }): boolean {

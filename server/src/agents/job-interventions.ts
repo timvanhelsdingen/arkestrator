@@ -86,14 +86,21 @@ export function buildLiveInterventionPollingBlock(jobId: string): string {
   const normalizedJobId = String(jobId ?? "").trim();
   if (!normalizedJobId) return "";
   return [
-    "## Live Operator Guidance",
+    "## Live Operator Guidance (MANDATORY)",
     `This run can receive operator guidance while it is executing. Use the current job ID: ${normalizedJobId}.`,
-    "At safe checkpoints, check for new guidance before continuing:",
+    "",
+    "**You MUST check for new guidance at these points:**",
+    "1. Before each major step or phase transition",
+    "2. Every 2-3 tool calls during active work",
+    "3. Before final completion — never finish without a final check",
+    "4. After any long-running or high-impact operation",
+    "",
+    "Check using one of:",
     `- MCP: \`list_job_interventions(job_id=\"${normalizedJobId}\")\``,
     `- CLI fallback: \`am jobs interventions ${normalizedJobId}\``,
-    "Check at least before final completion and after any long-running or high-impact step.",
-    "Treat entries with status `pending` as newly arrived guidance that must be incorporated into the plan for this same run.",
-    "When new pending guidance appears, apply it, update any relevant work, and re-verify before reporting completion.",
+    "",
+    "Treat entries with status `pending` as newly arrived high-priority guidance that MUST be incorporated into the plan for this same run.",
+    "When new pending guidance appears, immediately adjust your plan, apply it, and re-verify before continuing.",
     "Delivered/superseded/rejected entries are historical context only; focus on still-pending notes.",
   ].join("\n");
 }

@@ -1,5 +1,13 @@
 # Arkestrator
 
+## Recent Update (2026-03-19)
+
+- Job execution reliability overhaul (sandbox, guidance, asset transfer, error handling):
+  - **Sandbox fix**: `getClaudeRuntimeDecision()` now always allows `--dangerously-skip-permissions` even when running as root without a known drop-user. Added fallback user chain (bun → node → nobody) and configurable `dropUser` option. Prevents bwrap namespace failures on restricted environments (TrueNAS Docker, containers without user namespace support).
+  - **Guidance delivery**: claude-code jobs now use `stdin: "pipe"` (was `"ignore"`), enabling `tryDeliverGuidanceViaStdin()` to push guidance directly to running processes. Polling instruction block strengthened to MANDATORY with specific frequency (every 2-3 tool calls).
+  - **Cross-machine asset transfer**: New `file_deliver` WebSocket message type and `POST /api/bridge-command/file-deliver` REST endpoint for pushing files to any connected bridge or client. New `am file-push` CLI command. Client (Tauri) now has full filesystem commands (`fs_apply_file_changes`, `fs_create_directory`, `fs_write_file`, `fs_read_file_base64`, `fs_delete_path`, `fs_exists`) and handles `file_deliver` messages to write files locally.
+  - **Error handling**: Binary file placeholders now show extension and human-readable size (`[binary:fbx] 2.4MB`). Headless execution errors now include full error arrays + stderr. Bridge command failure responses include the full result object.
+
 ## Recent Update (2026-03-16)
 
 - Client-dispatch local-oss stability fixes: `upsertBridge()` UNIQUE constraint conflict resolution prevents server crashes from duplicate bridge registration when `machineId` is provided, spawner skips server-side Ollama model pull when `localModelHost === "client"` (Tauri client handles model availability), and `resolveAnyAvailableWorkerLlm()` accepts `skipHealthCheck` for client-dispatch path to avoid unnecessary Ollama probes.

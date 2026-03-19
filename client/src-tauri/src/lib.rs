@@ -1017,6 +1017,131 @@ fn restart_app(app: tauri::AppHandle) {
     app.request_restart();
 }
 
+// --- Filesystem Commands ---
+// These enable the client to act as a file delivery endpoint for cross-machine
+// asset transfer (e.g., Blender exports on Machine A → Godot imports on Machine B).
+
+#[derive(Deserialize)]
+struct FileChangeInput {
+    path: String,
+    content: Option<String>,
+    #[serde(rename = "binaryContent")]
+    binary_content: Option<String>,
+    encoding: Option<String>,
+    action: String,
+}
+
+#[tauri::command]
+fn fs_apply_file_changes(changes: Vec<FileChangeInput>) -> Result<Vec<String>, String> {
+    use base64::Engine;
+    let mut applied = Vec::new();
+    for change in &changes {
+        let path = std::path::Path::new(&change.path);
+        match change.action.as_str() {
+            "create" | "modify" => {
+                if let Some(parent) = path.parent() {
+                    std::fs::create_dir_all(parent)
+                        .map_err(|e| format!("Failed to create parent dir for {}: {e}", change.path))?;
+                }
+                if let Some(b64) = &change.binary_content {
+                    let bytes = base64::engine::general_purpose::STANDARD
+                        .decode(b64)
+                        .map_err(|e| format!("Base64 decode failed for {}: {e}", change.path))?;
+                    std::fs::write(path, &bytes)
+                        .map_err(|e| format!("Failed to write binary {}: {e}", change.path))?;
+                } else if change.encoding.as_deref() == Some("base64") {
+                    let text = change.content.as_deref().unwrap_or("");
+                    let bytes = base64::engine::general_purpose::STANDARD
+                        .decode(text)
+                        .map_err(|e| format!("Base64 decode failed for {}: {e}", change.path))?;
+                    std::fs::write(path, &bytes)
+                        .map_err(|e| format!("Failed to write binary {}: {e}", change.path))?;
+                } else {
+                    let text = change.content.as_deref().unwrap_or("");
+                    std::fs::write(path, text)
+                        .map_err(|e| format!("Failed to write {}: {e}", change.path))?;
+                }
+                applied.push(change.path.clone());
+            }
+            "delete" => {
+                if path.exists() {
+                    if path.is_dir() {
+                        std::fs::remove_dir_all(path)
+                            .map_err(|e| format!("Failed to delete dir {}: {e}", change.path))?;
+                    } else {
+                        std::fs::remove_file(path)
+                            .map_err(|e| format!("Failed to delete {}: {e}", change.path))?;
+                    }
+                    applied.push(change.path.clone());
+                }
+            }
+            _ => {
+                return Err(format!("Unknown action '{}' for path {}", change.action, change.path));
+            }
+        }
+    }
+    Ok(applied)
+}
+
+#[tauri::command]
+fn fs_create_directory(path: String, recursive: bool) -> Result<(), String> {
+    let p = std::path::Path::new(&path);
+    if recursive {
+        std::fs::create_dir_all(p)
+    } else {
+        std::fs::create_dir(p)
+    }
+    .map_err(|e| format!("Failed to create directory {}: {e}", path))
+}
+
+#[tauri::command]
+fn fs_write_file(path: String, content: String, encoding: Option<String>) -> Result<(), String> {
+    use base64::Engine;
+    let p = std::path::Path::new(&path);
+    if let Some(parent) = p.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create parent dir for {}: {e}", path))?;
+    }
+    if encoding.as_deref() == Some("base64") {
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(&content)
+            .map_err(|e| format!("Base64 decode failed for {}: {e}", path))?;
+        std::fs::write(p, &bytes)
+            .map_err(|e| format!("Failed to write binary {}: {e}", path))
+    } else {
+        std::fs::write(p, &content)
+            .map_err(|e| format!("Failed to write {}: {e}", path))
+    }
+}
+
+#[tauri::command]
+fn fs_read_file_base64(path: String) -> Result<String, String> {
+    use base64::Engine;
+    let bytes = std::fs::read(&path)
+        .map_err(|e| format!("Failed to read {}: {e}", path))?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
+}
+
+#[tauri::command]
+fn fs_delete_path(path: String) -> Result<(), String> {
+    let p = std::path::Path::new(&path);
+    if !p.exists() {
+        return Ok(());
+    }
+    if p.is_dir() {
+        std::fs::remove_dir_all(p)
+            .map_err(|e| format!("Failed to delete dir {}: {e}", path))
+    } else {
+        std::fs::remove_file(p)
+            .map_err(|e| format!("Failed to delete {}: {e}", path))
+    }
+}
+
+#[tauri::command]
+fn fs_exists(path: String) -> bool {
+    std::path::Path::new(&path).exists()
+}
+
 fn show_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
@@ -1080,6 +1205,12 @@ pub fn run() {
             pull_local_ollama_model,
             run_worker_headless,
             restart_app,
+            fs_apply_file_changes,
+            fs_create_directory,
+            fs_write_file,
+            fs_read_file_base64,
+            fs_delete_path,
+            fs_exists,
             bridges::fetch_bridge_registry,
             bridges::download_and_install_bridge,
             bridges::detect_program_paths,

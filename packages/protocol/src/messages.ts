@@ -497,6 +497,21 @@ export const ClientJobCancelMessage = makeMessage(
 );
 export type ClientJobCancelMessage = z.infer<typeof ClientJobCancelMessage>;
 
+// --- File Delivery (cross-machine asset transfer) ---
+
+export const FileDeliverMessage = makeMessage(
+  "file_deliver",
+  z.object({
+    /** Files to deliver to the target bridge or client. */
+    files: z.array(FileChange),
+    /** Optional project path — relative file paths are resolved against this. */
+    projectPath: z.string().optional(),
+    /** Source description (e.g. "blender export", job ID). */
+    source: z.string().optional(),
+  }),
+);
+export type FileDeliverMessage = z.infer<typeof FileDeliverMessage>;
+
 // --- Error ---
 
 export const ErrorMessage = makeMessage(
@@ -551,6 +566,7 @@ export const Message = z.discriminatedUnion("type", [
   ClientJobLogMessage,
   ClientJobCompleteMessage,
   ClientJobCancelMessage,
+  FileDeliverMessage,
   ErrorMessage,
 ]);
 export type Message = z.infer<typeof Message>;

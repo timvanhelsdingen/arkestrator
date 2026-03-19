@@ -12,6 +12,8 @@ import type { ProcessTracker } from "../agents/process-tracker.js";
 import type { WorkerResourceLeaseManager } from "../agents/resource-control.js";
 import { executeBridgeCommand, listConnectedBridges, runHeadlessCheck } from "../routes/bridge-commands.js";
 import { newId } from "../utils/id.js";
+import { principalHasPermission, type AuthPrincipal } from "../middleware/auth.js";
+import type { UserPermissionKey } from "../utils/user-permissions.js";
 
 export interface McpDeps {
   hub: WebSocketHub;
@@ -34,6 +36,8 @@ export interface McpDeps {
   requestAuthHeader?: string;
   /** Cookie header from the incoming MCP request, forwarded to client API calls. */
   requestCookieHeader?: string;
+  /** Authenticated principal making this MCP request (for per-tool permission checks). */
+  principal?: AuthPrincipal;
 }
 
 const CLIENT_API_ALLOW_PREFIXES = [
@@ -149,6 +153,16 @@ export function createMcpServer(deps: McpDeps): McpServer {
     version: "1.0.0",
   });
 
+  /** Check if the MCP caller has a specific permission. Returns an error result if denied, null if allowed. */
+  function checkPermission(permission: UserPermissionKey): { content: Array<{ type: "text"; text: string }>; isError: true } | null {
+    if (!deps.principal) return null; // No principal available (legacy path) — allow
+    if (principalHasPermission(deps.principal, permission)) return null;
+    return {
+      content: [{ type: "text" as const, text: `Permission denied: missing '${permission}' permission` }],
+      isError: true,
+    };
+  }
+
   // ─── Bridge command tools ──────────────────────────────────────────────────
 
   // Tool: client_api_request
@@ -210,6 +224,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
       source: z.enum(["jobs", "chat", "mcp"]).optional().describe("Submission surface label"),
     },
     async ({ job_id, text, source }) => {
+      const denied = checkPermission("interveneJobs");
+      if (denied) return denied;
       const result = await forwardClientApiRequest(
         deps,
         "POST",
@@ -273,6 +289,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
       timeout: z.number().optional().describe("Timeout in ms (default 60000, max 300000)"),
     },
     async ({ target, language, script, description, timeout }) => {
+      const denied = checkPermission("executeCommands");
+      if (denied) return denied;
       const callerJob = deps.callerJobId ? deps.jobsRepo.getById(deps.callerJobId) : null;
       const result = await executeBridgeCommand(
         deps.hub,
@@ -327,6 +345,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
       timeout: z.number().optional().describe("Timeout in ms (default 60000, max 300000)"),
     },
     async ({ target, commands, timeout }) => {
+      const denied = checkPermission("executeCommands");
+      if (denied) return denied;
       const callerJob = deps.callerJobId ? deps.jobsRepo.getById(deps.callerJobId) : null;
       const result = await executeBridgeCommand(
         deps.hub,
@@ -547,6 +567,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
       ),
     },
     async ({ prompt, handover_notes, agent_config_id, target_program, target_worker, depends_on_job_ids, priority, name, coordination_scripts }) => {
+      const denied = checkPermission("submitJobs");
+      if (denied) return denied;
       // Resolve agent config — prefer provided ID, else first claude-code, else first available
       let configId = agent_config_id;
       if (!configId) {
@@ -831,6 +853,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
       job_id: z.string().describe("The job ID to cancel"),
     },
     async ({ job_id }) => {
+      const denied = checkPermission("submitJobs"); // cancel requires same perm as submit
+      if (denied) return denied;
       const job = deps.jobsRepo.getById(job_id);
       if (!job) {
         return {
@@ -906,6 +930,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
       timeout: z.number().optional().describe("Timeout in ms (default 30000, max 120000)"),
     },
     async ({ program, args, project_path, timeout }) => {
+      const denied = checkPermission("executeCommands");
+      if (denied) return denied;
       const callerJob = deps.callerJobId ? deps.jobsRepo.getById(deps.callerJobId) : null;
       const result = await runHeadlessCheck(deps.hub, deps.headlessProgramsRepo, deps.resourceLeaseManager, {
         program,
