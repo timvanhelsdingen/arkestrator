@@ -258,20 +258,24 @@ async function main() {
     }
   }
   // Ensure the shared config is always usable for spawned CLI jobs and bridges.
+  // The shared config key MUST have admin or bridge role — a "client" role key
+  // will be rejected by bridges (403: "Client API keys cannot open bridge sockets").
   // This recovers from cases where the DB persists but ~/.arkestrator/config.json
-  // is missing or stale after container/image changes.
+  // is missing, stale, or was overwritten with a non-admin key during login.
   {
     const existingShared = readSharedConfig();
     let sharedApiKey = String(existingShared?.apiKey ?? "").trim();
-    let sharedApiKeyValid = false;
+    let sharedApiKeyUsable = false;
     if (sharedApiKey) {
       try {
-        sharedApiKeyValid = !!(await apiKeysRepo.validate(sharedApiKey));
+        const validated = await apiKeysRepo.validate(sharedApiKey);
+        // Key must exist AND have a role that bridges can use (admin or bridge)
+        sharedApiKeyUsable = !!(validated && validated.role !== "client");
       } catch {
-        sharedApiKeyValid = false;
+        sharedApiKeyUsable = false;
       }
     }
-    if (!sharedApiKeyValid) {
+    if (!sharedApiKeyUsable) {
       apiKeysRepo.revokeByNamePrefix("Runtime Shared Key");
       const created = await apiKeysRepo.create("Runtime Shared Key", "admin");
       sharedApiKey = created.rawKey;
@@ -493,8 +497,8 @@ async function main() {
         if (wsType === "client" && apiKey.role === "bridge") {
           return new Response("Bridge API keys cannot open client sockets", { status: 403 });
         }
-        if (wsType === "bridge" && apiKey.role === "client") {
-          return new Response("Client API keys cannot open bridge sockets", { status: 403 });
+        if (wsType === "bridge" && (apiKey.role === "client" || apiKey.role === "mcp")) {
+          return new Response("Client/MCP API keys cannot open bridge sockets", { status: 403 });
         }
 
         const name = url.searchParams.get("name") ?? undefined;

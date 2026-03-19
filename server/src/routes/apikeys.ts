@@ -41,7 +41,7 @@ export function createApiKeyRoutes(
     const role = (body.role as ApiKeyRole) ?? "bridge";
 
     if (!name) return errorResponse(c, 400, "name is required", "INVALID_INPUT");
-    if (!["bridge", "client", "admin"].includes(role)) {
+    if (!["bridge", "client", "admin", "mcp"].includes(role)) {
       return errorResponse(c, 400, "Invalid role", "INVALID_INPUT");
     }
 
@@ -57,12 +57,15 @@ export function createApiKeyRoutes(
 
     const { apiKey, rawKey } = await apiKeysRepo.create(name, role, customPermissions);
 
-    // Update shared config so bridges can auto-discover this key
-    try {
-      const config = loadConfig();
-      writeSharedConfig(config.port, rawKey);
-    } catch {
-      // Non-critical — don't fail the key creation
+    // Only write admin-role keys to the shared config — non-admin keys
+    // (client, bridge, mcp) would break bridge auto-connect (403).
+    if (role === "admin") {
+      try {
+        const config = loadConfig();
+        writeSharedConfig(config.port, rawKey);
+      } catch {
+        // Non-critical — don't fail the key creation
+      }
     }
 
     auditRepo.log({
@@ -108,6 +111,10 @@ export function createApiKeyRoutes(
     const valid = await apiKeysRepo.validate(rawKey);
     if (!valid) {
       return errorResponse(c, 400, "Invalid API key", "INVALID_INPUT");
+    }
+    // Shared config key must be admin-role — non-admin keys break bridge auto-connect
+    if (valid.role !== "admin") {
+      return errorResponse(c, 400, `Only admin-role keys can be set as the shared key (got "${valid.role}")`, "INVALID_INPUT");
     }
 
     try {

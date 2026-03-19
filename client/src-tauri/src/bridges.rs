@@ -287,10 +287,19 @@ pub async fn download_and_install_bridge(
             .map_err(|e| format!("Failed to create directory {}: {e}", parent.display()))?;
     }
 
-    // Remove existing installation if present
+    // Only remove the destination if it's a bridge-specific directory (contains
+    // "arkestrator" in the final path component). Shared directories like
+    // Houdini's `packages/` must NOT be wiped — we extract on top instead.
     if dest.exists() {
-        fs::remove_dir_all(&dest)
-            .map_err(|e| format!("Failed to remove existing installation: {e}"))?;
+        let is_bridge_owned = dest
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(|n| n.to_lowercase().contains("arkestrator"))
+            .unwrap_or(false);
+        if is_bridge_owned {
+            fs::remove_dir_all(&dest)
+                .map_err(|e| format!("Failed to remove existing installation: {e}"))?;
+        }
     }
 
     // Detect the common top-level prefix in the zip so we can strip it.
@@ -497,10 +506,24 @@ pub fn uninstall_bridge(bridge_id: String, install_path: String) -> Result<(), S
     let expanded = expand_path(&install_path);
     let target = PathBuf::from(&expanded);
 
-    // Remove bridge files
+    // Only remove if the target is a bridge-owned directory (contains "arkestrator"
+    // in the final path component). Shared directories like Houdini's `packages/`
+    // must NOT be wiped — they contain other plugins too.
     if target.exists() {
-        fs::remove_dir_all(&target)
-            .map_err(|e| format!("Failed to remove {}: {e}", target.display()))?;
+        let is_bridge_owned = target
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(|n| n.to_lowercase().contains("arkestrator"))
+            .unwrap_or(false);
+        if is_bridge_owned {
+            fs::remove_dir_all(&target)
+                .map_err(|e| format!("Failed to remove {}: {e}", target.display()))?;
+        } else {
+            return Err(format!(
+                "Cannot uninstall: {} is a shared directory. Remove bridge files manually.",
+                target.display()
+            ));
+        }
     }
 
     // Remove from tracking

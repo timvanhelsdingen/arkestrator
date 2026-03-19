@@ -6,7 +6,7 @@ import {
   type UserPermissions,
 } from "../utils/user-permissions.js";
 
-export type ApiKeyRole = "bridge" | "client" | "admin";
+export type ApiKeyRole = "bridge" | "client" | "admin" | "mcp";
 
 export interface ApiKey {
   id: string;

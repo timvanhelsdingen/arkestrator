@@ -151,16 +151,18 @@ export function createAuthRoutes(
     );
 
     // Write server-side shared config (for spawned agents on this machine).
-    // Only overwrite if the user has MCP permission or the existing shared
-    // key is invalid.  The server startup always seeds a "Runtime Shared Key"
-    // (admin role) that grants MCP access.  Overwriting it with a restricted
-    // user key would break MCP calls from spawned agents.
+    // The shared config key is used by bridges to auto-connect.  Bridges open
+    // WebSocket connections with ?type=bridge, which the server rejects if the
+    // key has role "client".  Therefore we must ONLY write admin-role keys to
+    // the shared config.  Non-admin logins leave the existing shared key alone
+    // (unless it's broken, in which case we still prefer keeping it until the
+    // server startup re-seeds an admin "Runtime Shared Key").
     try {
       const config = loadConfig();
-      if (resolvedUser.permissions.useMcp === true) {
+      if (resolvedRole === "admin") {
         writeSharedConfig(config.port, rawKey);
       } else {
-        // Check if current shared key is still valid; only overwrite if it's broken
+        // Non-admin user: only overwrite if the existing shared key is broken
         const existingShared = readSharedConfig();
         const existingKey = String(existingShared?.apiKey ?? "").trim();
         let existingKeyValid = false;
@@ -172,7 +174,9 @@ export function createAuthRoutes(
           }
         }
         if (!existingKeyValid) {
-          writeSharedConfig(config.port, rawKey);
+          // Existing key is broken but we can't write a client key either —
+          // just leave it; the next server restart will seed an admin key.
+          logger.warn("auth", "Shared config key is invalid but non-admin login cannot replace it. Bridges may fail until server restart.");
         }
       }
     } catch {

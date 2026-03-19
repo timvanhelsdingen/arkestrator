@@ -137,6 +137,24 @@ const API_KEY_ROLE_DEFAULTS: Record<ApiKeyRole, UserPermissions> = {
     deliverFiles: false,
     submitJobs: false,
   },
+  mcp: {
+    manageUsers: false,
+    manageAgents: false,
+    manageProjects: false,
+    managePolicies: false,
+    manageApiKeys: false,
+    manageConnections: false,
+    manageWorkers: false,
+    manageSecurity: false,
+    viewAuditLog: false,
+    viewUsage: false,
+    editCoordinator: false,
+    useMcp: true,
+    interveneJobs: true,
+    executeCommands: true,
+    deliverFiles: true,
+    submitJobs: true,
+  },
 };
 
 export function getDefaultUserPermissions(role: UserRole): UserPermissions {

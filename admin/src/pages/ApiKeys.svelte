@@ -118,6 +118,16 @@
         interveneJobs: true,
       };
     }
+    if (role === "mcp") {
+      return {
+        ...defaultPermissions,
+        useMcp: true,
+        executeCommands: true,
+        deliverFiles: true,
+        submitJobs: true,
+        interveneJobs: true,
+      };
+    }
     // bridge
     return {
       ...defaultPermissions,
@@ -169,7 +179,7 @@
   let expandedAccessKeyIds = $state<string[]>([]);
 
   let name = $state("");
-  let role = $state<"bridge" | "client" | "admin">("client");
+  let role = $state<"bridge" | "client" | "admin" | "mcp">("client");
   let newPermissions = $state<KeyPermissions>(roleDefaults("client"));
 
   let createdKey = $state<AdminApiKeyCreateResponse | null>(null);
@@ -291,9 +301,10 @@
     }
   }
 
-  function roleHelp(current: "bridge" | "client" | "admin"): string {
-    if (current === "client") return "Use for MCP and client APIs";
+  function roleHelp(current: "bridge" | "client" | "admin" | "mcp"): string {
+    if (current === "client") return "Client UI websocket + job submission";
     if (current === "admin") return "Full admin-level API access";
+    if (current === "mcp") return "MCP access for external AI agents (Claude, etc.)";
     return "Bridge websocket/auth only (not for MCP)";
   }
 
@@ -323,6 +334,7 @@
         <span>Role</span>
         <select bind:value={role} onchange={applyRoleDefaultsForCreate}>
           <option value="client">client</option>
+          <option value="mcp">mcp</option>
           <option value="admin">admin</option>
           <option value="bridge">bridge</option>
         </select>
