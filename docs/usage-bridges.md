@@ -103,6 +103,36 @@ if bridge:
 
 **Commands**: JSON-based Unity editor actions (create/delete objects, set position, open scene, etc.).
 
+### Blackmagic Fusion / DaVinci Resolve (Python Script)
+
+1. Run the installer from the bridge directory:
+   ```bash
+   python bridges/fusion/install.py              # Auto-detect Fusion
+   python bridges/fusion/install.py --resolve    # Install for DaVinci Resolve
+   python bridges/fusion/install.py --path /custom/Scripts/Comp  # Custom path
+   ```
+2. In Fusion: **Script > Arkestrator_Connect**
+3. The Arkestrator panel opens with connection controls and context actions
+4. Auto-connects if `~/.arkestrator/config.json` exists
+
+**Requires:** `pip install websocket-client` in Fusion's Python environment.
+
+**Context menu (panel buttons):**
+- **Selected Tools** — add all selected nodes with their settings and connections
+- **Active Tool** — add the currently viewed/inspected tool
+- **Tool Settings** — add all input values of the active tool
+- **Keyframes** — add animation/keyframe data for the active tool
+- **Full Composition** — add the entire comp structure (all tools, connections, resolution, frame range)
+- **Flow Graph** — add the node graph topology showing all connections
+- **All Loaders** — add all Loader tools with clip paths and media info
+- **All Savers** — add all Saver tools with output paths and format
+- **3D Scene** — add all 3D tools (Shape3D, Camera3D, Light3D, Merge3D, etc.) with transforms
+- **Modifiers & Expressions** — add all modifiers, expressions, and animation curves
+
+**Editor context captured:** Comp name/filename, resolution, FPS, render/global frame range, current frame, active tool details, selected tools, all tools with types, Loader/Saver clip paths, 3D tools, macros, path mappings, Fuse/RunScript source files.
+
+**Commands:** Python (`exec()` with `fusion`/`comp`/`tool` globals) and Lua (`comp:Execute()`).
+
 ### ComfyUI (Standalone Python Bridge)
 
 Unlike other bridges, the ComfyUI bridge runs as a separate process that connects ComfyUI's HTTP API to the Arkestrator server.

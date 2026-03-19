@@ -2,6 +2,8 @@
 
 ## Recent Update (2026-03-19)
 
+- Blackmagic Fusion bridge plugin: new Python bridge for Fusion Standalone and DaVinci Resolve's Fusion page. Supports all context sources: comp structure, selected/active tools with full settings, flow graph topology, Loaders/Savers with clip paths, 3D scene hierarchy, modifiers/expressions, keyframes, Fuse/RunScript source files, and macros. Dockable UI panel with per-source "Add to Context" buttons. Executes both Python (`exec()`) and Lua (`comp:Execute()`). Includes installer for auto-detection of Fusion/Resolve script directories.
+
 - Fine-grained API key permissions: API keys now carry per-key `permissions` (same shape as user permissions) instead of relying solely on role-based access. Three new permissions added: `executeCommands`, `deliverFiles`, `submitJobs`. Server routes (bridge-commands, jobs, MCP) now use a unified `principalHasPermission()` check for both users and API keys. MCP auth uses permission-based gating instead of role-based for API keys. Admin API Keys page fully rewritten with grouped permission checkboxes on create, role-based defaults, "Edit Permissions" modal for existing keys, and access summary column. Admin Users page includes the 3 new permissions in the Operations group.
 
 - Job execution reliability overhaul (sandbox, guidance, asset transfer, error handling):

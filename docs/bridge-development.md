@@ -250,6 +250,7 @@ Only execute commands in languages your bridge supports. Skip unsupported langua
 - ComfyUI bridge: `python`, `py`, `workflow`, `comfyui`
 - Unity bridge: `unity_json`, `json`
 - Unreal bridge: `python`, `py`, `ue_console`, `console`
+- Fusion bridge: `python`, `py`, `lua`, `fusion_lua`
 
 ### Execution Pattern
 
