@@ -3,6 +3,9 @@
 ## Purpose
 Primary user-facing desktop dashboard (Tauri v2 + Svelte 5). Users manage jobs, configure agents, view workers, manage projects. Connects to server via REST + WebSocket.
 
+## Recent Updates (2026-03-19)
+- Admin 404 fix on installed clients (2026-03-19): `src-tauri/src/lib.rs` `resolve_admin_dist_path` now checks `_up_/resources/admin-dist` in addition to existing candidates. Tauri v2 rewrites `../` resource paths to `_up_/` in the bundle (all platforms), so the bundled admin SPA was never found and `/admin` returned 404.
+
 ## Recent Updates (2026-03-18)
 - TOTP 2FA support (2026-03-18): Added two-factor authentication across client. `lib/api/rest.ts` adds three TOTP endpoints: `totpSetup()`, `totpVerifySetup(code)`, `totpDisable(password, code?)`. `lib/stores/connection.svelte.ts` now tracks `totpEnabled` in session state. New `lib/components/ui/TotpSetupModal.svelte` provides a multi-step 2FA setup modal (QR code display via `qrcode` library, verification step, recovery codes display). `pages/Setup.svelte` adds a forced 2FA setup flow after login when server returns `requires2faSetup`. `pages/Settings.svelte` adds an "Account" section with password change and 2FA enable/disable controls. New deps: `qrcode`, `@types/qrcode`.
 
