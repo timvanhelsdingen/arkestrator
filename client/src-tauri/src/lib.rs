@@ -446,18 +446,28 @@ fn ensure_app_data_dir(app: tauri::AppHandle) -> Result<String, String> {
 fn resolve_admin_dist_path(app: tauri::AppHandle) -> String {
     let resource_dir = match app.path().resource_dir() {
         Ok(d) => d,
-        Err(_) => return String::new(),
+        Err(e) => {
+            eprintln!("[admin-dist] failed to get resource dir: {e}");
+            return String::new();
+        }
     };
-    // Tauri bundles resources/<dir-name> — try common locations
+    // Tauri v2 rewrites `../` to `_up_/` in bundled resource paths (all platforms).
+    // The tauri.conf.json entry `../resources/admin-dist` becomes `_up_/resources/admin-dist`.
     let candidates = [
         resource_dir.join("admin-dist"),
         resource_dir.join("resources/admin-dist"),
+        resource_dir.join("_up_/resources/admin-dist"),
     ];
     for candidate in &candidates {
         if candidate.join("index.html").exists() {
             return candidate.to_string_lossy().to_string();
         }
     }
+    eprintln!(
+        "[admin-dist] not found; resource_dir={}, tried {} candidates",
+        resource_dir.display(),
+        candidates.len()
+    );
     String::new()
 }
 
