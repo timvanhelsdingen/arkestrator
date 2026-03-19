@@ -128,9 +128,19 @@
 
     // For user/engine types with detected version path
     if (pathTemplate.includes("{appVersion}")) {
-      // Extract version from selected base path
+      // Extract version from selected base path's last directory component.
+      // The template already includes the program prefix (e.g., "UE_{appVersion}")
+      // so we strip known prefixes from the detected directory name to avoid
+      // duplication like "UE_UE_5.4".
       const parts = basePath.replace(/\\/g, "/").split("/");
-      const versionPart = parts[parts.length - 1] ?? "";
+      let versionPart = parts[parts.length - 1] ?? "";
+      // Strip common DCC version-directory prefixes
+      for (const prefix of ["UE_", "UE-", "Houdini", "houdini"]) {
+        if (versionPart.startsWith(prefix)) {
+          versionPart = versionPart.slice(prefix.length);
+          break;
+        }
+      }
       return pathTemplate.replace("{appVersion}", versionPart);
     }
 
