@@ -59,6 +59,8 @@ export class WorkersRepo {
   private insertBridgeByMachineStmt;
   private getBridgesForWorkerStmt;
   private deleteBridgesForWorkerStmt;
+  private distinctProgramsStmt;
+  private deleteBridgesByProgramStmt;
 
   constructor(private db: Database) {
     this.insertStmt = db.prepare(
@@ -143,6 +145,12 @@ export class WorkersRepo {
       `DELETE FROM worker_bridges
        WHERE worker_name = (SELECT name FROM workers WHERE id = ?)
           OR worker_machine_id = (SELECT machine_id FROM workers WHERE id = ?)`,
+    );
+    this.distinctProgramsStmt = db.prepare(
+      `SELECT DISTINCT program FROM worker_bridges ORDER BY program`,
+    );
+    this.deleteBridgesByProgramStmt = db.prepare(
+      `DELETE FROM worker_bridges WHERE program = ?`,
     );
   }
 
@@ -370,5 +378,17 @@ export class WorkersRepo {
       normalizedMachineId,
       normalizedWorkerName,
     ) as WorkerBridgeRow[];
+  }
+
+  /** Return all unique program names that have ever connected. */
+  getDistinctPrograms(): string[] {
+    const rows = this.distinctProgramsStmt.all() as { program: string }[];
+    return rows.map((r) => r.program);
+  }
+
+  /** Remove all bridge history for a given program (nuke). */
+  deleteBridgesByProgram(program: string): number {
+    const result = this.deleteBridgesByProgramStmt.run(program);
+    return result.changes;
   }
 }

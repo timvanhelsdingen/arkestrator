@@ -197,6 +197,7 @@ export function createApp(deps: AppDeps) {
       deps.config.coordinatorReferencePaths,
       deps.config.coordinatorPlaybookSourcePaths,
       deps.db,
+      deps.workersRepo,
     ),
   );
 

@@ -13,7 +13,7 @@ import {
   parseCoordinatorReferencePaths,
   parseCoordinatorSourcePrograms,
 } from "./coordinator-playbooks.js";
-import { getCoordinatorScriptDefault, getCoordinatorScriptPrograms } from "./engines.js";
+import { getCoordinatorScriptDefault, getCoordinatorScriptPrograms, type ProgramDiscoveryDeps } from "./engines.js";
 import {
   flushTrainingRepositoryIndexRefresh,
   parseTrainingRepositoryOverrides,
@@ -259,8 +259,8 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function normalizeProgramList(programs: string[] | undefined): string[] {
-  const known = new Set(getCoordinatorScriptPrograms().map((p) => p.toLowerCase()));
+function normalizeProgramList(programs: string[] | undefined, deps?: ProgramDiscoveryDeps): string[] {
+  const known = new Set(getCoordinatorScriptPrograms(deps).map((p) => p.toLowerCase()));
   const out = new Set<string>();
   for (const raw of programs ?? []) {
     const p = String(raw ?? "").trim().toLowerCase();
@@ -1377,12 +1377,12 @@ function resolveScheduledVaultSourcePaths(
   return existing.length > 0 ? existing : [learningRoot];
 }
 
-export function getCoordinatorTrainingSchedule(settingsRepo: SettingsRepo): CoordinatorTrainingSchedule {
+export function getCoordinatorTrainingSchedule(settingsRepo: SettingsRepo, deps?: ProgramDiscoveryDeps): CoordinatorTrainingSchedule {
   const defaults: CoordinatorTrainingSchedule = {
     enabled: false,
     intervalMinutes: 24 * 60,
     apply: true,
-    programs: normalizeProgramList(getCoordinatorScriptPrograms()),
+    programs: normalizeProgramList(getCoordinatorScriptPrograms(deps), deps),
   };
   const raw = settingsRepo.get(COORDINATOR_TRAINING_SCHEDULE_KEY);
   if (!raw) return defaults;
@@ -1398,6 +1398,7 @@ export function getCoordinatorTrainingSchedule(settingsRepo: SettingsRepo): Coor
       apply: parsed.apply !== false,
       programs: normalizeProgramList(
         Array.isArray(parsed.programs) ? parsed.programs.map((p) => String(p ?? "")) : defaults.programs,
+        deps,
       ),
     };
   } catch {
@@ -1405,12 +1406,12 @@ export function getCoordinatorTrainingSchedule(settingsRepo: SettingsRepo): Coor
   }
 }
 
-export function setCoordinatorTrainingSchedule(settingsRepo: SettingsRepo, schedule: CoordinatorTrainingSchedule): void {
+export function setCoordinatorTrainingSchedule(settingsRepo: SettingsRepo, schedule: CoordinatorTrainingSchedule, deps?: ProgramDiscoveryDeps): void {
   const normalized: CoordinatorTrainingSchedule = {
     enabled: !!schedule.enabled,
     intervalMinutes: Math.max(5, Math.min(7 * 24 * 60, Math.round(Number(schedule.intervalMinutes) || 0))),
     apply: schedule.apply !== false,
-    programs: normalizeProgramList(schedule.programs),
+    programs: normalizeProgramList(schedule.programs, deps),
   };
   settingsRepo.set(COORDINATOR_TRAINING_SCHEDULE_KEY, JSON.stringify(normalized));
 }
@@ -1735,7 +1736,8 @@ export function queueCoordinatorTrainingJob(
   const trainingPrompt = normalizeTrainingPrompt(options.trainingPrompt, 2_000);
   const preferredAgentConfigId = String(options.agentConfigId ?? "").trim();
   const normalizedProgram = String(program ?? "").trim().toLowerCase();
-  if (!normalizeProgramList([normalizedProgram]).includes(normalizedProgram)) {
+  const programDeps: ProgramDiscoveryDeps = { coordinatorScriptsDir, hub, headlessProgramsRepo };
+  if (!normalizeProgramList([normalizedProgram], programDeps).includes(normalizedProgram)) {
     throw new Error(`Invalid coordinator program: ${program}`);
   }
 
@@ -2131,7 +2133,12 @@ export function queueCoordinatorTrainingJob(
 export function runScheduledCoordinatorTrainingTick(
   deps: QueueCoordinatorTrainingJobDeps,
 ): Array<{ program: string; jobId: string }> {
-  const schedule = getCoordinatorTrainingSchedule(deps.settingsRepo);
+  const programDeps: ProgramDiscoveryDeps = {
+    coordinatorScriptsDir: deps.coordinatorScriptsDir,
+    hub: deps.hub,
+    headlessProgramsRepo: deps.headlessProgramsRepo,
+  };
+  const schedule = getCoordinatorTrainingSchedule(deps.settingsRepo, programDeps);
   if (!schedule.enabled || schedule.programs.length === 0) return [];
 
   const runningJobs = deps.jobsRepo.list(["queued", "running"]).jobs;

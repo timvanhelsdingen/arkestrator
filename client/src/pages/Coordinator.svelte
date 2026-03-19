@@ -2,7 +2,6 @@
   import { connection } from "../lib/stores/connection.svelte";
   import { api } from "../lib/api/rest";
 
-  type Program = "houdini" | "blender" | "godot" | "unity" | "unreal" | "comfyui" | "global";
   type ScopeTab = "server" | "training" | "client";
   type AnalyzeStatus = "queued" | "running" | "completed" | "failed";
   type AnalyzeMode = "fast" | "ai";
@@ -85,15 +84,9 @@
     queuedAt: string;
   }
 
-  const PROGRAMS: Array<{ value: Program; label: string }> = [
-    { value: "houdini", label: "Houdini" },
-    { value: "blender", label: "Blender" },
-    { value: "godot", label: "Godot" },
-    { value: "unity", label: "Unity" },
-    { value: "unreal", label: "Unreal" },
-    { value: "comfyui", label: "ComfyUI" },
+  let programs = $state<Array<{ value: string; label: string }>>([
     { value: "global", label: "Global" },
-  ];
+  ]);
 
   const canManage = $derived(connection.canEditCoordinator || connection.userRole === "admin");
   const isAdmin = $derived(connection.userRole === "admin");
@@ -110,7 +103,7 @@
       : "",
   );
 
-  let program = $state<Program>("houdini");
+  let program = $state<string>("houdini");
   let scopeTab = $state<ScopeTab>("server");
   type ScriptEditorTarget = "global" | "bridge" | null;
   let scriptEditorTarget = $state<ScriptEditorTarget>(null);
@@ -391,25 +384,25 @@
     };
   }
 
-  function getBridgeOnlineCount(p: Program): number {
+  function getBridgeOnlineCount(p: string): number {
     return Number(bridgeOnlineCounts[normalizeProgramKey(p)] ?? 0);
   }
 
-  function getHeadlessStatus(p: Program): ProgramHeadlessStatus | null {
+  function getHeadlessStatus(p: string): ProgramHeadlessStatus | null {
     return headlessStatusByProgram[normalizeProgramKey(p)] ?? null;
   }
 
-  function fallbackModeLabel(p: Program): string {
+  function fallbackModeLabel(p: string): string {
     if (p === "comfyui") return "ComfyUI HTTP API";
     const status = getHeadlessStatus(p);
     return status?.enabled ? "Headless CLI" : "None";
   }
 
-  function isTrainingScheduledForProgram(p: Program): boolean {
+  function isTrainingScheduledForProgram(p: string): boolean {
     return trainingSchedule.programs.includes(normalizeProgramKey(p));
   }
 
-  function toggleTrainingProgram(p: Program, enabled: boolean) {
+  function toggleTrainingProgram(p: string, enabled: boolean) {
     const target = normalizeProgramKey(p);
     const next = new Set(trainingSchedule.programs.map((value) => normalizeProgramKey(value)));
     if (enabled) next.add(target);
@@ -454,6 +447,18 @@
         };
       }
       headlessStatusByProgram = nextHeadless;
+
+      // If programs list hasn't been populated by loadScripts (admin-only), derive from bridges + headless
+      if (programs.length <= 1) {
+        const knownKeys = new Set<string>();
+        for (const key of Object.keys(bridgeCounts)) if (key) knownKeys.add(key);
+        for (const key of Object.keys(nextHeadless)) if (key) knownKeys.add(key);
+        knownKeys.add("global");
+        const derived = [...knownKeys]
+          .sort()
+          .map((p) => ({ value: p, label: p.charAt(0).toUpperCase() + p.slice(1) }));
+        programs = derived;
+      }
     } catch {
       // non-fatal
     } finally {
@@ -586,6 +591,17 @@
     const scripts = Array.isArray(result?.scripts) ? result.scripts : [];
     globalScript = String(scripts.find((s: any) => s.program === "global")?.content ?? "");
     bridgeScript = String(scripts.find((s: any) => s.program === program)?.content ?? "");
+
+    // Build programs dropdown from API response
+    const fetched: Array<{ value: string; label: string }> = scripts
+      .map((s: any) => String(s.program ?? ""))
+      .filter((p: string) => p.length > 0)
+      .map((p: string) => ({ value: p, label: p.charAt(0).toUpperCase() + p.slice(1) }));
+    // Ensure "global" is always present
+    if (!fetched.some((p) => p.value === "global")) {
+      fetched.push({ value: "global", label: "Global" });
+    }
+    programs = fetched;
   }
 
   function formatAnalyzeAgentLabel(agentId: string): string {
@@ -1012,7 +1028,7 @@
     info = `Cleared ${program} client prompt override.`;
   }
 
-  async function onProgramChanged(nextProgram: Program) {
+  async function onProgramChanged(nextProgram: string) {
     program = nextProgram;
     if (scriptEditorTarget === "bridge") closeScriptEditor();
     await refreshAll();
@@ -1095,8 +1111,8 @@
       <div class="toolbar">
         <label>
           Bridge
-          <select value={program} onchange={(e) => onProgramChanged((e.target as HTMLSelectElement).value as Program)}>
-            {#each PROGRAMS as p}
+          <select value={program} onchange={(e) => onProgramChanged((e.target as HTMLSelectElement).value)}>
+            {#each programs as p}
               <option value={p.value}>{p.label}</option>
             {/each}
           </select>

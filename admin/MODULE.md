@@ -11,6 +11,7 @@ Focused web admin panel (served at `/admin`) for:
 Job operations and broader operational tooling are intentionally handled in the Tauri client.
 
 ## Recent Updates (2026-03-19)
+- Dynamic coordinator script programs (2026-03-19): `CoordinatorTraining.svelte` now fetches the program list from `GET /api/settings/coordinator-scripts` instead of using a hardcoded `KNOWN_PROGRAM_OPTIONS` array. Added `listCoordinatorScripts` and `deleteCoordinatorScript` methods to `src/lib/api/client.ts`. The Training Repository program selector now shows a Delete button for dynamically discovered programs (those without a built-in default).
 - Fine-grained API key permissions (2026-03-19): `ApiKeys.svelte` fully rewritten with grouped permission checkboxes on create (role-based defaults), "Edit Permissions" modal for existing keys, and access summary column in list view. `Users.svelte` adds 3 new permissions (`executeCommands`, `deliverFiles`, `submitJobs`) to the Operations group checkboxes. `src/lib/api/client.ts` adds `permissions` field to `AdminApiKey`, updates `keys.create` to accept optional permissions, and adds `keys.updatePermissions` method.
 
 ## Recent Updates (2026-03-15)

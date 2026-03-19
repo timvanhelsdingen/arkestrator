@@ -27,7 +27,10 @@ import {
   getCoordinatorScriptDefault,
   getCoordinatorScriptPrograms,
   getDefaultProjectDir,
+  removeCoordinatorScript,
+  type ProgramDiscoveryDeps,
 } from "../agents/engines.js";
+import type { WorkersRepo } from "../db/workers.repo.js";
 import {
   computeCoordinatorTrainingNextRunByProgram,
   generateCoordinatorTraining,
@@ -80,8 +83,16 @@ export function createSettingsRoutes(
   defaultCoordinatorReferencePaths: string[] = [],
   defaultCoordinatorPlaybookSourcePaths: string[] = [],
   db?: Database,
+  workersRepo?: WorkersRepo,
 ) {
   const router = new Hono();
+
+  const programDiscoveryDeps: ProgramDiscoveryDeps = {
+    coordinatorScriptsDir,
+    workersRepo,
+    hub,
+    headlessProgramsRepo,
+  };
   const MAX_PLAYBOOK_FILE_READ_BYTES = 512_000;
   const MAX_COORDINATOR_FILE_READ_BYTES = 2_000_000;
   const MAX_TRAINING_UPLOAD_FILE_BYTES = 32 * 1024 * 1024;
@@ -2669,7 +2680,7 @@ export function createSettingsRoutes(
     scope: "server" | "client" | "both";
   }> {
     if (!Array.isArray(existing)) return [];
-    const allowedPrograms = new Set(getCoordinatorScriptPrograms().map((p) => p.toLowerCase()));
+    const allowedPrograms = new Set(getCoordinatorScriptPrograms(programDiscoveryDeps).map((p) => p.toLowerCase()));
     const out: Array<{
       id: string;
       title: string;
@@ -3747,7 +3758,7 @@ export function createSettingsRoutes(
     )] as string[];
     const programs = requestedPrograms.length > 0
       ? requestedPrograms
-      : getCoordinatorScriptPrograms();
+      : getCoordinatorScriptPrograms(programDiscoveryDeps);
     if (programs.length === 0) {
       return errorResponse(c, 400, "No valid programs to reindex", "INVALID_INPUT");
     }
@@ -5051,7 +5062,7 @@ export function createSettingsRoutes(
     const user = requireAdmin(c, usersRepo);
     if (!user) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
 
-    const schedule = getCoordinatorTrainingSchedule(settingsRepo);
+    const schedule = getCoordinatorTrainingSchedule(settingsRepo, programDiscoveryDeps);
     const lastRunByProgram = getCoordinatorTrainingLastRunByProgram(settingsRepo);
     const nextRunByProgram = computeCoordinatorTrainingNextRunByProgram(schedule, lastRunByProgram);
     return c.json({
@@ -5059,7 +5070,7 @@ export function createSettingsRoutes(
       schedule,
       lastRunByProgram,
       nextRunByProgram,
-      knownPrograms: getCoordinatorScriptPrograms(),
+      knownPrograms: getCoordinatorScriptPrograms(programDiscoveryDeps),
     });
   });
 
@@ -5074,7 +5085,7 @@ export function createSettingsRoutes(
       return errorResponse(c, 400, "Invalid JSON body", "INVALID_JSON");
     }
 
-    const current = getCoordinatorTrainingSchedule(settingsRepo);
+    const current = getCoordinatorTrainingSchedule(settingsRepo, programDiscoveryDeps);
     const next = {
       enabled: typeof body?.enabled === "boolean" ? body.enabled : current.enabled,
       intervalMinutes: body?.intervalMinutes == null ? current.intervalMinutes : Number(body.intervalMinutes),
@@ -5087,8 +5098,8 @@ export function createSettingsRoutes(
       return errorResponse(c, 400, "intervalMinutes must be a number", "INVALID_INPUT");
     }
 
-    setCoordinatorTrainingSchedule(settingsRepo, next);
-    const schedule = getCoordinatorTrainingSchedule(settingsRepo);
+    setCoordinatorTrainingSchedule(settingsRepo, next, programDiscoveryDeps);
+    const schedule = getCoordinatorTrainingSchedule(settingsRepo, programDiscoveryDeps);
     const lastRunByProgram = getCoordinatorTrainingLastRunByProgram(settingsRepo);
     const nextRunByProgram = computeCoordinatorTrainingNextRunByProgram(schedule, lastRunByProgram);
 
@@ -5116,11 +5127,11 @@ export function createSettingsRoutes(
       // optional body
     }
 
-    const schedule = getCoordinatorTrainingSchedule(settingsRepo);
+    const schedule = getCoordinatorTrainingSchedule(settingsRepo, programDiscoveryDeps);
     const requestedPrograms = Array.isArray(body?.programs)
       ? body.programs.map((p: unknown) => String(p ?? "").trim().toLowerCase()).filter(Boolean)
       : schedule.programs;
-    const knownPrograms = new Set(getCoordinatorScriptPrograms().map((p) => p.toLowerCase()));
+    const knownPrograms = new Set(getCoordinatorScriptPrograms(programDiscoveryDeps).map((p) => p.toLowerCase()));
     const programs = ([...new Set(requestedPrograms)] as string[]).filter((p) => knownPrograms.has(p));
     if (programs.length === 0) {
       return errorResponse(c, 400, "No valid programs provided", "INVALID_INPUT");
@@ -7178,7 +7189,7 @@ export function createSettingsRoutes(
     const user = requireSecurityManager(c);
     if (!user) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
 
-    const programs = getCoordinatorScriptPrograms();
+    const programs = getCoordinatorScriptPrograms(programDiscoveryDeps);
     const scripts = programs.map((program) => {
       const path = join(coordinatorScriptsDir, `${program}.md`);
       let content = "";
@@ -7262,7 +7273,7 @@ export function createSettingsRoutes(
     return c.json({ ok: true, program });
   });
 
-  // Reset a coordinator script to its built-in default
+  // Reset a coordinator script to its built-in default, or remove it entirely if dynamic
   router.delete("/coordinator-scripts/:program", (c) => {
     const user = requireSecurityManager(c);
     if (!user) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
@@ -7275,26 +7286,41 @@ export function createSettingsRoutes(
 
     const defaultContent = getCoordinatorScriptDefault(program);
 
-    if (defaultContent === undefined) {
-      return errorResponse(c, 404, `No built-in default for program: ${program}`, "NOT_FOUND");
+    if (defaultContent !== undefined) {
+      // Built-in program: reset to default
+      try {
+        mkdirSync(coordinatorScriptsDir, { recursive: true });
+        writeFileSync(path, defaultContent, "utf-8");
+      } catch (err) {
+        return errorResponse(c, 500, `Failed to reset script: ${err}`, "WRITE_ERROR");
+      }
+
+      auditRepo.log({
+        userId: user.id,
+        username: user.username,
+        action: "coordinator_script_reset",
+        resource: `coordinator_script:${program}`,
+        ipAddress: getClientIp(c),
+      });
+
+      return c.json({ ok: true, program, content: defaultContent, action: "reset" });
     }
 
-    try {
-      mkdirSync(coordinatorScriptsDir, { recursive: true });
-      writeFileSync(path, defaultContent, "utf-8");
-    } catch (err) {
-      return errorResponse(c, 500, `Failed to reset script: ${err}`, "WRITE_ERROR");
+    // Dynamic program (no built-in default): delete file entirely
+    const removed = removeCoordinatorScript(coordinatorScriptsDir, program);
+    if (!removed) {
+      return errorResponse(c, 404, `No coordinator script found for program: ${program}`, "NOT_FOUND");
     }
 
     auditRepo.log({
       userId: user.id,
       username: user.username,
-      action: "coordinator_script_reset",
+      action: "coordinator_script_removed",
       resource: `coordinator_script:${program}`,
       ipAddress: getClientIp(c),
     });
 
-    return c.json({ ok: true, program, content: defaultContent });
+    return c.json({ ok: true, program, content: "", action: "removed" });
   });
 
   return router;
