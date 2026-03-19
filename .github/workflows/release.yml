@@ -1,9 +1,6 @@
 name: Release
 
-# Triggered when you push a version tag.
-# Release builds run on the PUBLIC repo only — use:
-#   scripts/sync-to-public.sh --tag vX.Y.Z
-# Do NOT push tags to the private repo.
+# Triggered when you push a version tag (v*).
 on:
   push:
     tags:

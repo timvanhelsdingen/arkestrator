@@ -99,30 +99,19 @@ When the user asks to release, sync to public, or build a release:
    ```
    **Critical:** The admin SPA embeds the version at build time (`__ADMIN_VERSION__`). If you skip this rebuild, the admin dashboard will display a stale version number. The bundled `client/resources/admin-dist/` is what the server serves — it must match the release version.
 
-3. **Commit and push:**
+3. **Commit, tag, and push:**
    ```bash
    git add -A
    git commit -m "Arkestrator v<version>"
-   git push origin main
+   git tag v<version>
+   git push origin main --tags
    ```
 
-4. **Sync to public repo** (strips .claude/, deploy configs, private scripts):
-   ```bash
-   ./scripts/sync-to-public.sh --tag v<version>
-   ```
-   This pushes a clean copy to `https://github.com/timvanhelsdingen/arkestrator` and creates a tag that triggers the release CI.
-
-5. **Release CI** runs automatically on the public repo when a `v*` tag is pushed. It builds macOS (dmg+updater), Windows (NSIS+updater), and Linux (AppImage+deb) installers via GitHub Actions.
+4. **Release CI** runs automatically when a `v*` tag is pushed. It builds macOS (dmg+updater), Windows (NSIS+updater), and Linux (AppImage+deb) installers via GitHub Actions.
 
 **Key files:**
-- `.public-exclude` — patterns stripped from public repo (deploy configs, private scripts, .claude/)
-- `scripts/sync-to-public.sh` — the sync script (clones public, applies clean tree, pushes incrementally)
 - `scripts/bump-version.mjs` — bumps version in all package.json, Cargo.toml, tauri.conf.json
-- `.github/workflows/release.yml` — CI that builds installers on tag push (runs on PUBLIC repo)
-- `.github/workflows/mirror-public.yml` — alternative CI-based mirror (manual dispatch)
-- Remote `public` points to `https://github.com/timvanhelsdingen/arkestrator.git`
-
-**Important:** Tags are pushed to the PUBLIC repo only. Do NOT push `v*` tags to the private repo.
+- `.github/workflows/release.yml` — CI that builds installers on tag push
 
 ## Core Principles
 
