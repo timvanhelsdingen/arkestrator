@@ -908,6 +908,8 @@ export function createSettingsRoutes(
       entries.sort();
       for (const name of entries) {
         if (out.length >= maxEntries) break;
+        // Skip dotfiles/directories (e.g. .blender.hash sidecar files)
+        if (name.startsWith(".")) continue;
 
         const relPathNative = relDir ? join(relDir, name) : name;
         const relPath = relPathNative.replace(/\\/g, "/");
@@ -967,8 +969,11 @@ export function createSettingsRoutes(
     if (!normalized) return null;
 
     if (rootKey === "scripts") {
-      const name = basename(normalized).replace(/\.md$/i, "").trim().toLowerCase();
-      return /^[a-z0-9._-]+$/.test(name) ? name : null;
+      const file = basename(normalized);
+      // Skip dotfiles (hash sidecars) and non-.md files
+      if (file.startsWith(".")) return null;
+      const name = file.replace(/\.md$/i, "").trim().toLowerCase();
+      return /^[a-z0-9_-]+$/.test(name) ? name : null;
     }
 
     if (rootKey === "playbooks") {
