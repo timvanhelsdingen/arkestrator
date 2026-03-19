@@ -1122,6 +1122,19 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ includeServerFiles }),
       }),
+    listCoordinatorScripts: () =>
+      request("/api/settings/coordinator-scripts") as Promise<{
+        scripts: Array<{
+          program: string;
+          content: string;
+          isDefault: boolean;
+          defaultContent: string;
+        }>;
+      }>,
+    deleteCoordinatorScript: (program: string) =>
+      request(`/api/settings/coordinator-scripts/${encodeURIComponent(program)}`, {
+        method: "DELETE",
+      }) as Promise<{ ok: boolean }>,
     importSnapshotZip: (file: File, includeServerFiles = false) => {
       const form = new FormData();
       form.append("file", file);

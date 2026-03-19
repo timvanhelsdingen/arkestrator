@@ -13,6 +13,7 @@ import {
   loadCoordinatorScript,
   getCoordinatorScriptPrograms,
   getDefaultProjectDir,
+  type ProgramDiscoveryDeps,
 } from "./engines.js";
 import {
   filterCoordinatorSourcePathsByProgram,
@@ -1377,11 +1378,12 @@ export async function spawnAgent(
   };
   const knownBridgePrograms = [
     ...new Set(
-      [
-        ...getCoordinatorScriptPrograms(),
-        ...deps.hub.getBridges().map((bridge) => bridge.program ?? ""),
-        ...(deps.headlessProgramsRepo?.list().map((program) => program.program) ?? []),
-      ]
+      getCoordinatorScriptPrograms({
+        coordinatorScriptsDir: deps.config.coordinatorScriptsDir,
+        workersRepo: deps.workersRepo,
+        hub: deps.hub,
+        headlessProgramsRepo: deps.headlessProgramsRepo,
+      })
         .map((value) => String(value ?? "").trim().toLowerCase())
         .filter(Boolean),
     ),

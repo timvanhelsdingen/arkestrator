@@ -18,9 +18,12 @@ import { buildLiveInterventionPollingBlock } from "./job-interventions.js";
 import { formatProjectPrompt } from "./project-prompt.js";
 import { getClaudeRuntimeDecision } from "../utils/claude-runtime.js";
 import type { SpawnUserSpec } from "../utils/spawn.js";
-import { readFileSync, existsSync, mkdirSync, writeFileSync } from "fs";
+import { readFileSync, readdirSync, existsSync, mkdirSync, writeFileSync, unlinkSync } from "fs";
 import { homedir, tmpdir } from "os";
 import { join } from "path";
+import type { WorkersRepo } from "../db/workers.repo.js";
+import type { HeadlessProgramsRepo } from "../db/headless-programs.repo.js";
+import type { WebSocketHub } from "../ws/hub.js";
 
 export interface CommandSpec {
   command: string;
@@ -1640,9 +1643,132 @@ export function getCoordinatorScriptDefault(program: string): string | undefined
   return COORDINATOR_SCRIPT_DEFAULTS[program];
 }
 
-/** Return all known coordinator script program names. */
-export function getCoordinatorScriptPrograms(): string[] {
-  return Object.keys(COORDINATOR_SCRIPT_DEFAULTS);
+/** Optional dependencies for dynamic program discovery. */
+export interface ProgramDiscoveryDeps {
+  coordinatorScriptsDir: string;
+  workersRepo?: WorkersRepo;
+  hub?: WebSocketHub;
+  headlessProgramsRepo?: HeadlessProgramsRepo;
+}
+
+/**
+ * Return all known coordinator script program names.
+ * Without deps: returns built-in defaults only (backward compat).
+ * With deps: merges built-in + disk files + DB history + live bridges + headless configs.
+ */
+export function getCoordinatorScriptPrograms(deps?: ProgramDiscoveryDeps): string[] {
+  const sources: string[] = [
+    ...Object.keys(COORDINATOR_SCRIPT_DEFAULTS),
+  ];
+
+  if (deps) {
+    // Disk: .md files in coordinator scripts dir
+    try {
+      const files = readdirSync(deps.coordinatorScriptsDir);
+      for (const f of files) {
+        if (f.endsWith(".md") && !f.startsWith(".")) {
+          sources.push(f.slice(0, -3));
+        }
+      }
+    } catch { /* dir may not exist yet */ }
+
+    // DB: all programs that have ever connected
+    if (deps.workersRepo) {
+      sources.push(...deps.workersRepo.getDistinctPrograms());
+    }
+
+    // Live: currently connected bridges
+    if (deps.hub) {
+      for (const b of deps.hub.getBridges()) {
+        if (b.program) sources.push(b.program);
+      }
+    }
+
+    // Headless program configs
+    if (deps.headlessProgramsRepo) {
+      for (const p of deps.headlessProgramsRepo.list()) {
+        sources.push(p.program);
+      }
+    }
+  }
+
+  return [...new Set(
+    sources
+      .map((s) => s.trim().toLowerCase())
+      .filter((s) => s && s !== "global"),
+  )].sort();
+}
+
+/** Return the built-in program names (without dynamic sources). */
+export function getBuiltinCoordinatorScriptPrograms(): string[] {
+  return Object.keys(COORDINATOR_SCRIPT_DEFAULTS).filter((k) => k !== "global");
+}
+
+/**
+ * Ensure a coordinator script file exists for a program.
+ * Uses hash-sidecar pattern to protect user edits:
+ * - No file → create from registryContent or generic template
+ * - File exists + hash matches last-written + new content → update
+ * - File exists + hash differs (user edited) → leave untouched
+ */
+export function ensureCoordinatorScript(
+  dir: string,
+  program: string,
+  registryContent?: string,
+): void {
+  const normalized = program.trim().toLowerCase();
+  if (!normalized || normalized === "global") return;
+
+  try {
+    mkdirSync(dir, { recursive: true });
+    const filePath = join(dir, `${normalized}.md`);
+    const hashPath = join(dir, `.${normalized}.hash`);
+
+    const content = registryContent
+      ?? COORDINATOR_SCRIPT_DEFAULTS[normalized]
+      ?? `# ${program.charAt(0).toUpperCase() + program.slice(1)} Coordinator Script\n\n` +
+         `# Auto-generated for bridge program: ${normalized}\n` +
+         `# Customize this file to add program-specific coordinator guidance.\n`;
+
+    const newHash = Bun.hash(content).toString(16);
+
+    if (!existsSync(filePath)) {
+      writeFileSync(filePath, content, "utf-8");
+      writeFileSync(hashPath, newHash, "utf-8");
+    } else if (registryContent) {
+      // File exists — only update if user hasn't edited it
+      let lastWrittenHash = "";
+      try { lastWrittenHash = readFileSync(hashPath, "utf-8").trim(); } catch { /* no hash */ }
+      if (lastWrittenHash) {
+        const currentHash = Bun.hash(readFileSync(filePath, "utf-8")).toString(16);
+        if (currentHash === lastWrittenHash) {
+          // User hasn't edited — safe to update from registry
+          writeFileSync(filePath, content, "utf-8");
+          writeFileSync(hashPath, newHash, "utf-8");
+        }
+      }
+    }
+  } catch (err) {
+    logger.warn("engines", `Failed to ensure coordinator script for ${normalized}: ${err}`);
+  }
+}
+
+/**
+ * Remove a coordinator script and its hash sidecar from disk.
+ * Used when admin nukes a bridge program.
+ */
+export function removeCoordinatorScript(dir: string, program: string): boolean {
+  const normalized = program.trim().toLowerCase();
+  if (!normalized || normalized === "global") return false;
+  // Don't allow removing built-in programs
+  if (COORDINATOR_SCRIPT_DEFAULTS[normalized]) return false;
+
+  const filePath = join(dir, `${normalized}.md`);
+  const hashPath = join(dir, `.${normalized}.hash`);
+  let removed = false;
+  try { unlinkSync(filePath); removed = true; } catch { /* ok */ }
+  try { unlinkSync(hashPath); } catch { /* ok */ }
+  return removed;
 }
 
 /**

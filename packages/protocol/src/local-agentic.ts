@@ -325,13 +325,17 @@ export const LOCAL_AGENTIC_DELEGATION_TOOLS = new Set<LocalAgenticToolCall["tool
  * Detect whether a task prompt implies multi-agent / delegation work.
  * Shared between server-side and client-side agentic loops.
  */
-export function promptRequestsDelegation(prompt: string): boolean {
+export function promptRequestsDelegation(
+  prompt: string,
+  knownPrograms?: string[],
+): boolean {
   const text = String(prompt ?? "").toLowerCase();
   if (!text) return false;
   if (/(multi[-\s]?agent|multiple agents|multiple machin|cross[-\s]?machine|delegate|delegation|sub[-\s]?job|fanout|pipeline|parallel|simultaneous|in parallel|background|meanwhile|while)/i.test(text)) {
     return true;
   }
-  const bridgeMentions = ["godot", "blender", "houdini", "comfyui", "unity", "unreal"]
+  const programs = knownPrograms ?? ["godot", "blender", "houdini", "comfyui", "unity", "unreal"];
+  const bridgeMentions = programs
     .filter((program) => new RegExp(`\\b${program}\\b`, "i").test(text));
   if (bridgeMentions.length >= 2) return true;
   if (

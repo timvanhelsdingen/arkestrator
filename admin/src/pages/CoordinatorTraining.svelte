@@ -111,7 +111,8 @@
   let policySaving = $state(false);
 
   let repositoryProgram = $state("houdini");
-  const KNOWN_PROGRAM_OPTIONS = ["houdini", "blender", "godot", "unity", "unreal", "comfyui", "global"];
+  let coordinatorScripts = $state<Array<{ program: string; content: string; isDefault: boolean; defaultContent: string }>>([]);
+  let coordinatorScriptsLoading = $state(false);
   let repositoryPolicyLoading = $state(false);
   let repositoryPolicySaving = $state(false);
   let repositoryPolicyJson = $state("");
@@ -287,6 +288,29 @@
       toast.error(err.message ?? "Failed to update coordination policy");
     } finally {
       policySaving = false;
+    }
+  }
+
+  async function loadCoordinatorScripts() {
+    if (!auth.canManageSecurity) return;
+    coordinatorScriptsLoading = true;
+    try {
+      const result = await api.coordinatorTraining.listCoordinatorScripts();
+      coordinatorScripts = Array.isArray(result?.scripts) ? result.scripts : [];
+    } catch {
+      // Non-critical — fall back to whatever vault entries provide
+    } finally {
+      coordinatorScriptsLoading = false;
+    }
+  }
+
+  async function deleteCoordinatorScript(program: string) {
+    try {
+      await api.coordinatorTraining.deleteCoordinatorScript(program);
+      toast.success(`Deleted coordinator script for "${program}"`);
+      await loadCoordinatorScripts();
+    } catch (err: any) {
+      toast.error(err.message ?? `Failed to delete coordinator script for "${program}"`);
     }
   }
 
@@ -523,6 +547,7 @@
 
   async function refreshTrainingRepositoryData() {
     await Promise.all([
+      loadCoordinatorScripts(),
       loadTrainingRepositoryPolicy(),
       loadTrainingRepositoryOverrides(),
       loadTrainingRepositoryStatusAndMetrics({ silentErrors: true }),
@@ -1080,11 +1105,19 @@
   );
 
   let repositoryProgramOptions = $derived(
-    [...new Set([...KNOWN_PROGRAM_OPTIONS, ...availablePrograms])]
+    [...new Set([
+      ...coordinatorScripts.map((s) => s.program),
+      ...availablePrograms,
+    ])]
       .map((value) => normalizeProgramName(value))
       .filter(Boolean)
       .sort((a, b) => a.localeCompare(b)),
   );
+
+  let canDeleteRepositoryProgram = $derived(() => {
+    const s = coordinatorScripts.find((s) => s.program === repositoryProgram);
+    return !!s && !s.defaultContent;
+  });
 
   let availableRoots = $derived(
     [...new Set(entries.map((entry) => entry.root))]
@@ -1351,6 +1384,19 @@
               {/each}
             </select>
           </label>
+          {#if canDeleteRepositoryProgram()}
+            <button
+              class="btn-danger"
+              onclick={() => requestConfirm(
+                "Delete Coordinator Script",
+                `Remove the dynamically discovered coordinator script for "${repositoryProgram}"? This cannot be undone.`,
+                () => deleteCoordinatorScript(repositoryProgram),
+              )}
+              disabled={coordinatorScriptsLoading}
+            >
+              Delete
+            </button>
+          {/if}
           <button class="btn-secondary" onclick={refreshTrainingRepositoryData} disabled={repositoryPolicyLoading || repositoryOverridesLoading || repositoryStatusLoading || repositoryMetricsLoading || repositoryRecordsLoading}>
             Refresh Repository
           </button>

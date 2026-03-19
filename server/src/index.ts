@@ -38,7 +38,7 @@ import { logger } from "./utils/logger.js";
 import { newId } from "./utils/id.js";
 import { readSharedConfig, writeSharedConfig, getSharedConfigPath } from "./utils/shared-config.js";
 import { normalizeCodexArgs } from "./utils/codex-args.js";
-import { seedCoordinatorScripts } from "./agents/engines.js";
+import { seedCoordinatorScripts, ensureCoordinatorScript } from "./agents/engines.js";
 import { seedCoordinatorPlaybooks } from "./agents/coordinator-playbooks.js";
 import { runScheduledCoordinatorTrainingTick } from "./agents/coordinator-training.js";
 import { deriveWorkerIdentity } from "./utils/worker-identity.js";
@@ -630,6 +630,8 @@ async function main() {
                 ws.data.projectPath,
                 ws.data.machineId,
               );
+              // Auto-create coordinator script for newly detected programs
+              ensureCoordinatorScript(config.coordinatorScriptsDir, ws.data.program);
             }
           }
           hub.broadcastWorkerStatus(workersRepo);
