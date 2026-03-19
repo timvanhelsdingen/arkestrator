@@ -110,15 +110,15 @@ pub async fn fetch_bridge_registry(repo: String) -> Result<Value, String> {
         }
     }
 
-    // Fetch from GitHub releases API
+    // Fetch recent releases from GitHub (sorted newest first by default)
     let url = format!(
-        "{}/repos/{}/releases/latest",
+        "{}/repos/{}/releases?per_page=20",
         GITHUB_API_BASE,
         repo.trim()
     );
 
     let client = reqwest::Client::new();
-    let release: Value = client
+    let releases: Vec<Value> = client
         .get(&url)
         .header("User-Agent", "Arkestrator-Client")
         .header("Accept", "application/vnd.github+json")
@@ -127,38 +127,45 @@ pub async fn fetch_bridge_registry(repo: String) -> Result<Value, String> {
         .map_err(|e| format!("Failed to fetch releases: {e}"))?
         .json()
         .await
-        .map_err(|e| format!("Failed to parse release JSON: {e}"))?;
+        .map_err(|e| format!("Failed to parse releases JSON: {e}"))?;
 
-    // Find registry.json asset
-    let assets = release
-        .get("assets")
-        .and_then(|a| a.as_array())
-        .ok_or("No assets in release")?;
+    if releases.is_empty() {
+        return Err("No releases found".to_string());
+    }
 
-    let registry_asset = assets
-        .iter()
-        .find(|a| {
-            a.get("name")
-                .and_then(|n| n.as_str())
-                .map(|n| n == "registry.json")
-                .unwrap_or(false)
-        })
-        .ok_or("registry.json not found in release assets")?;
+    // Find registry.json from the most recent release that has one
+    let mut registry_text: Option<String> = None;
+    let mut registry_release: Option<&Value> = None;
+    for rel in &releases {
+        let assets = rel.get("assets").and_then(|a| a.as_array());
+        if let Some(assets) = assets {
+            if let Some(reg_asset) = assets.iter().find(|a| {
+                a.get("name")
+                    .and_then(|n| n.as_str())
+                    .map(|n| n == "registry.json")
+                    .unwrap_or(false)
+            }) {
+                if let Some(dl_url) = reg_asset.get("browser_download_url").and_then(|u| u.as_str())
+                {
+                    let text = client
+                        .get(dl_url)
+                        .header("User-Agent", "Arkestrator-Client")
+                        .send()
+                        .await
+                        .map_err(|e| format!("Failed to download registry: {e}"))?
+                        .text()
+                        .await
+                        .map_err(|e| format!("Failed to read registry: {e}"))?;
+                    registry_release = Some(rel);
+                    registry_text = Some(text);
+                    break;
+                }
+            }
+        }
+    }
 
-    let download_url = registry_asset
-        .get("browser_download_url")
-        .and_then(|u| u.as_str())
-        .ok_or("No download URL for registry.json")?;
-
-    let registry_text = client
-        .get(download_url)
-        .header("User-Agent", "Arkestrator-Client")
-        .send()
-        .await
-        .map_err(|e| format!("Failed to download registry: {e}"))?
-        .text()
-        .await
-        .map_err(|e| format!("Failed to read registry: {e}"))?;
+    let registry_text = registry_text.ok_or("registry.json not found in any release")?;
+    let latest_release = registry_release.unwrap();
 
     let registry: Value = serde_json::from_str(&registry_text)
         .map_err(|e| format!("Failed to parse registry JSON: {e}"))?;
@@ -168,39 +175,55 @@ pub async fn fetch_bridge_registry(repo: String) -> Result<Value, String> {
     if let Some(obj) = result.as_object_mut() {
         obj.insert(
             "releaseTag".to_string(),
-            release
+            latest_release
                 .get("tag_name")
                 .cloned()
                 .unwrap_or(Value::Null),
         );
         obj.insert(
             "releaseUrl".to_string(),
-            release
+            latest_release
                 .get("html_url")
                 .cloned()
                 .unwrap_or(Value::Null),
         );
 
-        // Inject download URLs for each bridge asset
+        // For each bridge, scan releases (newest first) to find the latest
+        // release that contains that bridge's asset zip
         if let Some(bridges) = obj.get_mut("bridges").and_then(|b| b.as_array_mut()) {
             for bridge in bridges.iter_mut() {
                 if let Some(asset_pattern) = bridge.get("asset").and_then(|a| a.as_str()) {
-                    let bridge_version = bridge
-                        .get("version")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
-                    let asset_name = asset_pattern.replace("{version}", bridge_version);
+                    let pattern = asset_pattern.to_string();
 
-                    if let Some(asset) = assets.iter().find(|a| {
-                        a.get("name")
-                            .and_then(|n| n.as_str())
-                            .map(|n| n == asset_name)
-                            .unwrap_or(false)
-                    }) {
-                        if let Some(url) = asset.get("browser_download_url") {
-                            bridge
-                                .as_object_mut()
-                                .map(|b| b.insert("downloadUrl".to_string(), url.clone()));
+                    // Scan releases newest-first to find the latest with this bridge's asset
+                    'release_scan: for rel in &releases {
+                        let tag = rel
+                            .get("tag_name")
+                            .and_then(|t| t.as_str())
+                            .unwrap_or("");
+                        let version = tag.strip_prefix('v').unwrap_or(tag);
+                        let expected_asset = pattern.replace("{version}", version);
+
+                        if let Some(rel_assets) =
+                            rel.get("assets").and_then(|a| a.as_array())
+                        {
+                            if let Some(asset) = rel_assets.iter().find(|a| {
+                                a.get("name")
+                                    .and_then(|n| n.as_str())
+                                    .map(|n| n == expected_asset)
+                                    .unwrap_or(false)
+                            }) {
+                                if let Some(url) = asset.get("browser_download_url") {
+                                    if let Some(b) = bridge.as_object_mut() {
+                                        b.insert("downloadUrl".to_string(), url.clone());
+                                        b.insert(
+                                            "version".to_string(),
+                                            Value::String(version.to_string()),
+                                        );
+                                    }
+                                }
+                                break 'release_scan;
+                            }
                         }
                     }
                 }
