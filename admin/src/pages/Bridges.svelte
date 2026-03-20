@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import { api } from "../lib/api/client";
   import { toast } from "../lib/stores/toast.svelte";
   import Modal from "../lib/components/ui/Modal.svelte";
@@ -21,6 +21,7 @@
     program?: string;
     programVersion?: string;
     bridgeVersion?: string;
+    lastSeen?: string;
   }
 
   interface ScriptInfo {
@@ -37,6 +38,7 @@
     workers: string[];
     bridgeVersions: string[];
     programVersions: string[];
+    lastSeen: string | null;
     hasScript: boolean;
     scriptIsDefault: boolean;
     scriptContent: string;
@@ -61,6 +63,7 @@
           workers: [],
           bridgeVersions: [],
           programVersions: [],
+          lastSeen: null,
           hasScript: false,
           scriptIsDefault: true,
           scriptContent: "",
@@ -82,6 +85,9 @@
       }
       if (b.programVersion && !info.programVersions.includes(b.programVersion)) {
         info.programVersions.push(b.programVersion);
+      }
+      if (b.lastSeen && (!info.lastSeen || b.lastSeen > info.lastSeen)) {
+        info.lastSeen = b.lastSeen;
       }
     }
 
@@ -110,6 +116,28 @@
     arr.sort((a, b) => a.program.localeCompare(b.program));
     return arr;
   });
+
+  function formatRelativeTime(iso: string): string {
+    const diff = Date.now() - new Date(iso).getTime();
+    if (diff < 0) return "just now";
+    const seconds = Math.floor(diff / 1000);
+    if (seconds < 60) return `${seconds}s ago`;
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
+  }
+
+  function scriptPreview(content: string): string {
+    if (!content) return "";
+    const lines = content.split("\n").filter((l) => l.trim()).slice(0, 2);
+    const text = lines.join(" ").trim();
+    return text.length > 60 ? text.slice(0, 57) + "..." : text;
+  }
+
+  let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
   // Workers expand/collapse
   let expandedWorkers = $state(new Set<string>());
@@ -199,12 +227,14 @@
     try {
       await api.coordinatorTraining.deleteCoordinatorScript(program);
     } catch (err: any) {
-      errors.push(`coordinator script: ${err.message ?? "failed"}`);
+      if (!String(err.message ?? "").includes("404")) {
+        errors.push(`coordinator script: ${err.message ?? "failed"}`);
+      }
     }
-    if (errors.length === 0) {
-      toast.success(`Removed bridge program "${program}"`);
-    } else {
+    if (errors.length > 0) {
       toast.error(`Partial removal of "${program}": ${errors.join("; ")}`);
+    } else {
+      toast.success(`Removed bridge program "${program}"`);
     }
     await load();
   }
@@ -232,7 +262,14 @@
     }
   }
 
-  onMount(load);
+  onMount(() => {
+    load();
+    refreshTimer = setInterval(load, 15_000);
+  });
+
+  onDestroy(() => {
+    if (refreshTimer) clearInterval(refreshTimer);
+  });
 </script>
 
 <div class="page">
@@ -267,6 +304,9 @@
               {:else}
                 <span class="badge badge-off">offline</span>
               {/if}
+              {#if info.lastSeen}
+                <span class="last-seen">{formatRelativeTime(info.lastSeen)}</span>
+              {/if}
             </td>
             <td class="muted">
               {#if info.workers.length === 0}
@@ -298,6 +338,9 @@
                 <span class="badge {info.scriptIsDefault ? 'badge-default' : 'badge-custom'}">
                   {info.scriptIsDefault ? "default" : "custom"}
                 </span>
+                {#if scriptPreview(info.scriptContent)}
+                  <span class="script-preview">{scriptPreview(info.scriptContent)}</span>
+                {/if}
               {:else}
                 <span class="muted">none</span>
               {/if}
@@ -429,8 +472,10 @@
   .workers-toggle:hover { color: var(--text-primary); }
   .workers-list {
     margin-top: 4px;
-    font-size: var(--font-size-sm);
+    font-size: 11px;
     color: var(--text-muted);
-    line-height: 1.5;
+    line-height: 1.4;
   }
+  .last-seen { color: var(--text-muted); font-size: 10px; display: block; margin-top: 2px; }
+  .script-preview { display: block; color: var(--text-muted); font-size: 11px; margin-top: 2px; font-style: italic; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

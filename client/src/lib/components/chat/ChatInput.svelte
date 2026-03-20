@@ -1,8 +1,6 @@
 <script lang="ts">
   import type {
     JobRuntimeOptions,
-    RuntimeReasoningLevel,
-    RuntimeVerificationMode,
   } from "@arkestrator/protocol";
   import { tick } from "svelte";
   import { chatStore } from "../../stores/chat.svelte";
@@ -60,7 +58,6 @@
     agents.all.find((config) => config.id === agentConfigId),
   );
   let selectedEngine = $derived(selectedAgent?.engine ?? "");
-  let showModelControl = $derived(selectedEngine !== "");
 
   function getLocalModelsLoadKey(): string {
     const authKey = connection.sessionToken
@@ -175,66 +172,6 @@
     }
   });
 
-  let knownModelOptions = $derived.by(() => {
-    const ordered: string[] = [];
-    const seen = new Set<string>();
-    const add = (value: unknown) => {
-      const normalized = String(value ?? "").trim();
-      if (!normalized || seen.has(normalized)) return;
-      seen.add(normalized);
-      ordered.push(normalized);
-    };
-
-    const providerCatalog = providerModelCatalogs[selectedEngine];
-
-    add(providerCatalog?.preferredDefaultModel);
-
-    for (const preset of providerCatalog?.models ?? []) {
-      add(preset);
-    }
-
-    for (const config of agents.all) {
-      if (selectedEngine && config.engine !== selectedEngine) continue;
-      const value = String(config.model ?? "").trim();
-      if (!value) continue;
-      if (selectedEngine === "local-oss" && localModelCatalog.length > 0) {
-        const match = localModelCatalog.find((model) => model.name === value);
-        if (match && (!match.allowed || !match.downloaded)) continue;
-      }
-      add(value);
-    }
-
-    if (selectedEngine === "local-oss") {
-      add("auto");
-      const allowedDownloaded = localModelCatalog.filter((model) => model.allowed && model.downloaded);
-      for (const model of allowedDownloaded) {
-        add(model.name);
-      }
-    }
-
-    return ordered;
-  });
-
-  let defaultModelLabel = $derived.by(() => {
-    const configured = String(selectedAgent?.model ?? "").trim();
-    if (configured) return configured;
-    const preferred = String(providerModelCatalogs[selectedEngine]?.preferredDefaultModel ?? "").trim();
-    if (preferred) return preferred;
-    return "Default";
-  });
-
-  let knownReasoningLevels = $derived.by(() => {
-    if (selectedEngine !== "codex") return ["low", "medium", "high", "xhigh"];
-    const levels = providerModelCatalogs.codex?.reasoningLevels ?? ["low", "medium", "high", "xhigh"];
-    return levels.length > 0 ? levels : ["low", "medium", "high", "xhigh"];
-  });
-
-  function reasoningLabel(value: string): string {
-    if (value === "xhigh") return "Extreme";
-    if (!value) return "Default";
-    return value.charAt(0).toUpperCase() + value.slice(1);
-  }
-
   // If a persisted tab references a deleted/unknown project ID, reset to "none"
   // so submissions do not silently bind to stale project mappings.
   $effect(() => {
@@ -262,7 +199,6 @@
   let textarea: HTMLTextAreaElement | undefined = $state();
   let fileInput: HTMLInputElement | undefined = $state();
   let bridgeDropdownOpen = $state(false);
-  let coordDropdownOpen = $state(false);
   let inputHeight = $state(loadInputHeight());
   let vDragging = $state(false);
   let promptDropActive = $state(false);
@@ -394,44 +330,6 @@
     const title = (job.name?.trim() || job.prompt.trim() || "Untitled job").replace(/\s+/g, " ");
     const shortTitle = title.length > 46 ? `${title.slice(0, 46)}...` : title;
     return `#${job.id.slice(0, 8)} - ${shortTitle} [${job.status}]`;
-  }
-
-  function updateRuntimeModel(value: string) {
-    chatStore.setRuntimeModel(value);
-  }
-
-  function updateRuntimeReasoningLevel(value: string) {
-    const next = value
-      ? (value as RuntimeReasoningLevel)
-      : undefined;
-    chatStore.setRuntimeReasoningLevel(next);
-  }
-
-  function updateRuntimeVerificationMode(value: string) {
-    const next = value
-      ? (value as RuntimeVerificationMode)
-      : undefined;
-    chatStore.setRuntimeVerificationMode(next);
-  }
-
-  function updateRuntimeVerificationWeight(value: string) {
-    const trimmed = value.trim();
-    if (!trimmed) {
-      chatStore.setRuntimeVerificationWeight(undefined);
-      return;
-    }
-    const parsed = Number(trimmed);
-    if (!Number.isFinite(parsed)) return;
-    chatStore.setRuntimeVerificationWeight(parsed);
-  }
-
-  async function refreshLocalModelCatalog() {
-    if (selectedEngine !== "local-oss") return;
-    if (!connection.isConnected) return;
-    if (!connection.sessionToken && !connection.apiKey) return;
-    const key = getLocalModelsLoadKey();
-    localModelsLoadedKey = "";
-    await loadLocalModels(key);
   }
 
   function parseModelScale(name: string, sizeBytes?: number): number {
@@ -702,37 +600,10 @@
     bridgeDropdownOpen = false;
   }
 
-  // --- Coordination script dropdown ---
-  type CoordKey = "coordinator" | "bridge" | "training";
-  const COORD_OPTIONS: { key: CoordKey; label: string; hint: string }[] = [
-    { key: "coordinator", label: "Playbooks", hint: "Task matching & guidance" },
-    { key: "bridge", label: "Bridge Scripts", hint: "Per-program scripts" },
-    { key: "training", label: "Training", hint: "Auto-generated learning" },
-  ];
-
-  function isCoordEnabled(key: CoordKey): boolean {
-    return (runtimeOptions?.coordinationScripts?.[key] ?? "enabled") !== "disabled";
-  }
-
-  function toggleCoordOption(key: CoordKey) {
-    const current = runtimeOptions?.coordinationScripts;
-    const currentValue = current?.[key] ?? "enabled";
-    const newValue = currentValue === "disabled" ? "enabled" : "disabled";
-    chatStore.setCoordinationScripts({ ...current, [key]: newValue });
-  }
-
-  function resetCoordToAll() {
-    chatStore.setCoordinationScripts(undefined);
-    coordDropdownOpen = false;
-  }
-
   function handleClickOutside(e: MouseEvent) {
     const target = e.target as HTMLElement;
     if (!target.closest(".bridge-dropdown")) {
       bridgeDropdownOpen = false;
-    }
-    if (!target.closest(".coordination-dropdown")) {
-      coordDropdownOpen = false;
     }
   }
 
@@ -1024,169 +895,6 @@
     >
       Queue and Start
     </button>
-    <div class="runtime-controls">
-      <div class="runtime-group runtime-agent-group">
-        <label class="runtime-label" for="chat-agent-select">Agent</label>
-        <select
-          id="chat-agent-select"
-          value={agentConfigId}
-          onchange={(e) => chatStore.setAgentConfig((e.target as HTMLSelectElement).value)}
-        >
-          <option value="" disabled>Select agent...</option>
-          <option value="auto">Auto (priority)</option>
-          {#each agents.all as config (config.id)}
-            <option value={config.id}>{config.name} ({config.engine})</option>
-          {/each}
-        </select>
-      </div>
-
-      {#if showModelControl}
-        <div class="runtime-group runtime-model-group">
-          <label class="runtime-label" for="chat-model-override">Model</label>
-          <div class="model-input-row">
-            {#if (providerModelCatalogs[selectedEngine]?.models?.length ?? 0) > 0 && selectedEngine !== "codex"}
-              <!-- Engines with known model presets get a proper dropdown -->
-              <select
-                id="chat-model-override"
-                value={runtimeOptions?.model ?? ""}
-                disabled={!agentConfigId}
-                onchange={(e) => updateRuntimeModel((e.target as HTMLSelectElement).value)}
-              >
-                <option value="">{defaultModelLabel}</option>
-                {#each knownModelOptions as modelName (modelName)}
-                  <option value={modelName}>{modelName}</option>
-                {/each}
-              </select>
-            {:else}
-              <!-- Engines without a dropdown use text input with datalist suggestions. -->
-              <input
-                id="chat-model-override"
-                type="text"
-                list="chat-model-options"
-                value={runtimeOptions?.model ?? ""}
-                disabled={!agentConfigId}
-                placeholder={defaultModelLabel}
-                oninput={(e) => updateRuntimeModel((e.target as HTMLInputElement).value)}
-                onchange={(e) => updateRuntimeModel((e.target as HTMLInputElement).value)}
-              />
-              {#if selectedEngine === "local-oss"}
-                <button
-                  type="button"
-                  class="model-refresh-btn icon-only"
-                  onclick={refreshLocalModelCatalog}
-                  disabled={!agentConfigId || localModelsLoading || !connection.isConnected || (!connection.sessionToken && !connection.apiKey)}
-                  title={localModelsLoading ? "Refreshing local models..." : "Refresh local models"}
-                  aria-label={localModelsLoading ? "Refreshing local models" : "Refresh local models"}
-                >
-                  {localModelsLoading ? "…" : "↻"}
-                </button>
-              {/if}
-              <datalist id="chat-model-options">
-                {#each knownModelOptions as modelName (modelName)}
-                  <option value={modelName}></option>
-                {/each}
-              </datalist>
-            {/if}
-          </div>
-        </div>
-      {/if}
-
-      {#if selectedEngine === "codex"}
-        <div class="runtime-group">
-          <label class="runtime-label" for="chat-reasoning-select">Reasoning</label>
-          <select
-            id="chat-reasoning-select"
-            value={runtimeOptions?.reasoningLevel ?? ""}
-            onchange={(e) => updateRuntimeReasoningLevel((e.target as HTMLSelectElement).value)}
-          >
-            <option value="">Default</option>
-            {#each knownReasoningLevels as level (level)}
-              <option value={level}>{reasoningLabel(level)}</option>
-            {/each}
-          </select>
-        </div>
-      {/if}
-
-      <div class="runtime-group">
-        <label class="runtime-label" for="chat-verification-mode-select">Verify</label>
-        <select
-          id="chat-verification-mode-select"
-          value={runtimeOptions?.verificationMode ?? ""}
-          onchange={(e) => updateRuntimeVerificationMode((e.target as HTMLSelectElement).value)}
-        >
-          <option value="">Default</option>
-          <option value="required">Required</option>
-          <option value="optional">Optional</option>
-          <option value="disabled">Disabled</option>
-        </select>
-      </div>
-
-      <div class="runtime-group runtime-verification-weight-group">
-        <label class="runtime-label" for="chat-verification-weight-input">V Weight</label>
-        <input
-          id="chat-verification-weight-input"
-          type="number"
-          min="0"
-          max="100"
-          step="1"
-          placeholder="Default"
-          value={runtimeOptions?.verificationWeight ?? ""}
-          onchange={(e) => updateRuntimeVerificationWeight((e.target as HTMLInputElement).value)}
-        />
-      </div>
-
-      <div class="runtime-group coordination-dropdown">
-        <span class="runtime-label">Coord</span>
-        <button
-          class="bridge-trigger"
-          class:has-overrides={runtimeOptions?.coordinationScripts != null}
-          onclick={() => (coordDropdownOpen = !coordDropdownOpen)}
-        >
-          <span class="bridge-label">
-            {#if !runtimeOptions?.coordinationScripts}
-              All
-            {:else if !COORD_OPTIONS.some((o) => isCoordEnabled(o.key))}
-              None
-            {:else}
-              {COORD_OPTIONS.filter((o) => isCoordEnabled(o.key)).map((o) => o.label).join(", ")}
-            {/if}
-          </span>
-          <span class="dropdown-arrow">{coordDropdownOpen ? "\u25B2" : "\u25BC"}</span>
-        </button>
-
-        {#if coordDropdownOpen}
-          <div class="bridge-menu">
-            <button class="menu-item auto-item" class:active={!runtimeOptions?.coordinationScripts} onclick={resetCoordToAll}>
-              <span class="check">{!runtimeOptions?.coordinationScripts ? "\u2713" : ""}</span>
-              <span>All Enabled</span>
-            </button>
-            <div class="menu-divider"></div>
-            {#each COORD_OPTIONS as opt (opt.key)}
-              <button
-                class="menu-item"
-                class:active={isCoordEnabled(opt.key)}
-                onclick={() => toggleCoordOption(opt.key)}
-              >
-                <span class="check">{isCoordEnabled(opt.key) ? "\u2713" : ""}</span>
-                <span>{opt.label}</span>
-                <span class="menu-hint">{opt.hint}</span>
-              </button>
-            {/each}
-          </div>
-        {/if}
-      </div>
-
-      <div class="runtime-group runtime-jobname-group">
-        <label class="runtime-label" for="chat-job-name">Name</label>
-        <input
-          id="chat-job-name"
-          type="text"
-          placeholder="Auto"
-          value={chatStore.activeTab?.jobName ?? ""}
-          oninput={(e) => chatStore.setJobName((e.target as HTMLInputElement).value)}
-        />
-      </div>
-    </div>
   </div>
   {#if attachments.length > 0}
     <div class="attachment-list">
@@ -1254,45 +962,8 @@
     padding: 4px 6px;
     min-width: 108px;
   }
-  .model-input-row {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-  }
-  .model-input-row input {
-    flex: 1 1 auto;
-    min-width: 0;
-  }
-  .model-refresh-btn {
-    font-size: 11px;
-    line-height: 1.1;
-    padding: 3px 8px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--bg-base);
-    color: var(--text-secondary);
-  }
-  .model-refresh-btn.icon-only {
-    width: 28px;
-    min-width: 28px;
-    height: 28px;
-    padding: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 15px;
-  }
-  .model-refresh-btn:hover:not(:disabled) {
-    border-color: var(--accent);
-    color: var(--text-primary);
-  }
-  .model-refresh-btn:disabled {
-    opacity: 0.65;
-  }
-
-  /* Bridge dropdown & coordination dropdown */
-  .bridge-dropdown,
-  .coordination-dropdown {
+  /* Bridge dropdown */
+  .bridge-dropdown {
     position: relative;
   }
   .bridge-trigger {
@@ -1531,48 +1202,6 @@
   .btn-queue-start:disabled {
     opacity: 0.4;
     cursor: not-allowed;
-  }
-  .runtime-controls {
-    margin-left: auto;
-    display: inline-flex;
-    align-items: flex-end;
-    gap: 8px;
-    padding: 4px 8px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--bg-base);
-    max-width: 100%;
-  }
-  .runtime-group {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-  }
-  .runtime-model-group {
-    min-width: 170px;
-  }
-  .runtime-agent-group {
-    min-width: 220px;
-  }
-  .runtime-verification-weight-group {
-    width: 78px;
-  }
-  .runtime-jobname-group {
-    min-width: 120px;
-    max-width: 200px;
-  }
-  .runtime-group input,
-  .runtime-group select {
-    font-size: 11px;
-    padding: 3px 6px;
-    min-width: 0;
-  }
-  .runtime-label {
-    font-size: 9px;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.45px;
   }
   .auth-warning {
     font-size: 11px;

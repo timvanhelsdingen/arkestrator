@@ -1790,9 +1790,9 @@ export interface ProgramDiscoveryDeps {
  * With deps: merges built-in + disk files + DB history + live bridges + headless configs.
  */
 export function getCoordinatorScriptPrograms(deps?: ProgramDiscoveryDeps): string[] {
-  const sources: string[] = [
-    ...Object.keys(COORDINATOR_SCRIPT_DEFAULTS),
-  ];
+  const sources: string[] = deps
+    ? []
+    : [...Object.keys(COORDINATOR_SCRIPT_DEFAULTS)];
 
   if (deps) {
     // Disk: .md files in coordinator scripts dir
@@ -1893,8 +1893,6 @@ export function ensureCoordinatorScript(
 export function removeCoordinatorScript(dir: string, program: string): boolean {
   const normalized = program.trim().toLowerCase();
   if (!normalized || normalized === "global") return false;
-  // Don't allow removing built-in programs
-  if (COORDINATOR_SCRIPT_DEFAULTS[normalized]) return false;
 
   const filePath = join(dir, `${normalized}.md`);
   const hashPath = join(dir, `.${normalized}.hash`);

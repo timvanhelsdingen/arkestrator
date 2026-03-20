@@ -1098,18 +1098,14 @@
   }
 
   let availablePrograms = $derived(
-    [...new Set(entries
-      .filter((entry) => entry.root !== "scripts")
-      .map((entry) => String(entry.program ?? "").trim())
-      .filter(Boolean))]
+    [...new Set(
+      coordinatorScripts.map((s) => s.program),
+    )]
       .sort((a, b) => a.localeCompare(b)),
   );
 
   let repositoryProgramOptions = $derived(
-    [...new Set([
-      ...coordinatorScripts.map((s) => s.program),
-      ...availablePrograms,
-    ])]
+    [...new Set(availablePrograms)]
       .map((value) => normalizeProgramName(value))
       .filter(Boolean)
       .sort((a, b) => a.localeCompare(b)),

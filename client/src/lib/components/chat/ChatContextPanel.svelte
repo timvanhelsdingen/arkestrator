@@ -6,15 +6,8 @@
 
   const CONTEXT_DRAG_MIME = "application/x-arkestrator-context-item+json";
   const CONTEXT_DRAG_REF_MIME = "text/x-arkestrator-context-ref";
-  const STORAGE_KEY = "chat-context-panel-width";
-  const DEFAULT_WIDTH = 320;
-  const MIN_WIDTH = 200;
-  const MAX_WIDTH = 500;
-
   let expandedMachine = $state<string | null>(null);
   let expandedBridge = $state<string | null>(null);
-  let panelWidth = $state(loadWidth());
-  let dragging = $state(false);
   let editingItemKey = $state<string | null>(null);
   let editItemName = $state("");
 
@@ -73,44 +66,6 @@
     }
   }
 
-  function loadWidth(): number {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        const w = parseInt(stored, 10);
-        if (w >= MIN_WIDTH && w <= MAX_WIDTH) return w;
-      }
-    } catch {}
-    return DEFAULT_WIDTH;
-  }
-
-  function saveWidth(w: number) {
-    try { localStorage.setItem(STORAGE_KEY, String(w)); } catch {}
-  }
-
-  function onDragStart(e: MouseEvent) {
-    e.preventDefault();
-    dragging = true;
-    const startX = e.clientX;
-    const startWidth = panelWidth;
-
-    function onMove(ev: MouseEvent) {
-      // Drag handle is on the left edge — dragging left increases width
-      const delta = startX - ev.clientX;
-      panelWidth = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, startWidth + delta));
-    }
-
-    function onUp() {
-      dragging = false;
-      saveWidth(panelWidth);
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    }
-
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-  }
-
   function formatDragReference(item: ContextItem): string {
     return `@${item.index}`;
   }
@@ -141,8 +96,7 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="context-panel" style="width: {panelWidth}px; min-width: {panelWidth}px;">
-  <div class="resize-handle" class:active={dragging} onmousedown={onDragStart}></div>
+<div class="context-panel">
   <div class="panel-header">
     <strong>Bridge Context</strong>
     <span class="bridge-count">{connectedBridges.length} connected</span>
@@ -293,27 +247,13 @@
 <style>
   .context-panel {
     position: relative;
-    border-left: 1px solid var(--border);
+    border-top: 1px solid var(--border);
     background: var(--bg-surface);
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    flex-shrink: 0;
-  }
-  .resize-handle {
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 4px;
-    cursor: col-resize;
-    z-index: 10;
-    background: transparent;
-    transition: background 0.15s;
-  }
-  .resize-handle:hover,
-  .resize-handle.active {
-    background: var(--accent);
+    flex: 1;
+    min-height: 0;
   }
   .panel-header {
     display: flex;
@@ -343,7 +283,7 @@
     padding: 8px 12px;
     text-align: left;
     font-size: var(--font-size-sm);
-    font-weight: 600;
+    font-weight: 400;
     color: var(--text-primary);
   }
   .machine-header:hover {

@@ -7194,7 +7194,7 @@ export function createSettingsRoutes(
     const user = requireSecurityManager(c);
     if (!user) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
 
-    const programs = getCoordinatorScriptPrograms(programDiscoveryDeps);
+    const programs = ["global", ...getCoordinatorScriptPrograms(programDiscoveryDeps)];
     const scripts = programs.map((program) => {
       const path = join(coordinatorScriptsDir, `${program}.md`);
       let content = "";
@@ -7290,29 +7290,8 @@ export function createSettingsRoutes(
       return errorResponse(c, 400, "Invalid coordinator script program name", "INVALID_INPUT");
     }
 
-    const defaultContent = getCoordinatorScriptDefault(program);
-
-    if (defaultContent !== undefined) {
-      // Built-in program: reset to default
-      try {
-        mkdirSync(coordinatorScriptsDir, { recursive: true });
-        writeFileSync(path, defaultContent, "utf-8");
-      } catch (err) {
-        return errorResponse(c, 500, `Failed to reset script: ${err}`, "WRITE_ERROR");
-      }
-
-      auditRepo.log({
-        userId: user.id,
-        username: user.username,
-        action: "coordinator_script_reset",
-        resource: `coordinator_script:${program}`,
-        ipAddress: getClientIp(c),
-      });
-
-      return c.json({ ok: true, program, content: defaultContent, action: "reset" });
-    }
-
-    // Dynamic program (no built-in default): delete file entirely
+    // Delete the script file and hash sidecar. Programs are fully dynamic —
+    // if the bridge reconnects, ensureCoordinatorScript() will recreate it.
     const removed = removeCoordinatorScript(coordinatorScriptsDir, program);
     if (!removed) {
       return errorResponse(c, 404, `No coordinator script found for program: ${program}`, "NOT_FOUND");
