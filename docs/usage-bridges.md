@@ -105,11 +105,11 @@ if bridge:
 
 ### Blackmagic Fusion / DaVinci Resolve (Python Script)
 
-1. Run the installer from the bridge directory:
+1. Clone the [arkestrator-bridges](https://github.com/timvanhelsdingen/arkestrator-bridges) repo and run the installer:
    ```bash
-   python bridges/fusion/install.py              # Auto-detect Fusion
-   python bridges/fusion/install.py --resolve    # Install for DaVinci Resolve
-   python bridges/fusion/install.py --path /custom/Scripts/Comp  # Custom path
+   python fusion/install.py              # Auto-detect Fusion
+   python fusion/install.py --resolve    # Install for DaVinci Resolve
+   python fusion/install.py --path /custom/Scripts/Comp  # Custom path
    ```
 2. In Fusion: **Script > Arkestrator_Connect**
 3. The Arkestrator panel opens with connection controls and context actions
