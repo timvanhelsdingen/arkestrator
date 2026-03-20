@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const REGISTRY_CACHE_TTL_SECS: u64 = 300; // 5 minutes
@@ -332,7 +332,7 @@ pub async fn download_and_install_bridge(
             }
         }
         // Only strip if the prefix is a directory (has children), not a single file
-        prefix.filter(|p| {
+        prefix.filter(|_p| {
             (0..archive.len()).any(|i| {
                 archive.by_index(i).ok().and_then(|f| f.enclosed_name().map(|n| n.to_path_buf())).map(|n| n.components().count() > 1).unwrap_or(false)
             })
