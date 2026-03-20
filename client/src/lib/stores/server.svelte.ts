@@ -86,7 +86,8 @@ class ServerState {
   get bootstrapCredentialsPath() {
     if (!this.dataDir) return "";
     const normalized = this.dataDir.replace(/[\\\/]+$/, "");
-    return `${normalized}/data/db/bootstrap-admin.txt`;
+    const sep = normalized.includes("\\") ? "\\" : "/";
+    return `${normalized}${sep}data${sep}db${sep}bootstrap-admin.txt`;
   }
 
   get canStart() {
