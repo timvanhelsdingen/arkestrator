@@ -345,9 +345,9 @@ async function main() {
     logger.info("server", `Updated ${program} headless executable to detected path: ${resolved}`);
   }
 
-  // Seed coordinator scripts directory with per-bridge defaults (on every startup, for new scripts)
+  // Seed global coordinator script (per-bridge scripts are created dynamically on bridge connect)
   seedCoordinatorScripts(config.coordinatorScriptsDir);
-  logger.info("server", `Coordinator scripts seeded at ${config.coordinatorScriptsDir}`);
+  logger.info("server", `Coordinator scripts dir ready at ${config.coordinatorScriptsDir}`);
   seedCoordinatorPlaybooks(config.coordinatorPlaybooksDir);
   logger.info("server", `Coordinator playbooks seeded at ${config.coordinatorPlaybooksDir}`);
 

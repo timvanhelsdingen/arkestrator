@@ -1731,37 +1731,40 @@ export function loadCoordinatorScript(dir: string, program?: string): string | u
  * - File exists and matches our last-written hash -> overwrite with new default
  * - File exists and was user-edited (doesn't match hash) -> leave untouched
  */
+/**
+ * Seed only the global coordinator script on startup.
+ * Per-bridge scripts are created dynamically when bridges connect
+ * via ensureCoordinatorScript().
+ */
 export function seedCoordinatorScripts(dir: string): void {
   try {
     mkdirSync(dir, { recursive: true });
-    for (const [name, content] of Object.entries(COORDINATOR_SCRIPT_DEFAULTS)) {
-      const filePath = join(dir, `${name}.md`);
-      const hashPath = join(dir, `.${name}.hash`);
-      const newHash = Bun.hash(content).toString(16);
+    const globalContent = COORDINATOR_SCRIPT_DEFAULTS["global"];
+    if (!globalContent) return;
 
-      if (!existsSync(filePath)) {
-        writeFileSync(filePath, content, "utf-8");
-        writeFileSync(hashPath, newHash, "utf-8");
-      } else {
-        let lastWrittenHash = "";
-        try { lastWrittenHash = readFileSync(hashPath, "utf-8").trim(); } catch { /* no hash file */ }
+    const filePath = join(dir, "global.md");
+    const hashPath = join(dir, ".global.hash");
+    const newHash = Bun.hash(globalContent).toString(16);
 
-        if (lastWrittenHash && lastWrittenHash !== newHash) {
-          // Built-in default changed - check if user modified the file
-          const currentHash = Bun.hash(readFileSync(filePath, "utf-8")).toString(16);
-          if (currentHash === lastWrittenHash) {
-            // File matches what we last wrote -> safe to overwrite
-            writeFileSync(filePath, content, "utf-8");
-            writeFileSync(hashPath, newHash, "utf-8");
-          }
-        } else if (!lastWrittenHash) {
-          // No hash file (legacy) - write hash for future change detection
+    if (!existsSync(filePath)) {
+      writeFileSync(filePath, globalContent, "utf-8");
+      writeFileSync(hashPath, newHash, "utf-8");
+    } else {
+      let lastWrittenHash = "";
+      try { lastWrittenHash = readFileSync(hashPath, "utf-8").trim(); } catch { /* no hash file */ }
+
+      if (lastWrittenHash && lastWrittenHash !== newHash) {
+        const currentHash = Bun.hash(readFileSync(filePath, "utf-8")).toString(16);
+        if (currentHash === lastWrittenHash) {
+          writeFileSync(filePath, globalContent, "utf-8");
           writeFileSync(hashPath, newHash, "utf-8");
         }
+      } else if (!lastWrittenHash) {
+        writeFileSync(hashPath, newHash, "utf-8");
       }
     }
   } catch (err) {
-    logger.warn("engines", `Failed to seed coordinator scripts: ${err}`);
+    logger.warn("engines", `Failed to seed global coordinator script: ${err}`);
   }
 }
 
