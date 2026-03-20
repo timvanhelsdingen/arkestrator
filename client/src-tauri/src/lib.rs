@@ -558,7 +558,15 @@ fn first_non_empty_line(raw: &str) -> Option<String> {
 }
 
 fn run_command_output(program: &str, args: &[&str]) -> Option<String> {
-    let output = Command::new(program).args(args).output().ok()?;
+    let mut cmd = Command::new(program);
+    cmd.args(args);
+    // Hide the console window on Windows so spawned processes don't flash a CMD window
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    let output = cmd.output().ok()?;
     if !output.status.success() {
         return None;
     }
@@ -635,7 +643,14 @@ fn pull_local_ollama_model(model: String) -> Result<String, String> {
 
     let mut last_error: Option<String> = None;
     for candidate in ollama_cli_candidates() {
-        match Command::new(&candidate).args(["pull", trimmed]).output() {
+        let mut cmd = Command::new(&candidate);
+        cmd.args(["pull", trimmed]);
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
+        match cmd.output() {
             Ok(output) => {
                 if output.status.success() {
                     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -845,6 +860,11 @@ fn run_local_process_with_timeout(
     }
     command.stdout(Stdio::piped());
     command.stderr(Stdio::piped());
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
 
     let mut child = command
         .spawn()
