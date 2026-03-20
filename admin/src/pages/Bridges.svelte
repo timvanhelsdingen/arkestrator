@@ -111,6 +111,14 @@
     return arr;
   });
 
+  // Workers expand/collapse
+  let expandedWorkers = $state(new Set<string>());
+  function toggleWorkers(program: string) {
+    const next = new Set(expandedWorkers);
+    if (next.has(program)) next.delete(program); else next.add(program);
+    expandedWorkers = next;
+  }
+
   // Modal state
   let editScriptProgram = $state<ProgramInfo | null>(null);
   let editScriptContent = $state("");
@@ -260,7 +268,20 @@
                 <span class="badge badge-off">offline</span>
               {/if}
             </td>
-            <td class="muted">{info.workers.length > 0 ? info.workers.join(", ") : "-"}</td>
+            <td class="muted">
+              {#if info.workers.length === 0}
+                -
+              {:else}
+                <button class="workers-toggle" onclick={() => toggleWorkers(info.program)} title={info.workers.join(", ")}>
+                  {info.workers.length} worker{info.workers.length !== 1 ? "s" : ""}
+                </button>
+                {#if expandedWorkers.has(info.program)}
+                  <div class="workers-list">
+                    {#each info.workers as w}<div>{w}</div>{/each}
+                  </div>
+                {/if}
+              {/if}
+            </td>
             <td class="muted versions-cell">
               {#if info.programVersions.length > 0}
                 <span>App: {info.programVersions.join(", ")}</span>
@@ -393,5 +414,23 @@
     line-height: 1.5;
     resize: vertical;
     min-height: 200px;
+  }
+  .workers-toggle {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+    padding: 0;
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    text-underline-offset: 2px;
+  }
+  .workers-toggle:hover { color: var(--text-primary); }
+  .workers-list {
+    margin-top: 4px;
+    font-size: var(--font-size-sm);
+    color: var(--text-muted);
+    line-height: 1.5;
   }
 </style>
