@@ -2046,18 +2046,6 @@
         </div>
       </div>
     </section>
-  {:else if canManageCoordinator && !showOnlyCoordinator}
-    <section>
-      <h3>Coordinator</h3>
-      <p class="desc">
-        Coordinator management moved to its own sidebar tab for a cleaner settings layout.
-      </p>
-      <div class="coord-actions" style="justify-content: flex-start; margin-top: 0;">
-        <button class="btn secondary" onclick={() => { nav.current = "coordinator"; }}>
-          Open Coordinator Tab
-        </button>
-      </div>
-    </section>
   {/if}
 
 </div>
