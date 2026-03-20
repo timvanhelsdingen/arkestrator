@@ -1099,6 +1099,7 @@
 
   let availablePrograms = $derived(
     [...new Set(entries
+      .filter((entry) => entry.root !== "scripts")
       .map((entry) => String(entry.program ?? "").trim())
       .filter(Boolean))]
       .sort((a, b) => a.localeCompare(b)),
