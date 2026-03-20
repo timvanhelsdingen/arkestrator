@@ -96,6 +96,31 @@ export function createWorkerRoutes(
     return c.json({ workers: enriched, bridges: bridgeList });
   });
 
+  /** DELETE /api/workers/bridges-by-program/:program — remove all bridge history for a program */
+  router.delete("/bridges-by-program/:program", (c) => {
+    const user = requirePermission(c, usersRepo, "manageWorkers");
+    if (!user) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+
+    const program = c.req.param("program");
+    if (!/^[a-zA-Z0-9_-]+$/.test(program)) {
+      return errorResponse(c, 400, "Invalid program name", "INVALID_INPUT");
+    }
+
+    const deleted = workersRepo.deleteBridgesByProgram(program);
+
+    auditRepo.log({
+      userId: user.id,
+      username: user.username,
+      action: "delete_bridges_by_program",
+      resource: "worker",
+      resourceId: program,
+      details: JSON.stringify({ program, deleted }),
+      ipAddress: getClientIp(c),
+    });
+
+    return c.json({ ok: true, program, deleted });
+  });
+
   /** PUT /api/workers/:id/rules — manage per-worker machine rules (manageWorkers permission) */
   router.put("/:id/rules", async (c) => {
     const user = requirePermission(c, usersRepo, "manageWorkers");

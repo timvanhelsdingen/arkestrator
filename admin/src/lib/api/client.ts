@@ -783,6 +783,12 @@ export const api = {
       request(`/api/policies/${id}`, { method: "DELETE" }),
   },
 
+  connections: {
+    list: () => request("/api/connections"),
+    kick: (id: string) =>
+      request(`/api/connections/${id}/kick`, { method: "POST" }) as Promise<{ ok: boolean }>,
+  },
+
   workers: {
     list: () => request("/api/workers"),
     delete: (id: string) =>
@@ -803,6 +809,10 @@ export const api = {
         method: "PUT",
         body: JSON.stringify(rules),
       }),
+    deleteBridgesByProgram: (program: string) =>
+      request(`/api/workers/bridges-by-program/${encodeURIComponent(program)}`, {
+        method: "DELETE",
+      }) as Promise<{ ok: boolean; program: string; deleted: number }>,
     checkLocalLlm: (id: string, timeoutMs = 4000) =>
       request(`/api/workers/${id}/local-llm-check?timeoutMs=${encodeURIComponent(String(timeoutMs))}`) as Promise<{
         ok: boolean;
@@ -1131,6 +1141,11 @@ export const api = {
           defaultContent: string;
         }>;
       }>,
+    updateCoordinatorScript: (program: string, content: string) =>
+      request(`/api/settings/coordinator-scripts/${encodeURIComponent(program)}`, {
+        method: "PUT",
+        body: JSON.stringify({ content }),
+      }) as Promise<{ ok: boolean }>,
     deleteCoordinatorScript: (program: string) =>
       request(`/api/settings/coordinator-scripts/${encodeURIComponent(program)}`, {
         method: "DELETE",

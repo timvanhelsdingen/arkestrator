@@ -10,6 +10,9 @@ Focused web admin panel (served at `/admin`) for:
 
 Job operations and broader operational tooling are intentionally handled in the Tauri client.
 
+## Recent Updates (2026-03-20)
+- Bridges admin page (2026-03-20): new `Bridges.svelte` page showing program-centric bridge management. Aggregates data from workers, connections, and coordinator scripts APIs into a per-program view with status, workers, versions, and script info. Supports Edit Script (with reset-to-default), Kick All connections, Remove program (deletes bridge history + script), and Add Bridge (creates coordinator script). Navigation type extended with `"bridges"`, sidebar entry added after Machines (gated on `canManageWorkers`). API client gains `connections.list()`, `connections.kick()`, `workers.deleteBridgesByProgram()`, and `coordinatorTraining.updateCoordinatorScript()` methods.
+
 ## Recent Updates (2026-03-19)
 - Dynamic coordinator script programs (2026-03-19): `CoordinatorTraining.svelte` now fetches the program list from `GET /api/settings/coordinator-scripts` instead of using a hardcoded `KNOWN_PROGRAM_OPTIONS` array. Added `listCoordinatorScripts` and `deleteCoordinatorScript` methods to `src/lib/api/client.ts`. The Training Repository program selector now shows a Delete button for dynamically discovered programs (those without a built-in default).
 - Fine-grained API key permissions (2026-03-19): `ApiKeys.svelte` fully rewritten with grouped permission checkboxes on create (role-based defaults), "Edit Permissions" modal for existing keys, and access summary column in list view. `Users.svelte` adds 3 new permissions (`executeCommands`, `deliverFiles`, `submitJobs`) to the Operations group checkboxes. `src/lib/api/client.ts` adds `permissions` field to `AdminApiKey`, updates `keys.create` to accept optional permissions, and adds `keys.updatePermissions` method.
@@ -71,7 +74,7 @@ Job operations and broader operational tooling are intentionally handled in the 
 
 ## App Structure
 - `App.svelte`: login guard, shell layout, iframe token handoff (`session_token`) with parent-origin/source/token validation, and permission-aware page routing.
-- Active routed pages: `users`, `api-keys`, `agents`, `machines`, `policies`, `coordinator-training`, `audit-log`.
+- Active routed pages: `users`, `api-keys`, `agents`, `machines`, `bridges`, `policies`, `coordinator-training`, `audit-log`.
 - If a logged-in account has no admin-panel capabilities, app shows a `No Admin Access` state.
 - Served by server as SPA at `/admin/*`.
 
@@ -82,6 +85,7 @@ Job operations and broader operational tooling are intentionally handled in the 
 | Users | User CRUD, searchable user table, password reset (old password + new + confirm), and unified per-user `Edit` flow: role, `require2fa`, `clientCoordinationEnabled`, token limits (input/output/period), and fine-grained capability editing (`manageUsers`, `manageAgents`, `manageProjects`, `managePolicies`, `manageApiKeys`, `manageConnections`, `manageWorkers`, `manageSecurity`, `viewAuditLog`, `viewUsage`, `editCoordinator`, `useMcp`, `interveneJobs`, `executeCommands`, `deliverFiles`, `submitJobs`). Includes clickable username/`View` drill-down into an in-page `User Details` insights panel (daily/monthly/all-time usage totals, status counts, recent tokenized jobs) with `?user=<id>` deep-link support. |
 | API Keys | Permission-gated API key manager (`manageApiKeys`) for active key listing with access summary column, create with role selection + grouped permission checkboxes (role-based defaults), one-time raw key reveal + copy, "Edit Permissions" modal for existing keys, and key revocation (`/api/keys`, `/api/keys/:id/permissions`). |
 | AgentConfigs | Agent config CRUD via inline editor panel + inline template quick-add panel (`Use Template` creates config directly). Template adds can still show provider onboarding notes, and the page now includes a first-class `CLI Auth (Server Runtime)` panel for one-click Claude/Codex login in the active server runtime user context (status, start, live logs, open URL, copy code, cancel). Supports optional `fallbackConfigId` field for AUTO-routing escalation chains. Includes `Model Host` dropdown (`server`/`client` toggle, persisted on the agent config) for local-oss model host routing and a separate ephemeral `Catalog Source` dropdown (renamed from per-worker picker) for browsing worker model catalogs. Includes local model runtime tools (`runtime=ollama`): catalog + allowlist management (checkboxes, common-model presets, save allowlist), per-model download/update, bulk download for missing allowed models, live pull progress bar/percent via streamed events, and optional auto-pull before save. |
+| Bridges | Program-centric bridge management page. Aggregates workers, connections, and coordinator scripts into a per-program table (Program, Status, Workers, Versions, Script, Actions). Actions: Edit Script (textarea + reset-to-default), Kick All (disconnects active connections), Remove (deletes bridge history via `DELETE /api/workers/bridges-by-program/:program` + coordinator script). Add Bridge creates a new coordinator script for a program name. |
 | Machines | Machine/worker inventory (`/api/workers`) with live status + IP, connected programs, per-machine rule editing (`banned`, `clientCoordinationAllowed`, `ipAllowlist`, `ipDenylist`, `localLlmEnabled`, `localLlmBaseUrl`, `note`) via `PUT /api/workers/:id/rules`, one-click worker local-LLM endpoint checks (`GET /api/workers/:id/local-llm-check`), and per-machine delete button with confirmation modal dialog (`DELETE /api/workers/:id`). Delete UI uses `confirmDelete` state, `deleteWorker()` handler, and `.btn-danger`/`.actions-cell` styles. |
 | Policies | Server-side allow/deny filters with type tabs (`file_path`, `tool`, `prompt_filter`, `engine_model`, `command_filter`), per-user/global scope, enable/disable toggles, and create/edit/delete flow. |
 | Training Vault | Global coordinator training explorer that lists one logical `training/` tree with `scripts/`, `playbooks/`, `learning/`, and `imports/`; organized into focused views (`Vault Explorer`, `Repository Controls`, `Snapshots`). In `Vault Explorer`, training job artifacts under `learning/jobs/<program>/<jobId>/...` render as one foldout row per job with nested file rows, while imported references now appear under the dedicated `imports` root. Includes a `Training Job Metadata + Export` panel with checkboxable job rows and scoped zip export by selected job, checked jobs, selected bridge/program, current filters, or full training set. Vault view also supports direct `Import Training Data (.zip)` ingest into server training roots, while job artifact files are read-only with explicit download/export actions (no misleading in-vault save behavior). `Snapshots` now handles full disaster-recovery zip export/import (`Export Entire Server (.zip)` / restore) with optional configured server-file inclusion. |
@@ -91,18 +95,18 @@ Job operations and broader operational tooling are intentionally handled in the 
 | Store | File | State |
 |-------|------|-------|
 | auth | `auth.svelte.ts` | `token`, `user`, 2FA challenge state, plus capability getters (`canManageUsers`, `canManageAgents`, `canManagePolicies`, `canViewAuditLog`, etc.) and `hasAdminAccess`. |
-| navigation | `navigation.svelte.ts` | `current: "users" | "api-keys" | "agents" | "machines" | "policies" | "coordinator-training" | "audit-log"` |
+| navigation | `navigation.svelte.ts` | `current: "users" | "api-keys" | "agents" | "machines" | "bridges" | "policies" | "coordinator-training" | "audit-log"` |
 | toast | `toast.svelte.ts` | Toast queue/messages |
 
 ## Navigation + Layout
 - `lib/components/layout/Sidebar.svelte`
   - Renders the refreshed Arkestrator logo mark beside the `Arkestrator / Admin` lockup
-  - Capability-gated items: `Users`, `API Keys`, `Agents`, `Machines`, `Filters`, `Training Vault`, `Audit Log`
+  - Capability-gated items: `Users`, `API Keys`, `Agents`, `Machines`, `Bridges`, `Filters`, `Training Vault`, `Audit Log`
   - Filters items by permission (`manageUsers`, `manageApiKeys`, `manageAgents`, `manageWorkers`, `managePolicies`, `editCoordinator/manageSecurity`, `viewAuditLog`)
   - Auto-corrects `nav.current` to the first allowed page
 - `lib/components/layout/Header.svelte`
   - Authenticated page title bar with persistent build badge (`Build <version+sha>`)
-  - Titles for active pages (`users`, `api-keys`, `agents`, `machines`, `policies`, `coordinator-training`, `audit-log`)
+  - Titles for active pages (`users`, `api-keys`, `agents`, `machines`, `bridges`, `policies`, `coordinator-training`, `audit-log`)
 
 ## API Layer (`src/lib/api/client.ts`)
 Active admin UI uses:
@@ -110,10 +114,11 @@ Active admin UI uses:
 - `users.*` (`list`, `insights`, `create`, `updateRole`, `resetPassword` with `oldPassword/newPassword/confirmNewPassword`, `delete`, `setLimits`, `updatePermissions`, `updateSettings`)
 - `keys.*` (`list`, `create` with optional permissions, `revoke`, `updatePermissions`)
 - `agents.*` (includes local model catalog discovery, allowlist updates, direct pull helpers, streamed pull-progress helper for live download UX, and CLI auth status/session/login helpers for Claude/Codex)
-- `workers.list`, `workers.updateRules`, `workers.checkLocalLlm`, `workers.delete` (`DELETE /api/workers/:id`)
+- `connections.list`, `connections.kick`
+- `workers.list`, `workers.updateRules`, `workers.checkLocalLlm`, `workers.delete`, `workers.deleteBridgesByProgram`
 - `settings.get`, `settings.setAllowClientCoordination`, `settings.getTrainingRepositoryPolicy`, `settings.updateTrainingRepositoryPolicy`, `settings.getTrainingRepositoryOverrides`, `settings.updateTrainingRepositoryOverrides`, `settings.listTrainingRepositoryRecords`, `settings.getTrainingRepositoryStatus`, `settings.getTrainingRepositoryMetrics`, `settings.reindexTrainingRepository`
 - `policies.*`
-- `coordinatorTraining.*` (`list`, `readFile`, `writeFile`, `createFolder`, `deleteFile`, `deleteFolder`, `updateMetadata`, `listJobs`, `exportJobs`, `exportTrainingDataZip`, `importTrainingDataZip`, `exportSnapshot`, `importSnapshot`, `exportSnapshotZip`, `importSnapshotZip`)
+- `coordinatorTraining.*` (`list`, `readFile`, `writeFile`, `createFolder`, `deleteFile`, `deleteFolder`, `updateMetadata`, `listJobs`, `exportJobs`, `exportTrainingDataZip`, `importTrainingDataZip`, `exportSnapshot`, `importSnapshot`, `exportSnapshotZip`, `importSnapshotZip`, `listCoordinatorScripts`, `updateCoordinatorScript`, `deleteCoordinatorScript`)
 - `audit.*`
 
 ## Removed Legacy Pages

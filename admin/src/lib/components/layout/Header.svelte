@@ -7,6 +7,7 @@
     "api-keys": "API Keys",
     agents: "Agent Configurations",
     machines: "Machines",
+    bridges: "Bridges",
     policies: "Filters & Policies",
     "coordinator-training": "Training Vault",
     "audit-log": "Audit Log",

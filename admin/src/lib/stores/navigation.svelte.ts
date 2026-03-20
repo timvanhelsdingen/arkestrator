@@ -3,6 +3,7 @@ export type Page =
   | "api-keys"
   | "agents"
   | "machines"
+  | "bridges"
   | "policies"
   | "coordinator-training"
   | "audit-log";

@@ -10,6 +10,7 @@
   import ApiKeys from "./pages/ApiKeys.svelte";
   import AgentConfigs from "./pages/AgentConfigs.svelte";
   import Machines from "./pages/Machines.svelte";
+  import Bridges from "./pages/Bridges.svelte";
   import Policies from "./pages/Policies.svelte";
   import AuditLog from "./pages/AuditLog.svelte";
   import CoordinatorTraining from "./pages/CoordinatorTraining.svelte";
@@ -98,6 +99,8 @@
           <AgentConfigs />
         {:else if nav.current === "machines" && auth.canManageWorkers}
           <Machines />
+        {:else if nav.current === "bridges" && auth.canManageWorkers}
+          <Bridges />
         {:else if nav.current === "policies" && auth.canManagePolicies}
           <Policies />
         {:else if nav.current === "coordinator-training" && (auth.canEditCoordinator || auth.canManageSecurity)}
