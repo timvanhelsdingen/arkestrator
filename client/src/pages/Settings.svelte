@@ -205,16 +205,7 @@
     }
   });
 
-  $effect(() => {
-    if (
-      connection.isAuthenticated
-      && !showOnlyCoordinator
-      && !localModelsLoading
-      && !localModelsLoaded
-    ) {
-      void loadLocalModels();
-    }
-  });
+  // Local models are loaded on-demand via "Load Models" button, not automatically.
 
   $effect(() => {
     if (
@@ -1417,7 +1408,7 @@
         </label>
         <div class="btn-group">
           <button class="btn secondary" onclick={loadLocalModels} disabled={localModelsLoading}>
-            {localModelsLoading ? "Refreshing..." : "Refresh Catalog"}
+            {localModelsLoading ? "Loading..." : localModelsLoaded ? "Refresh" : "Load Models"}
           </button>
           {#if localRuntimeSource === "server"}
             <button class="btn secondary" onclick={() => (nav.current = "admin")}>
