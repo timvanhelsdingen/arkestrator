@@ -7280,7 +7280,8 @@ export function createSettingsRoutes(
 
   // Reset a coordinator script to its built-in default, or remove it entirely if dynamic
   router.delete("/coordinator-scripts/:program", (c) => {
-    const user = requireSecurityManager(c);
+    // Accept either manageSecurity (settings pages) or manageWorkers (bridges page)
+    const user = requireSecurityManager(c) ?? requirePermission(c, usersRepo, "manageWorkers");
     if (!user) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
 
     const program = c.req.param("program");

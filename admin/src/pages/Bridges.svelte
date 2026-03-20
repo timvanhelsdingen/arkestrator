@@ -182,16 +182,23 @@
     if (!confirmRemove) return;
     const program = confirmRemove.program;
     confirmRemove = null;
+    const errors: string[] = [];
     try {
-      await Promise.all([
-        api.workers.deleteBridgesByProgram(program),
-        api.coordinatorTraining.deleteCoordinatorScript(program).catch(() => {}),
-      ]);
-      toast.success(`Removed bridge program "${program}"`);
-      await load();
+      await api.workers.deleteBridgesByProgram(program);
     } catch (err: any) {
-      toast.error(err.message ?? "Failed to remove program");
+      errors.push(`bridge history: ${err.message ?? "failed"}`);
     }
+    try {
+      await api.coordinatorTraining.deleteCoordinatorScript(program);
+    } catch (err: any) {
+      errors.push(`coordinator script: ${err.message ?? "failed"}`);
+    }
+    if (errors.length === 0) {
+      toast.success(`Removed bridge program "${program}"`);
+    } else {
+      toast.error(`Partial removal of "${program}": ${errors.join("; ")}`);
+    }
+    await load();
   }
 
   async function addBridge() {
