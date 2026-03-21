@@ -478,6 +478,20 @@ class ChatState {
     this.tabs = [...this.tabs];
     this.persist();
   }
+
+  setSkillsMode(enabled: boolean | undefined) {
+    const tab = this.activeTab;
+    if (!tab) return;
+    const next: JobRuntimeOptions = { ...(tab.runtimeOptions ?? {}) };
+    if (enabled) {
+      next.skillsMode = true;
+    } else {
+      delete next.skillsMode;
+    }
+    tab.runtimeOptions = Object.keys(next).length > 0 ? next : undefined;
+    this.tabs = [...this.tabs];
+    this.persist();
+  }
 }
 
 export const chatStore = new ChatState();

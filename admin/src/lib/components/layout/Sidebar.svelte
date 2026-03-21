@@ -11,6 +11,7 @@
     plug: "M12 2v6M8 8h8M9 8v4a3 3 0 0 0 6 0V8M12 16v6",
     filter: "M22 3H2l8 9v7l4 2v-9z",
     folder: "M3 7h6l2 2h10v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7zM3 7a2 2 0 0 1 2-2h4l2 2",
+    zap: "M13 2L3 14h9l-1 8 10-12h-9l1-8z",
     list: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01",
   };
 
@@ -27,6 +28,7 @@
     { page: "bridges", label: "Bridges", icon: "plug", canAccess: () => auth.canManageWorkers },
     { page: "policies", label: "Filters", icon: "filter", canAccess: () => auth.canManagePolicies },
     { page: "coordinator-training", label: "Training Vault", icon: "folder", canAccess: () => auth.canEditCoordinator || auth.canManageSecurity },
+    { page: "skills", label: "Skills", icon: "zap", canAccess: () => auth.canEditCoordinator || auth.canManageSecurity },
     { page: "audit-log", label: "Audit Log", icon: "list", canAccess: () => auth.canViewAuditLog },
   ];
 

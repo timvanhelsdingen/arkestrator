@@ -6,6 +6,7 @@ export type Page =
   | "bridges"
   | "policies"
   | "coordinator-training"
+  | "skills"
   | "audit-log";
 
 class NavigationState {

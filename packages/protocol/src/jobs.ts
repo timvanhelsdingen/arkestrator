@@ -53,6 +53,8 @@ export const JobRuntimeOptions = z.object({
   bridgeExecutionMode: BridgeExecutionMode.optional(),
   /** Granular control over which coordination scripts are included. All enabled by default. */
   coordinationScripts: CoordinationScripts.optional(),
+  /** Enable skills mode: injects matched skills into agent prompts. */
+  skillsMode: z.boolean().optional(),
 });
 export type JobRuntimeOptions = z.infer<typeof JobRuntimeOptions>;
 

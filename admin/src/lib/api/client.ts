@@ -80,7 +80,7 @@ export interface UserInsightsResponse {
 export interface AdminApiKey {
   id: string;
   name: string;
-  role: "bridge" | "client" | "admin" | "mcp";
+  role: "bridge" | "client" | "admin";
   permissions: AdminUserPermissions;
   createdAt: string;
   revokedAt: string | null;
@@ -659,7 +659,7 @@ export const api = {
 
   keys: {
     list: () => request("/api/keys") as Promise<AdminApiKey[]>,
-    create: (name: string, role: "bridge" | "client" | "admin" | "mcp", permissions?: AdminUserPermissions) =>
+    create: (name: string, role: "bridge" | "client" | "admin", permissions?: AdminUserPermissions) =>
       request("/api/keys", {
         method: "POST",
         body: JSON.stringify({ name, role, permissions }),
@@ -1185,5 +1185,39 @@ export const api = {
       const qs = params.toString();
       return request(`/api/audit-log${qs ? `?${qs}` : ""}`);
     },
+  },
+
+  skills: {
+    list: (program?: string, category?: string) => {
+      const params = new URLSearchParams();
+      if (program) params.set("program", program);
+      if (category) params.set("category", category);
+      const qs = params.toString();
+      return request(`/api/skills${qs ? `?${qs}` : ""}`) as Promise<any[]>;
+    },
+    get: (slug: string, program?: string) => {
+      const params = new URLSearchParams();
+      if (program) params.set("program", program);
+      const qs = params.toString();
+      return request(`/api/skills/${encodeURIComponent(slug)}${qs ? `?${qs}` : ""}`) as Promise<any>;
+    },
+    search: (query: string, program?: string, category?: string) =>
+      request("/api/skills/search", {
+        method: "POST",
+        body: JSON.stringify({ query, program, category }),
+      }) as Promise<any[]>,
+    create: (skill: { name: string; slug: string; program: string; category: string; title: string; description: string; keywords: string[]; content: string }) =>
+      request("/api/skills", {
+        method: "POST",
+        body: JSON.stringify(skill),
+      }) as Promise<any>,
+    delete: (slug: string, program?: string) => {
+      const params = new URLSearchParams();
+      if (program) params.set("program", program);
+      const qs = params.toString();
+      return request(`/api/skills/${encodeURIComponent(slug)}${qs ? `?${qs}` : ""}`, { method: "DELETE" }) as Promise<any>;
+    },
+    refreshIndex: () =>
+      request("/api/skills/refresh-index", { method: "POST" }) as Promise<any>,
   },
 };

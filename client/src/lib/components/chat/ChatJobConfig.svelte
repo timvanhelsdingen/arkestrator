@@ -440,6 +440,17 @@
       {/if}
     </div>
 
+    <!-- Skills -->
+    <div class="config-row config-row-inline">
+      <label for="jc-skills-mode">Skills</label>
+      <input
+        id="jc-skills-mode"
+        type="checkbox"
+        checked={runtimeOptions?.skillsMode ?? false}
+        onchange={(e) => chatStore.setSkillsMode((e.target as HTMLInputElement).checked)}
+      />
+    </div>
+
     <!-- Name -->
     <div class="config-row">
       <label for="jc-job-name">Name</label>
@@ -488,6 +499,16 @@
     text-transform: uppercase;
     color: var(--text-muted);
     letter-spacing: 0.45px;
+  }
+
+  .config-row-inline {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .config-row-inline input[type="checkbox"] {
+    width: auto;
   }
 
   .config-row select,

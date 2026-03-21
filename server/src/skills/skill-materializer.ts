@@ -24,12 +24,8 @@ export interface SkillMaterializerConfig {
   coordinatorScriptsDir: string;
   /** Path to coordinator playbooks directory (e.g. data/coordinator-playbooks). */
   coordinatorPlaybooksDir: string;
-  /** Path to coordinator imports directory (used by training repo). */
-  coordinatorImportsDir: string;
-  /** Known programs (bridge programs discovered at runtime). */
-  knownPrograms: string[];
   /** Optional playbook source paths. */
-  playbookSourcePaths?: string[];
+  coordinatorPlaybookSourcePaths?: string[];
   /** Custom skills repo instance. */
   skillsRepo: SkillsRepo;
 }
@@ -42,6 +38,9 @@ export function materializeSkills(config: SkillMaterializerConfig): Skill[] {
   const skills: Skill[] = [];
   const now = new Date().toISOString();
 
+  // Discover programs from coordinator scripts directory
+  const knownPrograms = discoverPrograms(config.coordinatorScriptsDir, config.coordinatorPlaybooksDir);
+
   // 1. Coordinator scripts from disk
   skills.push(...materializeCoordinatorScripts(config.coordinatorScriptsDir, now));
 
@@ -49,12 +48,35 @@ export function materializeSkills(config: SkillMaterializerConfig): Skill[] {
   skills.push(...config.skillsRepo.list());
 
   // 3. Playbook tasks from manifests
-  skills.push(...materializePlaybooks(config.coordinatorPlaybooksDir, config.knownPrograms, config.playbookSourcePaths ?? [], now));
+  skills.push(...materializePlaybooks(config.coordinatorPlaybooksDir, knownPrograms, config.coordinatorPlaybookSourcePaths ?? [], now));
 
   // 4. Training records
-  skills.push(...materializeTrainingRecords(config.coordinatorPlaybooksDir, config.knownPrograms, now));
+  skills.push(...materializeTrainingRecords(config.coordinatorPlaybooksDir, knownPrograms, now));
+
+  // 5. Built-in bridge skills (always available, supplement coordinator scripts)
+  skills.push(...materializeBuiltinBridgeSkills(now));
 
   return skills;
+}
+
+/** Discover program names from coordinator scripts and playbooks directories. */
+function discoverPrograms(scriptsDir: string, playbooksDir: string): string[] {
+  const programs = new Set<string>();
+  // From coordinator scripts (*.md files, excluding global)
+  try {
+    for (const f of readdirSync(scriptsDir)) {
+      if (f.startsWith(".") || !f.endsWith(".md") || f === "global.md") continue;
+      programs.add(basename(f, ".md").toLowerCase());
+    }
+  } catch {}
+  // From playbook subdirectories (excluding _learning, global)
+  try {
+    for (const d of readdirSync(playbooksDir, { withFileTypes: true })) {
+      if (!d.isDirectory() || d.name.startsWith("_") || d.name === "global") continue;
+      programs.add(d.name.toLowerCase());
+    }
+  } catch {}
+  return [...programs].sort();
 }
 
 /**
@@ -286,6 +308,165 @@ function qualityToPriority(rating: string): number {
   if (rating === "good") return 60;
   if (rating === "average") return 40;
   return 25;
+}
+
+/** Built-in bridge skills that are always available. These provide common
+ *  patterns and capabilities that supplement the coordinator scripts. */
+function materializeBuiltinBridgeSkills(now: string): Skill[] {
+  const builtins: Array<{ slug: string; program: string; title: string; description: string; keywords: string[]; content: string }> = [
+    {
+      slug: "blender-python-patterns",
+      program: "blender",
+      title: "Blender Python Scripting Patterns",
+      description: "Common bpy scripting patterns for scene manipulation, mesh creation, materials, rendering, and file I/O.",
+      keywords: ["blender", "bpy", "python", "mesh", "material", "render", "scene", "object", "node", "shader", "geometry", "export"],
+      content: [
+        "# Blender Python Scripting Patterns",
+        "",
+        "## Scene Management",
+        "- Use `bpy.context.scene` for the active scene",
+        "- Use `bpy.data.objects` to access all objects",
+        "- Always call `bpy.context.view_layer.update()` after transformations",
+        "",
+        "## Mesh Creation",
+        "- Use `bpy.ops.mesh.primitive_*_add()` for basic shapes",
+        "- For custom meshes: create mesh data, add vertices/faces, link to object",
+        "- Use bmesh for complex procedural geometry",
+        "",
+        "## Materials & Shaders",
+        "- Create materials with `bpy.data.materials.new()`",
+        "- Use `material.use_nodes = True` for node-based shaders",
+        "- Access node tree via `material.node_tree.nodes`",
+        "",
+        "## Rendering",
+        "- Set render engine: `bpy.context.scene.render.engine = 'CYCLES'` or `'BLENDER_EEVEE_NEXT'`",
+        "- Set output: `bpy.context.scene.render.filepath`",
+        "- Render: `bpy.ops.render.render(write_still=True)`",
+        "",
+        "## Verification",
+        "- After creating objects, verify they exist in `bpy.data.objects`",
+        "- After rendering, check output file exists and has non-zero size",
+        "- Use `bpy.ops.wm.save_mainfile()` to save the .blend file",
+      ].join("\n"),
+    },
+    {
+      slug: "godot-gdscript-patterns",
+      program: "godot",
+      title: "Godot GDScript Patterns",
+      description: "Common GDScript patterns for scene management, node creation, physics, UI, and project structure.",
+      keywords: ["godot", "gdscript", "scene", "node", "physics", "rigidbody", "collision", "signal", "export", "resource"],
+      content: [
+        "# Godot GDScript Patterns",
+        "",
+        "## Scene Structure",
+        "- Root node types: Node2D (2D), Node3D (3D), Control (UI)",
+        "- Use `.tscn` for scenes, `.tres` for resources, `.gd` for scripts",
+        "- Organize: scenes/, scripts/, assets/, resources/ directories",
+        "",
+        "## Node Management",
+        "- `get_tree().root` for scene tree root",
+        "- `add_child()`, `remove_child()`, `queue_free()` for lifecycle",
+        "- `@onready` for node references, `@export` for inspector properties",
+        "",
+        "## Physics",
+        "- RigidBody3D for dynamic physics objects",
+        "- StaticBody3D + CollisionShape3D for static collision",
+        "- CharacterBody3D + `move_and_slide()` for controllable characters",
+        "- Always add CollisionShape3D children to physics bodies",
+        "",
+        "## Signals",
+        "- `signal my_signal(arg)` to declare, `.emit()` to fire",
+        "- `node.connect('signal_name', callable)` to listen",
+        "",
+        "## Verification",
+        "- Test with `godot --headless --path <project> --script <test_script>`",
+        "- Check scene tree structure, node counts, and collision layers",
+      ].join("\n"),
+    },
+    {
+      slug: "houdini-python-patterns",
+      program: "houdini",
+      title: "Houdini Python/VEX Patterns",
+      description: "Common patterns for Houdini node graphs, geometry manipulation, simulations, and rendering via hython.",
+      keywords: ["houdini", "hython", "vex", "sop", "geometry", "simulation", "render", "node", "parameter", "cache"],
+      content: [
+        "# Houdini Python/VEX Patterns",
+        "",
+        "## Node Graph",
+        "- `hou.node('/obj')` for object context",
+        "- `node.createNode('type')` to add nodes",
+        "- `node.parm('name').set(value)` to set parameters",
+        "- Always set display/render flags: `node.setDisplayFlag(True)`",
+        "",
+        "## Geometry",
+        "- SOPs for surface operations: box, sphere, transform, merge",
+        "- Use VEX wrangles (`attribwrangle`) for attribute manipulation",
+        "- `hou.Geometry()` for procedural geometry in Python",
+        "",
+        "## Simulations",
+        "- DOPs for dynamics: RBD, FLIP, Pyro, Vellum",
+        "- Always cache simulations to disk (File Cache SOP or .bgeo sequences)",
+        "- Set frame range before running simulation",
+        "",
+        "## Rendering",
+        "- Use Karma or Mantra ROPs for rendering",
+        "- Set output path in ROP node parameters",
+        "- `hou.hipFile.save()` to save the .hip file",
+        "",
+        "## Verification",
+        "- Check node errors: `node.errors()`, `node.warnings()`",
+        "- Verify geometry: `node.geometry().points()`, `.prims()`",
+        "- Verify cache files exist after simulation",
+      ].join("\n"),
+    },
+    {
+      slug: "comfyui-workflow-patterns",
+      program: "comfyui",
+      title: "ComfyUI Workflow Patterns",
+      description: "Common patterns for building and executing ComfyUI image generation workflows.",
+      keywords: ["comfyui", "workflow", "image", "generation", "diffusion", "checkpoint", "sampler", "lora", "controlnet", "prompt"],
+      content: [
+        "# ComfyUI Workflow Patterns",
+        "",
+        "## Workflow Structure",
+        "- Workflows are JSON node graphs with numbered node IDs",
+        "- Each node has: class_type, inputs (connected or literal values)",
+        "- Output nodes (SaveImage, PreviewImage) trigger execution",
+        "",
+        "## Common Nodes",
+        "- CheckpointLoaderSimple: loads .safetensors model files",
+        "- CLIPTextEncode: converts text prompts to conditioning",
+        "- KSampler: core sampling node (model, positive, negative, latent)",
+        "- VAEDecode: converts latents to pixel images",
+        "- SaveImage: saves output to ComfyUI output directory",
+        "",
+        "## Best Practices",
+        "- Use queue_prompt API to submit workflows",
+        "- Poll history API for completion status",
+        "- Verify output images exist and have expected dimensions",
+        "- Use seed values for reproducibility",
+      ].join("\n"),
+    },
+  ];
+
+  return builtins.map((b) => ({
+    id: `builtin:${b.slug}`,
+    name: b.slug,
+    slug: b.slug,
+    program: b.program,
+    category: "bridge" as const,
+    title: b.title,
+    description: b.description,
+    keywords: b.keywords,
+    content: b.content,
+    source: "builtin",
+    sourcePath: null,
+    priority: 40,
+    autoFetch: false,
+    enabled: true,
+    createdAt: now,
+    updatedAt: now,
+  }));
 }
 
 /** Extract simple keywords from content text. */

@@ -1,0 +1,451 @@
+<script lang="ts">
+  import { onMount } from "svelte";
+  import { api } from "../lib/api/client";
+  import { toast } from "../lib/stores/toast.svelte";
+  import Modal from "../lib/components/ui/Modal.svelte";
+
+  interface SkillEntry {
+    slug: string;
+    name: string;
+    program: string | null;
+    category: string;
+    title: string;
+    description: string;
+    keywords: string[];
+    content: string;
+    source: string;
+    sourcePath: string | null;
+    priority: number;
+    autoFetch: boolean;
+    enabled: boolean;
+  }
+
+  interface SearchResult {
+    slug: string;
+    name: string;
+    program: string | null;
+    category: string;
+    title: string;
+    description: string;
+    score: number;
+  }
+
+  let loading = $state(false);
+  let skills = $state<SkillEntry[]>([]);
+
+  // Filters
+  let filterProgram = $state("");
+  let filterCategory = $state("");
+
+  // Search preview
+  let searchQuery = $state("");
+  let searchResults = $state<SearchResult[]>([]);
+  let searching = $state(false);
+
+  // Create form
+  let createOpen = $state(false);
+  let createName = $state("");
+  let createSlug = $state("");
+  let createProgram = $state("");
+  let createCategory = $state("custom");
+  let createTitle = $state("");
+  let createDescription = $state("");
+  let createKeywords = $state("");
+  let createContent = $state("");
+
+  // Detail modal
+  let detailSkill = $state<SkillEntry | null>(null);
+
+  // Delete confirm
+  let confirmDelete = $state<SkillEntry | null>(null);
+
+  let filteredSkills = $derived.by(() => {
+    let result = skills;
+    if (filterProgram) {
+      result = result.filter((s) => s.program === filterProgram);
+    }
+    if (filterCategory) {
+      result = result.filter((s) => s.category === filterCategory);
+    }
+    return result;
+  });
+
+  let uniquePrograms = $derived.by(() => {
+    const set = new Set<string>();
+    for (const s of skills) {
+      if (s.program) set.add(s.program);
+    }
+    return Array.from(set).sort();
+  });
+
+  let uniqueCategories = $derived.by(() => {
+    const set = new Set<string>();
+    for (const s of skills) {
+      if (s.category) set.add(s.category);
+    }
+    return Array.from(set).sort();
+  });
+
+  async function load() {
+    loading = true;
+    try {
+      const data = await api.skills.list();
+      skills = Array.isArray(data) ? data : [];
+    } catch (err: any) {
+      toast.error(err.message ?? "Failed to load skills");
+    } finally {
+      loading = false;
+    }
+  }
+
+  async function doSearch() {
+    const q = searchQuery.trim();
+    if (!q) {
+      searchResults = [];
+      return;
+    }
+    searching = true;
+    try {
+      const data = await api.skills.search(q, filterProgram || undefined, filterCategory || undefined);
+      searchResults = Array.isArray(data) ? data : [];
+    } catch (err: any) {
+      toast.error(err.message ?? "Search failed");
+    } finally {
+      searching = false;
+    }
+  }
+
+  async function refreshIndex() {
+    try {
+      await api.skills.refreshIndex();
+      toast.success("Skill index refreshed");
+      await load();
+    } catch (err: any) {
+      toast.error(err.message ?? "Failed to refresh index");
+    }
+  }
+
+  async function createSkill() {
+    const name = createName.trim();
+    const slug = createSlug.trim();
+    const title = createTitle.trim();
+    const content = createContent.trim();
+    if (!name || !slug || !title || !content) {
+      toast.error("Name, slug, title, and content are required");
+      return;
+    }
+    try {
+      const keywords = createKeywords
+        .split(",")
+        .map((k) => k.trim())
+        .filter(Boolean);
+      await api.skills.create({
+        name,
+        slug,
+        program: createProgram.trim() || "global",
+        category: createCategory,
+        title,
+        description: createDescription.trim() || "",
+        keywords: keywords.length > 0 ? keywords : [],
+        content,
+      });
+      toast.success(`Skill "${name}" created`);
+      createOpen = false;
+      createName = "";
+      createSlug = "";
+      createProgram = "";
+      createCategory = "custom";
+      createTitle = "";
+      createDescription = "";
+      createKeywords = "";
+      createContent = "";
+      await load();
+    } catch (err: any) {
+      toast.error(err.message ?? "Failed to create skill");
+    }
+  }
+
+  async function deleteSkill() {
+    if (!confirmDelete) return;
+    const { slug, program } = confirmDelete;
+    confirmDelete = null;
+    try {
+      await api.skills.delete(slug, program || undefined);
+      toast.success(`Skill "${slug}" deleted`);
+      await load();
+    } catch (err: any) {
+      toast.error(err.message ?? "Failed to delete skill");
+    }
+  }
+
+  function autoSlug() {
+    createSlug = createName
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "");
+  }
+
+  onMount(() => {
+    load();
+  });
+</script>
+
+<div class="page">
+  <div class="toolbar">
+    <div class="filters">
+      <select bind:value={filterProgram}>
+        <option value="">All Programs</option>
+        {#each uniquePrograms as p}
+          <option value={p}>{p}</option>
+        {/each}
+      </select>
+      <select bind:value={filterCategory}>
+        <option value="">All Categories</option>
+        {#each uniqueCategories as c}
+          <option value={c}>{c}</option>
+        {/each}
+      </select>
+    </div>
+    <div class="toolbar-actions">
+      <button class="btn-primary" onclick={() => (createOpen = true)}>Create Skill</button>
+      <button class="btn-secondary" onclick={refreshIndex}>Refresh Index</button>
+      <button class="btn-secondary" onclick={load} disabled={loading}>Reload</button>
+    </div>
+  </div>
+
+  <!-- Search Preview -->
+  <div class="search-panel">
+    <div class="search-row">
+      <input
+        type="text"
+        placeholder="Search skills..."
+        bind:value={searchQuery}
+        onkeydown={(e) => { if (e.key === "Enter") doSearch(); }}
+      />
+      <button class="btn-secondary" onclick={doSearch} disabled={searching}>
+        {searching ? "Searching..." : "Search"}
+      </button>
+    </div>
+    {#if searchResults.length > 0}
+      <div class="search-results">
+        {#each searchResults as r}
+          <div class="search-result">
+            <span class="mono">{r.slug}</span>
+            <span class="result-title">{r.title}</span>
+            <span class="badge badge-cat">{r.category}</span>
+            {#if r.program}
+              <span class="badge badge-prog">{r.program}</span>
+            {/if}
+            <span class="score">score: {r.score?.toFixed?.(2) ?? r.score}</span>
+          </div>
+        {/each}
+      </div>
+    {/if}
+  </div>
+
+  <!-- Skills Table -->
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Slug</th>
+        <th>Title</th>
+        <th>Program</th>
+        <th>Category</th>
+        <th>Source</th>
+        <th>Enabled</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {#if loading}
+        <tr><td colspan="7" class="muted">Loading skills...</td></tr>
+      {:else if filteredSkills.length === 0}
+        <tr><td colspan="7" class="muted">No skills found.</td></tr>
+      {:else}
+        {#each filteredSkills as skill}
+          <tr>
+            <td class="mono">{skill.slug}</td>
+            <td>{skill.title}</td>
+            <td class="muted">{skill.program || "-"}</td>
+            <td><span class="badge badge-cat">{skill.category}</span></td>
+            <td><span class="badge {skill.source === 'user' ? 'badge-custom' : 'badge-default'}">{skill.source}</span></td>
+            <td>
+              {#if skill.enabled}
+                <span class="badge badge-ok">yes</span>
+              {:else}
+                <span class="badge badge-off">no</span>
+              {/if}
+            </td>
+            <td class="actions-cell">
+              <button class="btn-small" onclick={() => (detailSkill = skill)}>View</button>
+              {#if skill.source === "user"}
+                <button class="btn-small btn-danger" onclick={() => (confirmDelete = skill)}>Delete</button>
+              {/if}
+            </td>
+          </tr>
+        {/each}
+      {/if}
+    </tbody>
+  </table>
+
+  <div class="summary">
+    {filteredSkills.length} skill{filteredSkills.length !== 1 ? "s" : ""} shown
+    {#if skills.length !== filteredSkills.length}
+      ({skills.length} total)
+    {/if}
+  </div>
+</div>
+
+<!-- Detail Modal -->
+<Modal title="Skill Detail" open={detailSkill !== null} onclose={() => (detailSkill = null)}>
+  {#if detailSkill}
+    <div class="detail-grid">
+      <div><strong>Slug:</strong> <span class="mono">{detailSkill.slug}</span></div>
+      <div><strong>Name:</strong> {detailSkill.name}</div>
+      <div><strong>Title:</strong> {detailSkill.title}</div>
+      <div><strong>Program:</strong> {detailSkill.program || "-"}</div>
+      <div><strong>Category:</strong> {detailSkill.category}</div>
+      <div><strong>Source:</strong> {detailSkill.source}</div>
+      <div><strong>Enabled:</strong> {detailSkill.enabled ? "Yes" : "No"}</div>
+      <div><strong>Priority:</strong> {detailSkill.priority}</div>
+      <div><strong>Auto-fetch:</strong> {detailSkill.autoFetch ? "Yes" : "No"}</div>
+      {#if detailSkill.keywords.length > 0}
+        <div><strong>Keywords:</strong> {detailSkill.keywords.join(", ")}</div>
+      {/if}
+      {#if detailSkill.description}
+        <div><strong>Description:</strong> {detailSkill.description}</div>
+      {/if}
+      {#if detailSkill.sourcePath}
+        <div><strong>Source Path:</strong> <span class="mono">{detailSkill.sourcePath}</span></div>
+      {/if}
+    </div>
+    <label class="field">
+      <span>Content</span>
+      <textarea rows="14" value={detailSkill.content} readonly class="content-viewer"></textarea>
+    </label>
+    <div class="actions">
+      <button class="btn-secondary" onclick={() => (detailSkill = null)}>Close</button>
+    </div>
+  {/if}
+</Modal>
+
+<!-- Create Modal -->
+<Modal title="Create Custom Skill" open={createOpen} onclose={() => (createOpen = false)}>
+  <form onsubmit={(e) => { e.preventDefault(); createSkill(); }}>
+    <label class="field">
+      <span>Name</span>
+      <input type="text" bind:value={createName} placeholder="my-skill" oninput={autoSlug} />
+    </label>
+    <label class="field">
+      <span>Slug</span>
+      <input type="text" bind:value={createSlug} placeholder="my-skill" />
+    </label>
+    <label class="field">
+      <span>Program (optional)</span>
+      <input type="text" bind:value={createProgram} placeholder="e.g. godot, blender" />
+    </label>
+    <label class="field">
+      <span>Category</span>
+      <select bind:value={createCategory}>
+        <option value="custom">custom</option>
+        <option value="coordinator">coordinator</option>
+        <option value="bridge">bridge</option>
+        <option value="training">training</option>
+        <option value="playbook">playbook</option>
+        <option value="verification">verification</option>
+        <option value="project">project</option>
+      </select>
+    </label>
+    <label class="field">
+      <span>Title</span>
+      <input type="text" bind:value={createTitle} placeholder="Descriptive title" />
+    </label>
+    <label class="field">
+      <span>Description (optional)</span>
+      <input type="text" bind:value={createDescription} placeholder="Brief description" />
+    </label>
+    <label class="field">
+      <span>Keywords (comma-separated, optional)</span>
+      <input type="text" bind:value={createKeywords} placeholder="keyword1, keyword2" />
+    </label>
+    <label class="field">
+      <span>Content</span>
+      <textarea bind:value={createContent} rows="10" placeholder="Skill content / instructions..."></textarea>
+    </label>
+    <div class="actions">
+      <button class="btn-secondary" type="button" onclick={() => (createOpen = false)}>Cancel</button>
+      <button class="btn-primary" type="submit">Create</button>
+    </div>
+  </form>
+</Modal>
+
+<!-- Delete Confirm Modal -->
+<Modal title="Delete Skill" open={confirmDelete !== null} onclose={() => (confirmDelete = null)}>
+  {#if confirmDelete}
+    <p>Are you sure you want to delete <strong>{confirmDelete.slug}</strong>?</p>
+    <p class="hint">This will permanently remove the custom skill from the database.</p>
+    <div class="actions">
+      <button class="btn-secondary" onclick={() => (confirmDelete = null)}>Cancel</button>
+      <button class="btn-danger" onclick={deleteSkill}>Delete</button>
+    </div>
+  {/if}
+</Modal>
+
+<style>
+  .page { padding: 24px; }
+  .toolbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 14px; }
+  .filters { display: flex; gap: 8px; }
+  .filters select { font-size: var(--font-size-sm); padding: 6px 8px; }
+  .toolbar-actions { display: flex; gap: 8px; }
+  .search-panel { margin-bottom: 14px; }
+  .search-row { display: flex; gap: 8px; margin-bottom: 6px; }
+  .search-row input { flex: 1; padding: 6px 8px; font-size: var(--font-size-sm); }
+  .search-results { border: 1px solid var(--border); border-radius: var(--radius-sm); max-height: 180px; overflow-y: auto; }
+  .search-result { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--border); font-size: var(--font-size-sm); }
+  .search-result:last-child { border-bottom: none; }
+  .result-title { flex: 1; }
+  .score { color: var(--text-muted); font-size: 11px; }
+  .table { width: 100%; border-collapse: collapse; }
+  .table th, .table td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+  .table th { color: var(--text-secondary); font-size: var(--font-size-sm); font-weight: 500; }
+  .muted { color: var(--text-muted); font-size: var(--font-size-sm); }
+  .mono { font-family: var(--font-mono); font-size: var(--font-size-sm); }
+  .badge {
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+  .badge-ok { color: var(--status-completed); background: rgba(78, 201, 176, 0.12); }
+  .badge-off { color: var(--text-muted); background: var(--bg-elevated); }
+  .badge-default { color: var(--text-muted); background: var(--bg-elevated); }
+  .badge-custom { color: var(--accent); background: rgba(78, 156, 230, 0.12); }
+  .badge-cat { color: var(--text-secondary); background: var(--bg-elevated); }
+  .badge-prog { color: var(--accent); background: rgba(78, 156, 230, 0.12); }
+  .btn-primary { background: var(--accent); color: #fff; padding: 8px 16px; border-radius: var(--radius-sm); font-weight: 500; }
+  .btn-primary:hover { background: var(--accent-hover); }
+  .btn-secondary { background: var(--bg-elevated); color: var(--text-secondary); padding: 8px 14px; border-radius: var(--radius-sm); }
+  .btn-secondary:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .btn-small { background: var(--bg-elevated); color: var(--text-secondary); padding: 4px 10px; border-radius: var(--radius-sm); font-size: var(--font-size-sm); }
+  .btn-small:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .btn-danger { background: rgba(220, 50, 50, 0.15); color: #e05555; border: none; padding: 8px 16px; border-radius: var(--radius-sm); font-weight: 500; cursor: pointer; }
+  .btn-danger:hover { background: rgba(220, 50, 50, 0.25); }
+  .btn-small.btn-danger { padding: 4px 10px; font-size: var(--font-size-sm); }
+  .actions-cell { display: flex; gap: 6px; }
+  .actions { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+  .field { display: block; margin-bottom: 12px; }
+  .field span { display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: var(--font-size-sm); }
+  .field input, .field textarea, .field select { width: 100%; }
+  .hint { color: var(--text-secondary); margin-bottom: 12px; }
+  .summary { margin-top: 12px; color: var(--text-muted); font-size: var(--font-size-sm); }
+  .detail-grid { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; font-size: var(--font-size-sm); }
+  .content-viewer {
+    font-family: var(--font-mono);
+    font-size: var(--font-size-sm);
+    line-height: 1.5;
+    resize: vertical;
+    min-height: 200px;
+  }
+</style>

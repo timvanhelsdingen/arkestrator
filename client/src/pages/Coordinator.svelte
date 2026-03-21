@@ -103,7 +103,7 @@
       : "",
   );
 
-  let program = $state<string>("");
+  let program = $state<string>("houdini");
   let scopeTab = $state<ScopeTab>("server");
   type ScriptEditorTarget = "global" | "bridge" | null;
   let scriptEditorTarget = $state<ScriptEditorTarget>(null);
@@ -592,16 +592,16 @@
     globalScript = String(scripts.find((s: any) => s.program === "global")?.content ?? "");
     bridgeScript = String(scripts.find((s: any) => s.program === program)?.content ?? "");
 
-    // Build programs dropdown from API response (exclude "global" — it's not a program)
+    // Build programs dropdown from API response
     const fetched: Array<{ value: string; label: string }> = scripts
       .map((s: any) => String(s.program ?? ""))
-      .filter((p: string) => p.length > 0 && p !== "global")
+      .filter((p: string) => p.length > 0)
       .map((p: string) => ({ value: p, label: p.charAt(0).toUpperCase() + p.slice(1) }));
-    programs = fetched;
-    // Default to first program if current selection is empty or no longer valid
-    if (fetched.length > 0 && (!program || !fetched.some((p) => p.value === program))) {
-      program = fetched[0].value;
+    // Ensure "global" is always present
+    if (!fetched.some((p) => p.value === "global")) {
+      fetched.push({ value: "global", label: "Global" });
     }
+    programs = fetched;
   }
 
   function formatAnalyzeAgentLabel(agentId: string): string {
@@ -1110,7 +1110,7 @@
     <section class="panel toolbar-panel">
       <div class="toolbar">
         <label>
-          Program
+          Bridge
           <select value={program} onchange={(e) => onProgramChanged((e.target as HTMLSelectElement).value)}>
             {#each programs as p}
               <option value={p.value}>{p.label}</option>
@@ -1121,7 +1121,6 @@
       </div>
     </section>
 
-    {#if program}
     <section class="panel">
       <h3>Execution Readiness</h3>
       <p class="desc">
@@ -1162,7 +1161,6 @@
         </label>
       {/if}
     </section>
-    {/if}
 
       </aside>
 
@@ -1175,9 +1173,9 @@
     {#if scopeTab === "server"}
       {#if isAdmin}
         <section class="panel">
-          <h3>Global Coordination Script</h3>
+          <h3>Global Coordinator Script</h3>
           <p class="desc">
-            Base instructions that run before any program-specific script.
+            This runs before any bridge-specific coordinator instructions.
           </p>
           <div class="script-card">
             <div class="script-summary">{previewScript(globalScript)}</div>
@@ -1187,11 +1185,10 @@
           </div>
         </section>
 
-        {#if program}
         <section class="panel">
-          <h3>{program} Coordination Script</h3>
+          <h3>{program} Coordinator Script</h3>
           <p class="desc">
-            Program-specific instructions for <strong>{program}</strong>. Runs after the global script.
+            Bridge-specific script for <strong>{program}</strong>. This runs after the global script.
           </p>
           <div class="script-card">
             <div class="script-summary">{previewScript(bridgeScript)}</div>
@@ -1200,7 +1197,6 @@
             </div>
           </div>
         </section>
-        {/if}
         <section class="panel">
           <p class="mini">
             Global client coordination policy is managed from the Admin dashboard.
@@ -1441,12 +1437,12 @@
       {#if scopeTab === "server" && isAdmin && scriptEditorTarget}
         <aside class="coord-script-pane">
           <section class="panel script-editor-panel">
-            <h3>{scriptEditorTarget === "global" ? "Global Coordination Script" : `${program} Coordination Script`}</h3>
+            <h3>{scriptEditorTarget === "global" ? "Global Coordinator Script" : `${program} Coordinator Script`}</h3>
             <p class="desc">
               {#if scriptEditorTarget === "global"}
-                Update the base instructions applied before any program-specific script.
+                Update the global script applied before bridge-specific instructions.
               {:else}
-                Update the <strong>{program}</strong> script applied after the global coordination script.
+                Update the <strong>{program}</strong> script applied after the global coordinator script.
               {/if}
             </p>
             <label>
