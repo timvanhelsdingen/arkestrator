@@ -347,9 +347,9 @@ async function main() {
     logger.info("server", `Updated ${program} headless executable to detected path: ${resolved}`);
   }
 
-  // Seed global coordinator script (per-bridge scripts are created dynamically on bridge connect)
-  seedCoordinatorScripts(config.coordinatorScriptsDir);
-  logger.info("server", `Coordinator scripts dir ready at ${config.coordinatorScriptsDir}`);
+  // Seed coordinator scripts + skills to DB (and disk for backward compat)
+  seedCoordinatorScripts(config.coordinatorScriptsDir, skillsRepo);
+  logger.info("server", `Coordinator scripts seeded at ${config.coordinatorScriptsDir}`);
   seedCoordinatorPlaybooks(config.coordinatorPlaybooksDir);
   logger.info("server", `Coordinator playbooks seeded at ${config.coordinatorPlaybooksDir}`);
 
@@ -633,7 +633,7 @@ async function main() {
                 ws.data.machineId,
               );
               // Auto-create coordinator script for newly detected programs
-              ensureCoordinatorScript(config.coordinatorScriptsDir, ws.data.program);
+              ensureCoordinatorScript(config.coordinatorScriptsDir, ws.data.program, undefined, skillsRepo);
             }
           }
           hub.broadcastWorkerStatus(workersRepo);

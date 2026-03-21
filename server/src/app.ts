@@ -37,7 +37,6 @@ import type { DependenciesRepo } from "./db/dependencies.repo.js";
 import type { HeadlessProgramsRepo } from "./db/headless-programs.repo.js";
 import type { SettingsRepo } from "./db/settings.repo.js";
 import type { JobInterventionsRepo } from "./db/job-interventions.repo.js";
-import type { SkillsRepo } from "./db/skills.repo.js";
 import type { Config } from "./config.js";
 import type { SyncManager } from "./workspace/sync-manager.js";
 import type { WebSocketHub } from "./ws/hub.js";
@@ -51,6 +50,7 @@ import {
   getNetworkControls,
 } from "./security/network-policy.js";
 import { errorResponse } from "./utils/errors.js";
+import type { SkillsRepo } from "./db/skills.repo.js";
 import { SkillIndex } from "./skills/skill-index.js";
 import { materializeSkills } from "./skills/skill-materializer.js";
 
@@ -206,14 +206,9 @@ export function createApp(deps: AppDeps) {
     ),
   );
 
-  // Skills system — lazy-loaded prompt context via MCP tools
+  // Skills system — unified lazy-loaded prompt context
   const skillIndex = new SkillIndex(() =>
-    materializeSkills({
-      coordinatorScriptsDir: deps.config.coordinatorScriptsDir,
-      coordinatorPlaybooksDir: deps.config.coordinatorPlaybooksDir,
-      coordinatorPlaybookSourcePaths: deps.config.coordinatorPlaybookSourcePaths,
-      skillsRepo: deps.skillsRepo,
-    }),
+    materializeSkills({ skillsRepo: deps.skillsRepo }),
   );
   app.route("/api/skills", createSkillsRoutes(deps.skillsRepo, skillIndex, deps.usersRepo, deps.apiKeysRepo));
 
