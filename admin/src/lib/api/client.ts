@@ -80,7 +80,7 @@ export interface UserInsightsResponse {
 export interface AdminApiKey {
   id: string;
   name: string;
-  role: "bridge" | "client" | "admin";
+  role: "bridge" | "client" | "admin" | "mcp";
   permissions: AdminUserPermissions;
   createdAt: string;
   revokedAt: string | null;
@@ -659,7 +659,7 @@ export const api = {
 
   keys: {
     list: () => request("/api/keys") as Promise<AdminApiKey[]>,
-    create: (name: string, role: "bridge" | "client" | "admin", permissions?: AdminUserPermissions) =>
+    create: (name: string, role: "bridge" | "client" | "admin" | "mcp", permissions?: AdminUserPermissions) =>
       request("/api/keys", {
         method: "POST",
         body: JSON.stringify({ name, role, permissions }),
