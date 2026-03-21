@@ -38,6 +38,8 @@ export interface McpDeps {
   requestCookieHeader?: string;
   /** Authenticated principal making this MCP request (for per-tool permission checks). */
   principal?: AuthPrincipal;
+  /** Skill index for lazy-loading prompt context via MCP. */
+  skillIndex?: import("../skills/skill-index.js").SkillIndex;
 }
 
 const CLIENT_API_ALLOW_PREFIXES = [
@@ -45,6 +47,7 @@ const CLIENT_API_ALLOW_PREFIXES = [
   "/api/chat",
   "/api/agent-configs",
   "/api/headless-programs",
+  "/api/skills",
   "/api/bridge-command",
   "/api/workers",
   "/api/projects",
@@ -949,6 +952,80 @@ export function createMcpServer(deps: McpDeps): McpServer {
       return {
         content: [{ type: "text" as const, text: result.output ?? "(no output)" }],
       };
+    },
+  );
+
+  // ── Skills tools ─────────────────────────────────────────────────────
+
+  server.tool(
+    "search_skills",
+    "Search for relevant skills and guidance by query. Returns matching skills ranked by relevance. " +
+      "Use this to find execution patterns, training insights, playbooks, and task-specific guidance before starting work.",
+    {
+      query: z.string().describe("Search query — describe what you need guidance on"),
+      program: z.string().optional().describe("Filter by bridge program (e.g. 'blender', 'godot')"),
+      category: z.enum(["coordinator", "bridge", "training", "playbook", "verification", "project", "custom"]).optional().describe("Filter by skill category"),
+      limit: z.number().optional().default(10).describe("Max results to return"),
+    },
+    async ({ query, program, category, limit }) => {
+      if (!deps.skillIndex) {
+        return { content: [{ type: "text" as const, text: "Skills system not initialized" }], isError: true };
+      }
+      const results = deps.skillIndex.search(query, { program: program || undefined, category: category || undefined, limit });
+      const text = results.length === 0
+        ? "No matching skills found."
+        : results.map((r) => `- **${r.slug}** (${r.category}/${r.program}) score=${r.relevanceScore.toFixed(2)}\n  ${r.title}: ${r.description}`).join("\n\n");
+      return { content: [{ type: "text" as const, text }] };
+    },
+  );
+
+  server.tool(
+    "get_skill",
+    "Fetch the full content of a specific skill by its slug. Call this after search_skills to get detailed instructions, " +
+      "patterns, and guidance for your task.",
+    {
+      slug: z.string().describe("The skill slug from search results or auto-fetch list"),
+      program: z.string().optional().describe("Filter by program if slug exists for multiple programs"),
+    },
+    async ({ slug, program }) => {
+      if (!deps.skillIndex) {
+        return { content: [{ type: "text" as const, text: "Skills system not initialized" }], isError: true };
+      }
+      const skill = deps.skillIndex.get(slug, program || undefined);
+      if (!skill) {
+        return { content: [{ type: "text" as const, text: `Skill not found: ${slug}` }], isError: true };
+      }
+      // Resolve template variables using live bridge state
+      let content = skill.content;
+      try {
+        const { resolveSkillTemplateVars } = await import("../skills/skill-templates.js");
+        const bridges = deps.hub.getConnections().filter((c) => c.type === "bridge");
+        const bridgeList = bridges.length > 0
+          ? bridges.map((b) => `${b.program ?? "unknown"} (${b.workerName ?? "?"})`).join(", ")
+          : "No bridges connected";
+        content = resolveSkillTemplateVars(content, bridgeList, "", "");
+      } catch {}
+      return { content: [{ type: "text" as const, text: `# ${skill.title}\n\n${content}` }] };
+    },
+  );
+
+  server.tool(
+    "list_skills",
+    "List all available skills, optionally filtered by program or category. " +
+      "Use to discover what guidance is available before searching.",
+    {
+      program: z.string().optional().describe("Filter by bridge program"),
+      category: z.enum(["coordinator", "bridge", "training", "playbook", "verification", "project", "custom"]).optional().describe("Filter by category"),
+    },
+    async ({ program, category }) => {
+      if (!deps.skillIndex) {
+        return { content: [{ type: "text" as const, text: "Skills system not initialized" }], isError: true };
+      }
+      const results = deps.skillIndex.list({ program: program || undefined, category: category || undefined });
+      const text = results.length === 0
+        ? "No skills available."
+        : results.map((r) => `- **${r.slug}** (${r.category}/${r.program}) ${r.autoFetch ? "[auto-fetch]" : ""}\n  ${r.title}`).join("\n");
+      return { content: [{ type: "text" as const, text }] };
     },
   );
 

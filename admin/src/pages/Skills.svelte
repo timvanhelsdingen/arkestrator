@@ -59,6 +59,22 @@
   // Delete confirm
   let confirmDelete = $state<SkillEntry | null>(null);
 
+  // Registry
+  interface RegistrySkill {
+    slug: string;
+    program: string;
+    category: string;
+    title: string;
+    description: string;
+    version: string;
+    contentUrl: string;
+    installed: boolean;
+  }
+  let registryOpen = $state(false);
+  let registryLoading = $state(false);
+  let registrySkills = $state<RegistrySkill[]>([]);
+  let installingSlug = $state<string | null>(null);
+
   let filteredSkills = $derived.by(() => {
     let result = skills;
     if (filterProgram) {
@@ -178,6 +194,39 @@
     }
   }
 
+  async function openRegistry() {
+    registryOpen = true;
+    registryLoading = true;
+    try {
+      const data = await api.skills.registry();
+      registrySkills = Array.isArray(data?.skills) ? data.skills : (Array.isArray(data) ? data : []);
+    } catch (err: any) {
+      toast.error(err.message ?? "Failed to fetch registry");
+      registrySkills = [];
+    } finally {
+      registryLoading = false;
+    }
+  }
+
+  async function installSkill(skill: RegistrySkill) {
+    const key = `${skill.slug}:${skill.program}`;
+    installingSlug = key;
+    try {
+      await api.skills.install({ slug: skill.slug, program: skill.program, sourceUrl: skill.contentUrl });
+      toast.success(`Installed "${skill.title}"`);
+      // Mark as installed in registry list
+      registrySkills = registrySkills.map((s) =>
+        s.slug === skill.slug && s.program === skill.program ? { ...s, installed: true } : s
+      );
+      // Refresh main skills list
+      await load();
+    } catch (err: any) {
+      toast.error(err.message ?? "Failed to install skill");
+    } finally {
+      installingSlug = null;
+    }
+  }
+
   function autoSlug() {
     createSlug = createName
       .trim()
@@ -209,6 +258,7 @@
     </div>
     <div class="toolbar-actions">
       <button class="btn-primary" onclick={() => (createOpen = true)}>Create Skill</button>
+      <button class="btn-secondary" onclick={openRegistry}>Browse Registry</button>
       <button class="btn-secondary" onclick={refreshIndex}>Refresh Index</button>
       <button class="btn-secondary" onclick={load} disabled={loading}>Reload</button>
     </div>
@@ -269,7 +319,7 @@
             <td>{skill.title}</td>
             <td class="muted">{skill.program || "-"}</td>
             <td><span class="badge badge-cat">{skill.category}</span></td>
-            <td><span class="badge {skill.source === 'user' ? 'badge-custom' : 'badge-default'}">{skill.source}</span></td>
+            <td><span class="badge {skill.source === 'user' ? 'badge-custom' : skill.source === 'registry' ? 'badge-registry' : 'badge-default'}">{skill.source}</span></td>
             <td>
               {#if skill.enabled}
                 <span class="badge badge-ok">yes</span>
@@ -279,7 +329,7 @@
             </td>
             <td class="actions-cell">
               <button class="btn-small" onclick={() => (detailSkill = skill)}>View</button>
-              {#if skill.source === "user"}
+              {#if skill.source === "user" || skill.source === "registry"}
                 <button class="btn-small btn-danger" onclick={() => (confirmDelete = skill)}>Delete</button>
               {/if}
             </td>
@@ -392,6 +442,49 @@
   {/if}
 </Modal>
 
+<!-- Registry Modal -->
+<Modal title="Skill Registry" open={registryOpen} onclose={() => (registryOpen = false)}>
+  {#if registryLoading}
+    <p class="muted">Loading registry...</p>
+  {:else if registrySkills.length === 0}
+    <p class="muted">No skills available in the registry.</p>
+  {:else}
+    <div class="registry-list">
+      {#each registrySkills as skill}
+        <div class="registry-item">
+          <div class="registry-info">
+            <div class="registry-title">{skill.title}</div>
+            <div class="registry-meta">
+              <span class="badge badge-prog">{skill.program}</span>
+              <span class="badge badge-cat">{skill.category}</span>
+              <span class="registry-version">v{skill.version}</span>
+            </div>
+            {#if skill.description}
+              <div class="registry-desc">{skill.description}</div>
+            {/if}
+          </div>
+          <div class="registry-action">
+            {#if skill.installed}
+              <span class="badge badge-ok">Installed</span>
+            {:else}
+              <button
+                class="btn-primary btn-small"
+                disabled={installingSlug === `${skill.slug}:${skill.program}`}
+                onclick={() => installSkill(skill)}
+              >
+                {installingSlug === `${skill.slug}:${skill.program}` ? "Installing..." : "Install"}
+              </button>
+            {/if}
+          </div>
+        </div>
+      {/each}
+    </div>
+  {/if}
+  <div class="actions">
+    <button class="btn-secondary" onclick={() => (registryOpen = false)}>Close</button>
+  </div>
+</Modal>
+
 <style>
   .page { padding: 24px; }
   .toolbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 14px; }
@@ -448,4 +541,13 @@
     resize: vertical;
     min-height: 200px;
   }
+  .badge-registry { color: #b07cd8; background: rgba(176, 124, 216, 0.12); }
+  .registry-list { display: flex; flex-direction: column; gap: 8px; max-height: 400px; overflow-y: auto; margin-bottom: 12px; }
+  .registry-item { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+  .registry-info { flex: 1; min-width: 0; }
+  .registry-title { font-weight: 500; margin-bottom: 4px; }
+  .registry-meta { display: flex; gap: 6px; align-items: center; margin-bottom: 4px; }
+  .registry-version { color: var(--text-muted); font-size: 11px; }
+  .registry-desc { color: var(--text-secondary); font-size: var(--font-size-sm); }
+  .registry-action { flex-shrink: 0; }
 </style>

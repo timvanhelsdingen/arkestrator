@@ -10,6 +10,9 @@ Focused web admin panel (served at `/admin`) for:
 
 Job operations and broader operational tooling are intentionally handled in the Tauri client.
 
+## Recent Updates (2026-03-21)
+- Skills registry browser (2026-03-21): `src/pages/Skills.svelte` adds a "Browse Registry" button and modal that fetches available skills from `GET /api/skills/registry`, shows install status, and allows one-click installation via `POST /api/skills/install`. Registry-installed skills show a purple "registry" badge and are deletable. `src/lib/api/client.ts` adds `registry()` and `install()` methods to the `skills` API namespace.
+
 ## Recent Updates (2026-03-20)
 - Bridges page enhancements (2026-03-20): added `lastSeen` tracking per program (most recent bridge activity), auto-refresh every 15s with cleanup via `onDestroy`, `formatRelativeTime` helper for relative timestamps, `scriptPreview` helper showing first 2 lines of coordinator script content, and improved `removeProgram` error handling (404s on coordinator script delete are now silently ignored). New CSS for `.last-seen` and `.script-preview` elements.
 - Bridges admin page (2026-03-20): new `Bridges.svelte` page showing program-centric bridge management. Aggregates data from workers, connections, and coordinator scripts APIs into a per-program view with status, workers, versions, and script info. Supports Edit Script (with reset-to-default), Kick All connections, Remove program (deletes bridge history + script), and Add Bridge (creates coordinator script). Navigation type extended with `"bridges"`, sidebar entry added after Machines (gated on `canManageWorkers`). API client gains `connections.list()`, `connections.kick()`, `workers.deleteBridgesByProgram()`, and `coordinatorTraining.updateCoordinatorScript()` methods.

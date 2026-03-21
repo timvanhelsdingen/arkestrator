@@ -3,6 +3,10 @@
 ## Purpose
 Central hub. Receives jobs via REST+WS, queues them in SQLite, spawns AI CLI tools as subprocesses, streams results back to bridges+clients. Manages all state.
 
+## Recent Updates (2026-03-21)
+- Skills CLI commands (2026-03-21): `src/agents/cli-wrapper.ts` adds `am skills search|get|list` subcommands for agents to search, read, and list skills via the REST API. `printUsage()` updated, routing added in `main()`, and `cmdSkills()` function implemented with `--program`, `--category`, `--limit` option parsing. Agent documentation in `src/agents/engines.ts` updated in all relevant CLI command lists.
+- Skills registry & install endpoints (2026-03-21): `src/routes/skills.ts` adds `GET /api/skills/registry` (fetches available skills from GitHub bridge repo with 5-min cache) and `POST /api/skills/install` (downloads skill content from GitHub, stores as `source: "registry"` in DB). `src/db/skills.repo.ts` updated to support `"registry"` as a source alongside `"user"` — all list/get/delete queries now use `source IN ('user', 'registry')`, `create()` accepts a `source` parameter.
+
 ## Recent Updates (2026-03-20)
 - Fusion coordinator prompt (2026-03-20): added `FUSION_COORDINATOR_PROMPT` to `src/agents/engines.ts` and registered it in `COORDINATOR_SCRIPT_DEFAULTS`. Covers Fusion Python/Lua scripting, all context sources (selected/active tools, tool settings, keyframes, full comp, flow graph, loaders, savers, 3D scene, modifiers/expressions), API essentials, and Fusion-specific patterns (Lock/Unlock, StartUndo/EndUndo, 1-indexed dicts). Training Vault now auto-seeds `fusion.md` coordinator script on server startup.
 - Bridge program cleanup endpoint (2026-03-20): `src/routes/workers.ts` adds `DELETE /api/workers/bridges-by-program/:program` endpoint to remove all bridge history for a given program. Requires `manageWorkers` permission, validates program name with `/^[a-zA-Z0-9_-]+$/`, calls `workersRepo.deleteBridgesByProgram()`, and audit-logs the action. Route registered before `/:id` parameter routes to avoid capture.

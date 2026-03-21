@@ -1219,5 +1219,9 @@ export const api = {
     },
     refreshIndex: () =>
       request("/api/skills/refresh-index", { method: "POST" }) as Promise<any>,
+    registry: () =>
+      request("/api/skills/registry") as Promise<any>,
+    install: (skill: { slug: string; program: string; sourceUrl?: string }) =>
+      request("/api/skills/install", { method: "POST", body: JSON.stringify(skill) }) as Promise<any>,
   },
 };
