@@ -105,6 +105,7 @@
     }
 
     for (const s of scripts) {
+      if (s.program === "global") continue;
       const info = ensure(s.program);
       info.hasScript = true;
       info.scriptIsDefault = s.isDefault;
