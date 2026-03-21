@@ -209,7 +209,7 @@ export function createChatRoutes(deps: ChatDeps) {
           args.push(CLAUDE_SKIP_PERMISSIONS_FLAG);
         }
         if (effectiveConfig.model) args.push("--model", effectiveConfig.model);
-        args.push("--max-turns", "1");
+        args.push("--max-turns", "2", "--tools", "");
         args.push(
           "--system-prompt",
           improveMode

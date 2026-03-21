@@ -323,10 +323,10 @@ export class WebSocketHub {
         removedAny = true;
         continue;
       }
-      // Check 2: No application-level messages for 2+ minutes.
+      // Check 2: No activity for 2+ minutes (no messages AND no pongs).
       // This catches half-open connections where the OS or runtime auto-replies
       // to WebSocket pings but the remote endpoint is actually unreachable.
-      const lastActivity = ws.data.lastMessageAt ?? ws.data.lastPongAt ?? now;
+      const lastActivity = Math.max(ws.data.lastMessageAt ?? 0, ws.data.lastPongAt ?? 0) || now;
       if (now - lastActivity > messageStaleMs) {
         logger.warn("ws-hub", `Stale connection (no messages for ${Math.round((now - lastActivity) / 1000)}s): ${ws.data.type} ${id} (${ws.data.program ?? "client"}/${ws.data.workerName ?? "?"}), removing`);
         try { ws.close(1001, "Stale connection — no messages"); } catch {}
