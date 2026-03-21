@@ -81,6 +81,8 @@ Update these docs whenever you add, remove, or rename files, routes, components,
 This is mandatory. Do not skip documentation updates or rebuilds - they are how other agents (and future you) understand what changed, and how users see the changes.
 
 ### Version Consistency
+**NEVER bump versions, tag, or push releases on your own.** Only version up when the user explicitly asks (e.g. "push, merge, version up", "release", "bump version"). Commit fixes and features normally — the user decides when to cut a release.
+
 **Every component must reflect the same version number at build/release time.** The version is bumped via `node scripts/bump-version.mjs <version>`, which updates all `package.json` files, `Cargo.toml`, and `tauri.conf.json`. After bumping, you **must** rebuild the admin SPA and copy it to the bundled dist:
 ```bash
 pnpm --filter @arkestrator/protocol build

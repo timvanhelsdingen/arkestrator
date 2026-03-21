@@ -83,7 +83,9 @@ This is mandatory. Do not skip documentation updates or rebuilds - they are how 
 ### Cross-Platform
 This must work on Windows, macOS, and Linux. Avoid platform-specific assumptions. Many users will run the server on Windows.
 
-### Releasing a New Version
+### Versioning and Releases
+**NEVER bump versions, tag, or push releases on your own.** Only version up when the user explicitly asks (e.g. "push, merge, version up", "release", "bump version"). Commit fixes and features normally — the user decides when to cut a release.
+
 When the user asks to release, sync to public, or build a release:
 
 1. **Bump version** across all packages:
