@@ -11,6 +11,7 @@ import {
   buildLocalExecutionPrompt,
   buildLocalAgenticBasePrompt,
   loadCoordinatorScript,
+  buildLeanBootPrompt,
   getCoordinatorScriptPrograms,
   getDefaultProjectDir,
   type ProgramDiscoveryDeps,
@@ -1296,15 +1297,35 @@ export async function spawnAgent(
   const includeCoordinator = (coordScripts?.coordinator ?? "enabled") !== "disabled";
   const includeTraining = (coordScripts?.training ?? "enabled") !== "disabled";
 
-  // Coordinator script priority: per-bridge file → global file → settings DB
+  // Skills mode: use lean boot prompt instead of monolithic injection.
+  // The agent fetches coordinator scripts, playbooks, and training via MCP skill tools.
+  const useSkillsMode = job.runtimeOptions?.skillsMode !== false; // default ON
+
   let orchestratorPromptOverride: string | undefined;
-  if (includeBridge) {
+
+  if (useSkillsMode) {
+    // Build lean boot prompt (~2KB) — agent fetches skills on-demand via MCP
+    const bridgeList = connectedBridges.map((b) => ({
+      program: b.program ?? "unknown",
+      workerName: b.workerName ?? "?",
+    }));
+    orchestratorPromptOverride = buildLeanBootPrompt({
+      job,
+      config,
+      bridges: bridgeList,
+      targetProgram: job.bridgeProgram ?? undefined,
+      verificationMode: job.runtimeOptions?.verificationMode,
+      verificationWeight: job.runtimeOptions?.verificationWeight,
+      projectName: workspace?.project?.name,
+    });
+    logger.info("spawner", `Job ${job.id}: skills mode — lean boot prompt (${orchestratorPromptOverride.length} chars)`);
+  } else if (includeBridge) {
+    // Legacy monolithic prompt (skills mode explicitly disabled)
     orchestratorPromptOverride =
       loadCoordinatorScript(deps.config.coordinatorScriptsDir, job.bridgeProgram ?? undefined);
     if (!orchestratorPromptOverride) {
       orchestratorPromptOverride = deps.settingsRepo?.get("orchestrator_prompt") ?? undefined;
     }
-    // Strip training blocks from bridge scripts if training is disabled
     if (orchestratorPromptOverride && !includeTraining) {
       orchestratorPromptOverride = stripTrainingBlocks(orchestratorPromptOverride);
     }
@@ -1404,16 +1425,20 @@ export async function spawnAgent(
       broadcastJobUpdated(deps, job.id);
     }
   };
-  if (playbookContext) {
-    orchestratorPromptOverride = orchestratorPromptOverride
-      ? `${orchestratorPromptOverride}\n\n${playbookContext}`
-      : playbookContext;
-  }
-  const clientPromptOverrideBlock = buildCoordinatorClientPromptOverrideBlock(job);
-  if (clientPromptOverrideBlock) {
-    orchestratorPromptOverride = orchestratorPromptOverride
-      ? `${orchestratorPromptOverride}\n\n${clientPromptOverrideBlock}`
-      : clientPromptOverrideBlock;
+  // In skills mode, skip appending playbook/client overrides — agent fetches via MCP.
+  // In legacy mode, append them to the monolithic orchestrator prompt.
+  if (!useSkillsMode) {
+    if (playbookContext) {
+      orchestratorPromptOverride = orchestratorPromptOverride
+        ? `${orchestratorPromptOverride}\n\n${playbookContext}`
+        : playbookContext;
+    }
+    const clientPromptOverrideBlock = buildCoordinatorClientPromptOverrideBlock(job);
+    if (clientPromptOverrideBlock) {
+      orchestratorPromptOverride = orchestratorPromptOverride
+        ? `${orchestratorPromptOverride}\n\n${clientPromptOverrideBlock}`
+        : clientPromptOverrideBlock;
+    }
   }
   const jobForLaunch =
     deps.jobInterventionsRepo && !(config.engine === "local-oss" && workspace.mode === "command")

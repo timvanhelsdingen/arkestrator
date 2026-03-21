@@ -1895,3 +1895,69 @@ function buildBridgeOrchestrationPrompt(
   }
   return result;
 }
+
+// ── Lean Boot Prompt (Skills Mode) ───────────────────────────────────
+
+export function buildLeanBootPrompt(opts: {
+  job: Job;
+  config: AgentConfig;
+  bridges: Array<{ program: string; workerName: string }>;
+  targetProgram?: string;
+  verificationMode?: string;
+  verificationWeight?: number;
+  projectName?: string;
+}): string {
+  const sections: string[] = [];
+
+  // 1. Identity
+  sections.push(
+    "You are an AI agent working through Arkestrator, a hub-and-spoke system for managing tasks across DCC applications (Blender, Godot, Houdini, ComfyUI, Unity, Unreal, Fusion).",
+  );
+
+  // 2. Connected bridges
+  if (opts.bridges.length > 0) {
+    const list = opts.bridges.map((b) => `${b.program} (${b.workerName})`).join(", ");
+    sections.push(`Connected bridges: ${list}`);
+  } else {
+    sections.push("No bridges currently connected.");
+  }
+
+  // 3. Skills mandate
+  sections.push([
+    "## Skills System",
+    "You have access to a skills library via MCP tools. Before starting work:",
+    "1. Fetch the required skills listed below using get_skill()",
+    "2. Search for additional relevant skills using search_skills() with keywords from your task",
+    "3. Apply the guidance from fetched skills throughout your work",
+  ].join("\n"));
+
+  // 4. Auto-fetch list
+  const autoFetch: string[] = [];
+  autoFetch.push('get_skill("global-coordinator") — Global orchestration rules');
+  if (opts.targetProgram) {
+    autoFetch.push(`get_skill("${opts.targetProgram}-coordinator") — Bridge execution patterns`);
+  }
+  if (opts.verificationMode === "required" || (opts.verificationWeight && opts.verificationWeight >= 50)) {
+    autoFetch.push('get_skill("verification-policy") — Verification procedures');
+  }
+  if (opts.projectName) {
+    const slug = opts.projectName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    autoFetch.push(`get_skill("project-${slug}") — Project-specific guidance`);
+  }
+  autoFetch.push('search_skills("<your task keywords>") — Find task-specific playbooks and training');
+  sections.push("### Required Skills\n" + autoFetch.map((s) => `- ${s}`).join("\n"));
+
+  // 5. Intervention polling
+  const interventionBlock = buildLiveInterventionPollingBlock(opts.job.id);
+  if (interventionBlock) {
+    sections.push(interventionBlock);
+  }
+
+  // 6. Verification directive
+  const verificationDirective = buildRuntimeVerificationDirective(opts.job);
+  if (verificationDirective) {
+    sections.push(verificationDirective);
+  }
+
+  return sections.join("\n\n");
+}
