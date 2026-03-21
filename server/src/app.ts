@@ -20,6 +20,7 @@ import { createBridgeCommandRoutes } from "./routes/bridge-commands.js";
 import { createHeadlessProgramRoutes } from "./routes/headless-programs.js";
 import { createChatRoutes } from "./routes/chat.js";
 import { createSettingsRoutes } from "./routes/settings.js";
+import { createSkillsRoutes } from "./routes/skills.js";
 import { createMcpRoutes } from "./mcp/routes.js";
 import { CodexChatSessionManager } from "./chat/codex-sessions.js";
 import type { Database } from "bun:sqlite";
@@ -36,6 +37,7 @@ import type { DependenciesRepo } from "./db/dependencies.repo.js";
 import type { HeadlessProgramsRepo } from "./db/headless-programs.repo.js";
 import type { SettingsRepo } from "./db/settings.repo.js";
 import type { JobInterventionsRepo } from "./db/job-interventions.repo.js";
+import type { SkillsRepo } from "./db/skills.repo.js";
 import type { Config } from "./config.js";
 import type { SyncManager } from "./workspace/sync-manager.js";
 import type { WebSocketHub } from "./ws/hub.js";
@@ -49,6 +51,8 @@ import {
   getNetworkControls,
 } from "./security/network-policy.js";
 import { errorResponse } from "./utils/errors.js";
+import { SkillIndex } from "./skills/skill-index.js";
+import { materializeSkills } from "./skills/skill-materializer.js";
 
 export interface AppDeps {
   db: Database;
@@ -66,6 +70,7 @@ export interface AppDeps {
   hub: WebSocketHub;
   headlessProgramsRepo: HeadlessProgramsRepo;
   settingsRepo: SettingsRepo;
+  skillsRepo: SkillsRepo;
   jobInterventionsRepo: JobInterventionsRepo;
   config: Config;
   resourceLeaseManager: WorkerResourceLeaseManager;
@@ -201,6 +206,17 @@ export function createApp(deps: AppDeps) {
     ),
   );
 
+  // Skills system — lazy-loaded prompt context via MCP tools
+  const skillIndex = new SkillIndex(() =>
+    materializeSkills({
+      coordinatorScriptsDir: deps.config.coordinatorScriptsDir,
+      coordinatorPlaybooksDir: deps.config.coordinatorPlaybooksDir,
+      coordinatorPlaybookSourcePaths: deps.config.coordinatorPlaybookSourcePaths,
+      skillsRepo: deps.skillsRepo,
+    }),
+  );
+  app.route("/api/skills", createSkillsRoutes(deps.skillsRepo, skillIndex, deps.usersRepo, deps.apiKeysRepo));
+
   // MCP tool server for AI agent bridge interaction and job orchestration
   const mcpDeps = {
     hub: deps.hub,
@@ -214,6 +230,7 @@ export function createApp(deps: AppDeps) {
     jobInterventionsRepo: deps.jobInterventionsRepo,
     agentsRepo: deps.agentsRepo,
     depsRepo: deps.depsRepo,
+    skillIndex,
   };
   app.route("/mcp", createMcpRoutes(mcpDeps, deps.apiKeysRepo, deps.usersRepo));
 

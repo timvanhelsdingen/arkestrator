@@ -222,6 +222,27 @@ const MIGRATIONS = [
 
   `CREATE INDEX IF NOT EXISTS idx_job_interventions_job ON job_interventions(job_id, created_at)`,
   `CREATE INDEX IF NOT EXISTS idx_job_interventions_pending ON job_interventions(job_id, status, created_at)`,
+
+  // Skills (coordinator scripts, playbooks, training records, custom user skills)
+  `CREATE TABLE IF NOT EXISTS skills (
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    slug        TEXT NOT NULL,
+    program     TEXT NOT NULL DEFAULT 'global',
+    category    TEXT NOT NULL CHECK(category IN ('coordinator','bridge','training','playbook','verification','project','custom')),
+    title       TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    keywords    TEXT NOT NULL DEFAULT '[]',
+    content     TEXT NOT NULL,
+    source      TEXT NOT NULL DEFAULT 'user',
+    source_path TEXT,
+    priority    INTEGER NOT NULL DEFAULT 50,
+    auto_fetch  INTEGER NOT NULL DEFAULT 0,
+    enabled     INTEGER NOT NULL DEFAULT 1,
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL,
+    UNIQUE(slug, program)
+  )`,
 ];
 
 // Column additions for existing tables (safe to fail if column already exists)
