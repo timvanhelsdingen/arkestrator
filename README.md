@@ -192,6 +192,7 @@ Arkestrator exposes an MCP endpoint at `/mcp` for external AI clients. Any MCP-c
 
 If Arkestrator is useful to you, consider supporting development:
 
+- [GitHub Sponsors](https://github.com/sponsors/timvanhelsdingen)
 - [Ko-fi](https://ko-fi.com/timvanhelsdingen)
 - [Patreon](https://patreon.com/timvanhelsdingen)
 
