@@ -1851,15 +1851,10 @@ export async function spawnAgent(
   const startTime = Date.now();
   let proc;
   try {
-    // Both codex and claude-code use "pipe" for stdin-based guidance delivery.
-    // Previously claude-code used "ignore" because it hung in Docker when stdin
-    // was piped — that was caused by missing --dangerously-skip-permissions
-    // (Claude waited for interactive permission input). With the flag always
-    // present (claude-runtime.ts now guarantees allowSkipPermissionsFlag=true),
-    // stdin pipe is safe.  Fall back to "ignore" for engines that don't need it.
-    const stdinMode = (config.engine === "codex" || config.engine === "claude-code")
-      ? "pipe" as const
-      : "ignore" as const;
+    // claude-code hangs when stdin is piped on Windows (stdout never flushes).
+    // Use "ignore" for claude-code; codex still needs "pipe" for stdin-based
+    // guidance delivery.
+    const stdinMode = config.engine === "codex" ? "pipe" as const : "ignore" as const;
     const { proc: spawnedProc, resolvedCommand } = spawnWithFallback(command, args, {
       cwd,
       env: cleanEnv,

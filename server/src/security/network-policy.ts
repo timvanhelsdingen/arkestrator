@@ -28,7 +28,7 @@ export interface NetworkAccessCheckResult {
   reason?: string;
 }
 
-const DEFAULT_LOGIN_RATE_MAX = 10;
+const DEFAULT_LOGIN_RATE_MAX = 100;
 const DEFAULT_LOGIN_RATE_WINDOW_MS = 15 * 60 * 1000;
 const DEFAULT_JOB_RATE_MAX = 10;
 const DEFAULT_JOB_RATE_WINDOW_MS = 60 * 1000;

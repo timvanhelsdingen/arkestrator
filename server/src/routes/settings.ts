@@ -7194,7 +7194,7 @@ export function createSettingsRoutes(
     const user = requireSecurityManager(c);
     if (!user) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
 
-    const programs = getCoordinatorScriptPrograms(programDiscoveryDeps);
+    const programs = ["global", ...getCoordinatorScriptPrograms(programDiscoveryDeps)];
     const scripts = programs.map((program) => {
       const path = join(coordinatorScriptsDir, `${program}.md`);
       let content = "";

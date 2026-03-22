@@ -78,7 +78,7 @@ Job operations and broader operational tooling are intentionally handled in the 
 
 ## App Structure
 - `App.svelte`: login guard, shell layout, iframe token handoff (`session_token`) with parent-origin/source/token validation, and permission-aware page routing.
-- Active routed pages: `users`, `api-keys`, `agents`, `machines`, `bridges`, `policies`, `coordinator-training`, `audit-log`.
+- Active routed pages: `users`, `api-keys`, `agents`, `machines`, `bridges`, `knowledge`, `policies`, `audit-log`.
 - If a logged-in account has no admin-panel capabilities, app shows a `No Admin Access` state.
 - Served by server as SPA at `/admin/*`.
 
@@ -89,6 +89,7 @@ Job operations and broader operational tooling are intentionally handled in the 
 | Users | User CRUD, searchable user table, password reset (old password + new + confirm), and unified per-user `Edit` flow: role, `require2fa`, `clientCoordinationEnabled`, token limits (input/output/period), and fine-grained capability editing (`manageUsers`, `manageAgents`, `manageProjects`, `managePolicies`, `manageApiKeys`, `manageConnections`, `manageWorkers`, `manageSecurity`, `viewAuditLog`, `viewUsage`, `editCoordinator`, `useMcp`, `interveneJobs`, `executeCommands`, `deliverFiles`, `submitJobs`). Includes clickable username/`View` drill-down into an in-page `User Details` insights panel (daily/monthly/all-time usage totals, status counts, recent tokenized jobs) with `?user=<id>` deep-link support. |
 | API Keys | Permission-gated API key manager (`manageApiKeys`) for active key listing with access summary column, create with role selection + grouped permission checkboxes (role-based defaults), one-time raw key reveal + copy, "Edit Permissions" modal for existing keys, and key revocation (`/api/keys`, `/api/keys/:id/permissions`). |
 | AgentConfigs | Agent config CRUD via inline editor panel + inline template quick-add panel (`Use Template` creates config directly). Template adds can still show provider onboarding notes, and the page now includes a first-class `CLI Auth (Server Runtime)` panel for one-click Claude/Codex login in the active server runtime user context (status, start, live logs, open URL, copy code, cancel). Supports optional `fallbackConfigId` field for AUTO-routing escalation chains. Includes `Model Host` dropdown (`server`/`client` toggle, persisted on the agent config) for local-oss model host routing and a separate ephemeral `Catalog Source` dropdown (renamed from per-worker picker) for browsing worker model catalogs. Includes local model runtime tools (`runtime=ollama`): catalog + allowlist management (checkboxes, common-model presets, save allowlist), per-model download/update, bulk download for missing allowed models, live pull progress bar/percent via streamed events, and optional auto-pull before save. |
+| Knowledge (Skills & Training) | Combined tabbed page (`Knowledge.svelte`) with two tabs: **Skills** (`Skills.svelte`) for skill management, registry browser, import/export, and search; **Training Vault** (`CoordinatorTraining.svelte`) for vault explorer, repository controls, and snapshots. Single sidebar entry "Skills & Training" replaces the former separate "Skills" and "Training Vault" entries. |
 | Bridges | Program-centric bridge management page. Aggregates workers, connections, and coordinator scripts into a per-program table (Program, Status, Workers, Versions, Script, Actions). Actions: Edit Script (textarea + reset-to-default), Kick All (disconnects active connections), Remove (deletes bridge history via `DELETE /api/workers/bridges-by-program/:program` + coordinator script). Add Bridge creates a new coordinator script for a program name. |
 | Machines | Machine/worker inventory (`/api/workers`) with live status + IP, connected programs, per-machine rule editing (`banned`, `clientCoordinationAllowed`, `ipAllowlist`, `ipDenylist`, `localLlmEnabled`, `localLlmBaseUrl`, `note`) via `PUT /api/workers/:id/rules`, one-click worker local-LLM endpoint checks (`GET /api/workers/:id/local-llm-check`), and per-machine delete button with confirmation modal dialog (`DELETE /api/workers/:id`). Delete UI uses `confirmDelete` state, `deleteWorker()` handler, and `.btn-danger`/`.actions-cell` styles. |
 | Policies | Server-side allow/deny filters with type tabs (`file_path`, `tool`, `prompt_filter`, `engine_model`, `command_filter`), per-user/global scope, enable/disable toggles, and create/edit/delete flow. |
@@ -99,18 +100,18 @@ Job operations and broader operational tooling are intentionally handled in the 
 | Store | File | State |
 |-------|------|-------|
 | auth | `auth.svelte.ts` | `token`, `user`, 2FA challenge state, plus capability getters (`canManageUsers`, `canManageAgents`, `canManagePolicies`, `canViewAuditLog`, etc.) and `hasAdminAccess`. |
-| navigation | `navigation.svelte.ts` | `current: "users" | "api-keys" | "agents" | "machines" | "bridges" | "policies" | "coordinator-training" | "audit-log"` |
+| navigation | `navigation.svelte.ts` | `current: "users" | "api-keys" | "agents" | "machines" | "bridges" | "knowledge" | "policies" | "audit-log"` |
 | toast | `toast.svelte.ts` | Toast queue/messages |
 
 ## Navigation + Layout
 - `lib/components/layout/Sidebar.svelte`
   - Renders the refreshed Arkestrator logo mark beside the `Arkestrator / Admin` lockup
-  - Capability-gated items: `Users`, `API Keys`, `Agents`, `Machines`, `Bridges`, `Filters`, `Training Vault`, `Audit Log`
+  - Capability-gated items: `Users`, `API Keys`, `Agents`, `Machines`, `Bridges`, `Skills & Training`, `Filters`, `Audit Log`
   - Filters items by permission (`manageUsers`, `manageApiKeys`, `manageAgents`, `manageWorkers`, `managePolicies`, `editCoordinator/manageSecurity`, `viewAuditLog`)
   - Auto-corrects `nav.current` to the first allowed page
 - `lib/components/layout/Header.svelte`
   - Authenticated page title bar with persistent build badge (`Build <version+sha>`)
-  - Titles for active pages (`users`, `api-keys`, `agents`, `machines`, `bridges`, `policies`, `coordinator-training`, `audit-log`)
+  - Titles for active pages (`users`, `api-keys`, `agents`, `machines`, `bridges`, `knowledge`, `policies`, `audit-log`)
 
 ## API Layer (`src/lib/api/client.ts`)
 Active admin UI uses:
