@@ -423,6 +423,7 @@ pub fn detect_program_paths(hints: Vec<String>) -> Vec<DetectedPath> {
             // Direct path — check if it exists and list subdirectories (version dirs)
             let base = PathBuf::from(&expanded);
             if base.is_dir() {
+                let mut found_version_dirs = false;
                 if let Ok(entries) = fs::read_dir(&base) {
                     for entry in entries.flatten() {
                         let path = entry.path();
@@ -432,6 +433,7 @@ pub fn detect_program_paths(hints: Vec<String>) -> Vec<DetectedPath> {
                             if name.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false)
                                 || name.contains('.')
                             {
+                                found_version_dirs = true;
                                 results.push(DetectedPath {
                                     path: path.to_string_lossy().to_string(),
                                     label: name,
@@ -439,6 +441,18 @@ pub fn detect_program_paths(hints: Vec<String>) -> Vec<DetectedPath> {
                             }
                         }
                     }
+                }
+                // If no version-like subdirectories found, the base path itself
+                // is the installation (e.g., Fusion user config dir)
+                if !found_version_dirs {
+                    let label = base
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_else(|| expanded.clone());
+                    results.push(DetectedPath {
+                        path: base.to_string_lossy().to_string(),
+                        label,
+                    });
                 }
             }
         }
