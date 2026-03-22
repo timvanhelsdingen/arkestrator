@@ -143,6 +143,29 @@
   let repositoryReindexSourcePaths = $state("");
   let repositoryReindexObjective = $state("");
 
+  // Self-Training Schedule
+  interface TrainingScheduleState {
+    enabled: boolean;
+    intervalMinutes: number;
+    apply: boolean;
+    programs: string[];
+  }
+  let scheduleLoading = $state(false);
+  let scheduleSaving = $state(false);
+  let trainingSchedule = $state<TrainingScheduleState>({
+    enabled: false,
+    intervalMinutes: 24 * 60,
+    apply: true,
+    programs: [],
+  });
+  let scheduleLastRunByProgram = $state<Record<string, string>>({});
+  let scheduleNextRunByProgram = $state<Record<string, string | null>>({});
+  let schedulePrograms = $derived(
+    coordinatorScripts
+      .map((s) => normalizeProgramName(s.program))
+      .filter((p) => p && p !== "global"),
+  );
+
   let trainingJobsLoading = $state(false);
   let trainingJobs = $state<TrainingJobSummary[]>([]);
   let trainingJobsLastUpdatedAt = $state<string | null>(null);
@@ -302,6 +325,91 @@
     } finally {
       coordinatorScriptsLoading = false;
     }
+  }
+
+  async function loadTrainingSchedule() {
+    if (!auth.canManageSecurity) return;
+    scheduleLoading = true;
+    try {
+      const result = await api.coordinatorTraining.getTrainingSchedule();
+      const schedule = result?.schedule ?? {} as any;
+      const programs = Array.isArray(schedule?.programs)
+        ? schedule.programs.map((v: unknown) => normalizeProgramName(String(v ?? ""))).filter(Boolean)
+        : [];
+      trainingSchedule = {
+        enabled: schedule?.enabled === true,
+        intervalMinutes: Number.isFinite(Number(schedule?.intervalMinutes))
+          ? Math.max(5, Number(schedule.intervalMinutes))
+          : 24 * 60,
+        apply: schedule?.apply !== false,
+        programs,
+      };
+      scheduleLastRunByProgram = result?.lastRunByProgram && typeof result.lastRunByProgram === "object"
+        ? result.lastRunByProgram
+        : {};
+      scheduleNextRunByProgram = result?.nextRunByProgram && typeof result.nextRunByProgram === "object"
+        ? result.nextRunByProgram
+        : {};
+    } catch (err: any) {
+      toast.error(err.message ?? "Failed to load training schedule");
+    } finally {
+      scheduleLoading = false;
+    }
+  }
+
+  async function saveTrainingSchedule() {
+    if (!auth.canManageSecurity) return;
+    scheduleSaving = true;
+    try {
+      const result = await api.coordinatorTraining.setTrainingSchedule({
+        enabled: trainingSchedule.enabled,
+        intervalMinutes: Math.max(5, Math.round(Number(trainingSchedule.intervalMinutes) || 0)),
+        apply: trainingSchedule.apply,
+        programs: trainingSchedule.programs,
+      });
+      const schedule = result?.schedule ?? {} as any;
+      trainingSchedule = {
+        enabled: schedule?.enabled === true,
+        intervalMinutes: Number.isFinite(Number(schedule?.intervalMinutes))
+          ? Math.max(5, Number(schedule.intervalMinutes))
+          : trainingSchedule.intervalMinutes,
+        apply: schedule?.apply !== false,
+        programs: Array.isArray(schedule?.programs)
+          ? schedule.programs.map((v: unknown) => normalizeProgramName(String(v ?? ""))).filter(Boolean)
+          : trainingSchedule.programs,
+      };
+      scheduleLastRunByProgram = result?.lastRunByProgram && typeof result.lastRunByProgram === "object"
+        ? result.lastRunByProgram
+        : scheduleLastRunByProgram;
+      scheduleNextRunByProgram = result?.nextRunByProgram && typeof result.nextRunByProgram === "object"
+        ? result.nextRunByProgram
+        : scheduleNextRunByProgram;
+      toast.success("Training schedule saved.");
+    } catch (err: any) {
+      toast.error(`Save training schedule failed: ${err.message ?? err}`);
+    } finally {
+      scheduleSaving = false;
+    }
+  }
+
+  function isScheduledForProgram(p: string): boolean {
+    return trainingSchedule.programs.includes(normalizeProgramName(p));
+  }
+
+  function toggleScheduleProgram(p: string, enabled: boolean) {
+    const target = normalizeProgramName(p);
+    const next = new Set(trainingSchedule.programs.map((v) => normalizeProgramName(v)));
+    if (enabled) next.add(target);
+    else next.delete(target);
+    trainingSchedule = { ...trainingSchedule, programs: [...next] };
+  }
+
+  function formatScheduleDateTime(iso: string | null | undefined): string {
+    const value = String(iso ?? "").trim();
+    if (!value) return "Not scheduled";
+    const ts = Date.parse(value);
+    if (Number.isNaN(ts)) return "Invalid date";
+    return new Date(ts).toLocaleString();
   }
 
   async function deleteCoordinatorScript(program: string) {
@@ -1297,6 +1405,7 @@
   onMount(() => {
     void load();
     void loadCoordinationPolicy();
+    void loadCoordinatorScripts().then(() => loadTrainingSchedule());
     void refreshTrainingRepositoryData();
   });
 </script>
@@ -1334,6 +1443,71 @@
           Current: {allowClientCoordination ? "enabled" : "disabled"}
         {/if}
       </div>
+    </section>
+  {/if}
+
+  {#if auth.canManageSecurity}
+    <section class="policy-panel">
+      <h2>Self-Training Schedule</h2>
+      <p class="hint">
+        Configure automated coordinator self-training. When enabled, the server periodically runs training for the selected programs.
+      </p>
+      {#if scheduleLoading}
+        <p class="hint">Loading schedule...</p>
+      {:else}
+        <label class="toggle policy-toggle">
+          <input
+            type="checkbox"
+            checked={trainingSchedule.enabled}
+            onchange={(e) =>
+              (trainingSchedule = {
+                ...trainingSchedule,
+                enabled: (e.target as HTMLInputElement).checked,
+              })}
+          />
+          <span>Enable scheduled coordinator self-training</span>
+        </label>
+        <label class="field compact">
+          <span>Interval (minutes)</span>
+          <input
+            type="number"
+            min="5"
+            step="5"
+            value={String(trainingSchedule.intervalMinutes)}
+            oninput={(e) =>
+              (trainingSchedule = {
+                ...trainingSchedule,
+                intervalMinutes: Math.max(5, Number((e.target as HTMLInputElement).value || 0)),
+              })}
+          />
+        </label>
+        {#each schedulePrograms as prog}
+          <label class="toggle policy-toggle">
+            <input
+              type="checkbox"
+              checked={isScheduledForProgram(prog)}
+              onchange={(e) => toggleScheduleProgram(prog, (e.target as HTMLInputElement).checked)}
+            />
+            <span>Include {prog} in schedule</span>
+          </label>
+          <div class="policy-meta">
+            Last run: {formatScheduleDateTime(scheduleLastRunByProgram[prog])}
+            &mdash; Next run: {formatScheduleDateTime(scheduleNextRunByProgram[prog])}
+          </div>
+        {/each}
+        {#if schedulePrograms.length === 0}
+          <p class="hint">No bridge programs discovered yet. Programs appear after coordinator scripts are created.</p>
+        {/if}
+        <div style="margin-top: 8px;">
+          <button
+            class="btn-primary"
+            onclick={saveTrainingSchedule}
+            disabled={scheduleSaving}
+          >
+            {scheduleSaving ? "Saving..." : "Save Training Schedule"}
+          </button>
+        </div>
+      {/if}
     </section>
   {/if}
 

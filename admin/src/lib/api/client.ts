@@ -1150,6 +1150,36 @@ export const api = {
       request(`/api/settings/coordinator-scripts/${encodeURIComponent(program)}`, {
         method: "DELETE",
       }) as Promise<{ ok: boolean }>,
+    getTrainingSchedule: () =>
+      request("/api/settings/coordinator-training-schedule") as Promise<{
+        schedule: {
+          enabled: boolean;
+          intervalMinutes: number;
+          apply: boolean;
+          programs: string[];
+        };
+        lastRunByProgram: Record<string, string>;
+        nextRunByProgram: Record<string, string | null>;
+      }>,
+    setTrainingSchedule: (payload: {
+      enabled?: boolean;
+      intervalMinutes?: number;
+      apply?: boolean;
+      programs?: string[];
+    }) =>
+      request("/api/settings/coordinator-training-schedule", {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      }) as Promise<{
+        schedule: {
+          enabled: boolean;
+          intervalMinutes: number;
+          apply: boolean;
+          programs: string[];
+        };
+        lastRunByProgram: Record<string, string>;
+        nextRunByProgram: Record<string, string | null>;
+      }>,
     importSnapshotZip: (file: File, includeServerFiles = false) => {
       const form = new FormData();
       form.append("file", file);
