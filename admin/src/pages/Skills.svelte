@@ -330,7 +330,7 @@
   <div class="toolbar">
     <div class="filters">
       <select bind:value={filterProgram}>
-        <option value="">All Programs</option>
+        <option value="">All Bridges</option>
         {#each uniquePrograms as p}
           <option value={p}>{p}</option>
         {/each}
@@ -400,7 +400,7 @@
       <tr>
         <th>Slug</th>
         <th>Title</th>
-        <th>Program</th>
+        <th>Bridge</th>
         <th>Category</th>
         <th>Source</th>
         <th>Enabled</th>
@@ -464,7 +464,7 @@
       <div><strong>Slug:</strong> <span class="mono">{detailSkill.slug}</span></div>
       <div><strong>Name:</strong> {detailSkill.name}</div>
       <div><strong>Title:</strong> {detailSkill.title}</div>
-      <div><strong>Program:</strong> {detailSkill.program || "-"}</div>
+      <div><strong>Bridge:</strong> {detailSkill.program || "-"}</div>
       <div><strong>Category:</strong> {detailSkill.category}</div>
       <div><strong>Source:</strong> {detailSkill.source}</div>
       <div><strong>Enabled:</strong> {detailSkill.enabled ? "Yes" : "No"}</div>
@@ -502,7 +502,7 @@
       <input type="text" bind:value={createSlug} placeholder="my-skill" />
     </label>
     <label class="field">
-      <span>Program (optional)</span>
+      <span>Bridge (optional)</span>
       <input type="text" bind:value={createProgram} placeholder="e.g. godot, blender" />
     </label>
     <label class="field">

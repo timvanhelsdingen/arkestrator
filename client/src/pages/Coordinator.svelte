@@ -1397,7 +1397,7 @@
               <label>Slug <input type="text" bind:value={skillCreateSlug} placeholder="auto-generated" /></label>
             </div>
             <div class="form-row">
-              <label>Program
+              <label>Bridge
                 <select bind:value={skillCreateProgram}>
                   <option value="global">Global</option>
                   {#each programs as p}{#if p.value !== "global"}<option value={p.value}>{p.label}</option>{/if}{/each}
@@ -1430,7 +1430,7 @@
         {/if}
 
         <table class="skill-table">
-          <thead><tr><th>Slug</th><th>Title</th><th>Program</th><th>Category</th><th>Source</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Slug</th><th>Title</th><th>Bridge</th><th>Category</th><th>Source</th><th>Actions</th></tr></thead>
           <tbody>
             {#if skillsLoading}
               <tr><td colspan="6" class="muted">Loading...</td></tr>
