@@ -14,32 +14,17 @@
     type ProviderModelCatalog,
   } from "../../api/rest";
 
-  interface SkillInfo { slug: string; title: string; program: string; category: string; enabled: boolean; }
-  let serverSkills = $state<SkillInfo[]>([]);
-  let skillsLoaded = $state(false);
+  let coordinationEnabled = $derived(
+    connection.allowClientCoordination
+      ? clientCoordination.enabled
+      : true // server-managed coordination is always on
+  );
 
-  async function loadSkills() {
-    try {
-      const res = await api.skills.list();
-      const raw = (res as any).skills ?? res;
-      serverSkills = (Array.isArray(raw) ? raw : []).map((s: any) => ({
-        slug: s.slug,
-        title: s.title ?? s.slug,
-        program: s.program ?? "global",
-        category: s.category ?? "custom",
-        enabled: s.enabled !== false,
-      }));
-      skillsLoaded = true;
-    } catch { /* ignore */ }
+  function toggleCoordination() {
+    if (connection.allowClientCoordination) {
+      clientCoordination.enabled = !clientCoordination.enabled;
+    }
   }
-
-  // Load skills once connection is available
-  $effect(() => {
-    if (connection.url && !skillsLoaded) loadSkills();
-  });
-
-  let skillsExpanded = $state(false);
-  let enabledSkillCount = $derived(serverSkills.filter(s => s.enabled).length);
 
   let localModelCatalog = $state<LocalModelCatalogEntry[]>([]);
   let providerModelCatalogs = $state<Record<string, ProviderModelCatalog>>({});
@@ -390,35 +375,19 @@
       />
     </div>
 
-    <!-- Skills -->
+    <!-- Coordination -->
     <div class="config-row config-row-inline">
-      <button class="skills-toggle-btn" onclick={() => skillsExpanded = !skillsExpanded}>
-        <span class="config-label-text">Skills</span>
-        <span class="skills-count">{enabledSkillCount}/{serverSkills.length}</span>
-        <span class="skills-chevron" class:expanded={skillsExpanded}>▸</span>
+      <span class="config-label-text">Coordination</span>
+      <button
+        class="coordination-toggle"
+        class:on={coordinationEnabled}
+        onclick={toggleCoordination}
+        disabled={!connection.allowClientCoordination}
+        title={connection.allowClientCoordination ? "Toggle coordination scripts & skills" : "Managed by server"}
+      >
+        {coordinationEnabled ? "On" : "Off"}
       </button>
     </div>
-    {#if skillsExpanded}
-      <div class="skills-list">
-        {#each serverSkills as skill}
-          <label class="skill-toggle" title={skill.slug}>
-            <input
-              type="checkbox"
-              checked={skill.enabled}
-              onchange={() => {
-                skill.enabled = !skill.enabled;
-                api.skills.update(skill.slug, { enabled: skill.enabled }, skill.program).catch(() => {});
-              }}
-            />
-            <span class="skill-name">{skill.title}</span>
-            <span class="skill-badge">{skill.program}</span>
-          </label>
-        {/each}
-        {#if serverSkills.length === 0}
-          <span class="muted" style="font-size: 11px; padding: 2px 0;">No skills loaded</span>
-        {/if}
-      </div>
-    {/if}
 
     <!-- Name -->
     <div class="config-row">
@@ -533,65 +502,24 @@
     opacity: 0.65;
   }
 
-  .skills-toggle-btn {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    width: 100%;
-    background: none;
-    border: none;
-    padding: 0;
-    cursor: pointer;
-    color: inherit;
-    font: inherit;
-  }
-  .skills-count {
+  .coordination-toggle {
     font-size: 11px;
+    padding: 2px 10px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--bg-base);
     color: var(--text-secondary);
-    margin-left: auto;
-  }
-  .skills-chevron {
-    font-size: 10px;
-    color: var(--text-secondary);
-    transition: transform 0.15s;
-  }
-  .skills-chevron.expanded {
-    transform: rotate(90deg);
-  }
-  .skills-list {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding: 2px 0 6px 4px;
-    max-height: 180px;
-    overflow-y: auto;
-  }
-  .skill-toggle {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 11px;
     cursor: pointer;
-    padding: 2px 0;
+    font-weight: 500;
+    min-width: 36px;
   }
-  .skill-toggle input[type="checkbox"] {
-    width: 13px;
-    height: 13px;
-    margin: 0;
-    flex-shrink: 0;
+  .coordination-toggle.on {
+    background: var(--status-completed);
+    color: var(--bg-base);
+    border-color: var(--status-completed);
   }
-  .skill-name {
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .skill-badge {
-    font-size: 9px;
-    padding: 1px 4px;
-    border-radius: 3px;
-    background: var(--bg-elevated);
-    color: var(--text-secondary);
-    flex-shrink: 0;
+  .coordination-toggle:disabled {
+    opacity: 0.5;
+    cursor: default;
   }
 </style>
