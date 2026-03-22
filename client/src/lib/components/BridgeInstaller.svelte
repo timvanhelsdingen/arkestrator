@@ -144,6 +144,12 @@
       return pathTemplate.replace("{appVersion}", versionPart);
     }
 
+    // Fixed install path (no version placeholder) — use the template directly.
+    // The Rust backend expands env vars like %APPDATA% and ~ during extraction.
+    if (pathTemplate) {
+      return pathTemplate;
+    }
+
     return basePath;
   }
 
