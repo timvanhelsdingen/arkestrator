@@ -45,6 +45,7 @@ import type { DependenciesRepo } from "../db/dependencies.repo.js";
 import { readSharedConfig, resolveSpawnedAgentServerUrl } from "../utils/shared-config.js";
 import type { HeadlessProgramsRepo } from "../db/headless-programs.repo.js";
 import type { SettingsRepo } from "../db/settings.repo.js";
+import type { SkillsRepo } from "../db/skills.repo.js";
 import type { WorkersRepo } from "../db/workers.repo.js";
 import type { JobInterventionsRepo } from "../db/job-interventions.repo.js";
 import type { WorkerResourceLeaseManager } from "./resource-control.js";
@@ -186,6 +187,7 @@ export interface SpawnerDeps {
   depsRepo: DependenciesRepo;
   headlessProgramsRepo?: HeadlessProgramsRepo;
   settingsRepo?: SettingsRepo;
+  skillsRepo?: SkillsRepo;
   workersRepo?: WorkersRepo;
   jobInterventionsRepo?: JobInterventionsRepo;
   resourceLeaseManager?: WorkerResourceLeaseManager;
@@ -1374,6 +1376,7 @@ export async function spawnAgent(
       success,
       matches: matchedCoordinatorContext,
       outcome,
+      skillsRepo: deps.skillsRepo,
     });
   };
   const knownBridgePrograms = [

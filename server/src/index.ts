@@ -43,6 +43,7 @@ import { seedCoordinatorScripts, ensureCoordinatorScript } from "./agents/engine
 import { seedCoordinatorPlaybooks } from "./agents/coordinator-playbooks.js";
 import { pullAllBridgeSkills } from "./skills/skill-registry.js";
 import { runScheduledCoordinatorTrainingTick } from "./agents/coordinator-training.js";
+import { runHousekeepingScheduleTick } from "./agents/housekeeping.js";
 import { deriveWorkerIdentity } from "./utils/worker-identity.js";
 import {
   findStaleLoopbackWorkerIds,
@@ -406,6 +407,7 @@ async function main() {
     depsRepo,
     headlessProgramsRepo,
     settingsRepo,
+    skillsRepo,
     syncManager,
     config,
     hub,
@@ -723,6 +725,7 @@ async function main() {
         jobsRepo,
         agentsRepo,
         settingsRepo,
+        skillsRepo,
         headlessProgramsRepo,
         hub,
         coordinatorScriptsDir: config.coordinatorScriptsDir,
@@ -739,6 +742,38 @@ async function main() {
       logger.warn("coordinator-training", `Scheduled training tick failed: ${String(err?.message ?? err)}`);
     }
   }, 60_000);
+
+  // 14. Housekeeping schedule tick (every 5 minutes)
+  const housekeepingInterval = setInterval(() => {
+    try {
+      const result = runHousekeepingScheduleTick({
+        jobsRepo,
+        skillsRepo,
+        agentsRepo,
+        settingsRepo,
+        hub,
+      });
+      if (result) {
+        logger.info("housekeeping", `Queued scheduled housekeeping job: ${result.jobId}`);
+      }
+    } catch (err: any) {
+      logger.warn("housekeeping", `Housekeeping schedule tick failed: ${err?.message ?? err}`);
+    }
+  }, 5 * 60_000);
+
+  // 15. Purge jobs in trash older than 30 days (run once on startup, then daily)
+  const purgeTrash = () => {
+    try {
+      const purged = jobsRepo.purgeOldTrash(30);
+      if (purged > 0) {
+        logger.info("server", `Purged ${purged} jobs from trash (older than 30 days)`);
+      }
+    } catch (err: any) {
+      logger.warn("server", `Trash purge failed: ${err?.message ?? err}`);
+    }
+  };
+  purgeTrash(); // run once on startup
+  const trashPurgeInterval = setInterval(purgeTrash, 24 * 60 * 60_000); // once per day
 
   const protocol = tlsConfig ? "https" : "http";
   const wsProtocol = tlsConfig ? "wss" : "ws";
@@ -771,11 +806,11 @@ async function main() {
   // 12. Graceful shutdown
   process.on(
     "SIGINT",
-    () => shutdown(worker, processTracker, syncManager, sessionCleanupInterval, wsHeartbeatInterval, coordinatorTrainingInterval, db),
+    () => shutdown(worker, processTracker, syncManager, sessionCleanupInterval, wsHeartbeatInterval, coordinatorTrainingInterval, housekeepingInterval, trashPurgeInterval, db),
   );
   process.on(
     "SIGTERM",
-    () => shutdown(worker, processTracker, syncManager, sessionCleanupInterval, wsHeartbeatInterval, coordinatorTrainingInterval, db),
+    () => shutdown(worker, processTracker, syncManager, sessionCleanupInterval, wsHeartbeatInterval, coordinatorTrainingInterval, housekeepingInterval, trashPurgeInterval, db),
   );
 }
 
@@ -786,6 +821,8 @@ function shutdown(
   sessionCleanupInterval: ReturnType<typeof setInterval>,
   wsHeartbeatInterval: ReturnType<typeof setInterval>,
   coordinatorTrainingInterval: ReturnType<typeof setInterval>,
+  housekeepingInterval: ReturnType<typeof setInterval>,
+  trashPurgeInterval: ReturnType<typeof setInterval>,
   db: ReturnType<typeof openDatabase>,
 ) {
   logger.info("server", "Shutting down...");
@@ -795,6 +832,8 @@ function shutdown(
   clearInterval(sessionCleanupInterval);
   clearInterval(wsHeartbeatInterval);
   clearInterval(coordinatorTrainingInterval);
+  clearInterval(housekeepingInterval);
+  clearInterval(trashPurgeInterval);
   db.close();
   process.exit(0);
 }

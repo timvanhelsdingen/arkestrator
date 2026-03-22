@@ -578,6 +578,30 @@ export function createJobRoutes(
     return c.json({ jobs: enrichJobs(jobs), total });
   });
 
+  // List soft-deleted (trashed) jobs
+  router.get("/trash", async (c) => {
+    const principal = await getAuthPrincipal(c, usersRepo, apiKeysRepo);
+    if (!principal) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+    if (!canAccessJobs(principal)) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+
+    const limit = c.req.query("limit") ? parseInt(c.req.query("limit")!, 10) : undefined;
+    const offset = c.req.query("offset") ? parseInt(c.req.query("offset")!, 10) : undefined;
+    const { jobs, total } = jobsRepo.listTrashed(limit, offset);
+    return c.json({ jobs: enrichJobs(jobs), total });
+  });
+
+  // List archived jobs
+  router.get("/archived", async (c) => {
+    const principal = await getAuthPrincipal(c, usersRepo, apiKeysRepo);
+    if (!principal) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+    if (!canAccessJobs(principal)) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+
+    const limit = c.req.query("limit") ? parseInt(c.req.query("limit")!, 10) : undefined;
+    const offset = c.req.query("offset") ? parseInt(c.req.query("offset")!, 10) : undefined;
+    const { jobs, total } = jobsRepo.listArchived(limit, offset);
+    return c.json({ jobs: enrichJobs(jobs), total });
+  });
+
   router.get("/:id", async (c) => {
     const principal = await getAuthPrincipal(c, usersRepo, apiKeysRepo);
     if (!principal) {
@@ -1075,6 +1099,72 @@ export function createJobRoutes(
       propagatedJobIds,
       skippedActiveJobIds,
     });
+  });
+
+  // Archive a job (soft-archive)
+  router.post("/:id/archive", async (c) => {
+    const principal = await getAuthPrincipal(c, usersRepo, apiKeysRepo);
+    if (!principal) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+
+    const id = c.req.param("id");
+    const job = jobsRepo.getById(id);
+    if (!job) return errorResponse(c, 404, "Not found", "NOT_FOUND");
+    if (!canMutateJob(principal, job)) {
+      return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+    }
+
+    const archived = jobsRepo.archive(id);
+    if (!archived) return errorResponse(c, 400, "Cannot archive job", "INVALID_INPUT");
+
+    broadcastJob(id);
+    return c.json({ ok: true });
+  });
+
+  // Restore a trashed or archived job
+  router.post("/:id/restore", async (c) => {
+    const principal = await getAuthPrincipal(c, usersRepo, apiKeysRepo);
+    if (!principal) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+
+    const id = c.req.param("id");
+    const job = jobsRepo.getById(id);
+    if (!job) return errorResponse(c, 404, "Not found", "NOT_FOUND");
+    if (!canMutateJob(principal, job)) {
+      return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+    }
+
+    const restored = jobsRepo.restore(id);
+    if (!restored) return errorResponse(c, 400, "Cannot restore job", "INVALID_INPUT");
+
+    broadcastJob(id);
+    return c.json({ ok: true });
+  });
+
+  // Permanently delete a job (admin only)
+  router.delete("/:id/permanent", async (c) => {
+    const principal = await getAuthPrincipal(c, usersRepo, apiKeysRepo);
+    if (!principal) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+    if (principal.type === "user" && principal.user.role !== "admin") {
+      return errorResponse(c, 403, "Admin only", "FORBIDDEN");
+    }
+    if (principal.type === "apiKey" && principal.apiKey.role !== "admin") {
+      return errorResponse(c, 403, "Admin only", "FORBIDDEN");
+    }
+
+    const id = c.req.param("id");
+    const deleted = jobsRepo.permanentDelete(id);
+    if (!deleted) return errorResponse(c, 404, "Not found", "NOT_FOUND");
+
+    const actor = principalToAuditActor(principal);
+    auditRepo.log({
+      userId: actor.userId,
+      username: actor.username,
+      action: "permanent_delete_job",
+      resource: "job",
+      resourceId: id,
+      ipAddress: getClientIp(c),
+    });
+
+    return c.json({ ok: true });
   });
 
   router.delete("/:id", async (c) => {

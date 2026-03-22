@@ -51,6 +51,8 @@ interface JobRow {
   output_tokens: number | null;
   cost_usd: number | null;
   duration_ms: number | null;
+  archived_at: string | null;
+  deleted_at: string | null;
   created_at: string;
   started_at: string | null;
   completed_at: string | null;
@@ -135,6 +137,8 @@ function rowToJob(row: JobRow): Job {
           costUsd: row.cost_usd ?? undefined,
         }
       : undefined,
+    archivedAt: row.archived_at ?? undefined,
+    deletedAt: row.deleted_at ?? undefined,
     createdAt: row.created_at,
     startedAt: row.started_at ?? undefined,
     completedAt: row.completed_at ?? undefined,
@@ -171,6 +175,14 @@ export class JobsRepo {
   private countBySubmittedByStmt;
   private countBySubmittedByStatusStmt;
   private updateTokensStmt;
+  private archiveStmt;
+  private restoreStmt;
+  private permanentDeleteStmt;
+  private listTrashedStmt;
+  private countTrashedStmt;
+  private listArchivedStmt;
+  private countArchivedStmt;
+  private purgeOldTrashStmt;
 
   constructor(private db: Database) {
     this.insertStmt = db.prepare(
@@ -179,10 +191,10 @@ export class JobsRepo {
     );
     this.getByIdStmt = db.prepare(`SELECT * FROM jobs WHERE id = ?`);
     this.listByStatusStmt = db.prepare(
-      `SELECT * FROM jobs WHERE status IN (SELECT value FROM json_each(?)) ORDER BY created_at DESC`,
+      `SELECT * FROM jobs WHERE status IN (SELECT value FROM json_each(?)) AND deleted_at IS NULL ORDER BY created_at DESC`,
     );
     this.listAllStmt = db.prepare(
-      `SELECT * FROM jobs ORDER BY created_at DESC`,
+      `SELECT * FROM jobs WHERE deleted_at IS NULL ORDER BY created_at DESC`,
     );
     this.claimJobStmt = db.prepare(
       `UPDATE jobs SET status = 'running', started_at = ? WHERE id = ? AND status = 'queued'`,
@@ -242,10 +254,10 @@ export class JobsRepo {
       `UPDATE jobs SET workspace_mode = ? WHERE id = ?`,
     );
     this.deleteStmt = db.prepare(
-      `DELETE FROM jobs WHERE id = ? AND status IN ('paused', 'completed', 'failed', 'cancelled')`,
+      `UPDATE jobs SET deleted_at = ? WHERE id = ? AND status IN ('paused', 'completed', 'failed', 'cancelled')`,
     );
     this.deleteBulkStmt = db.prepare(
-      `DELETE FROM jobs WHERE id IN (SELECT value FROM json_each(?)) AND status IN ('paused', 'completed', 'failed', 'cancelled')`,
+      `UPDATE jobs SET deleted_at = ? WHERE id IN (SELECT value FROM json_each(?)) AND status IN ('paused', 'completed', 'failed', 'cancelled')`,
     );
     this.resumeStmt = db.prepare(
       `UPDATE jobs SET status = 'queued' WHERE id = ? AND status = 'paused'`,
@@ -259,15 +271,15 @@ export class JobsRepo {
         SUM(CASE WHEN status = 'failed' AND completed_at >= ? THEN 1 ELSE 0 END) as failed_today
        FROM jobs`,
     );
-    this.countAllStmt = db.prepare(`SELECT COUNT(*) as total FROM jobs`);
+    this.countAllStmt = db.prepare(`SELECT COUNT(*) as total FROM jobs WHERE deleted_at IS NULL`);
     this.countByStatusStmt = db.prepare(
-      `SELECT COUNT(*) as total FROM jobs WHERE status IN (SELECT value FROM json_each(?))`,
+      `SELECT COUNT(*) as total FROM jobs WHERE status IN (SELECT value FROM json_each(?)) AND deleted_at IS NULL`,
     );
     this.listPaginatedStmt = db.prepare(
-      `SELECT * FROM jobs ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+      `SELECT * FROM jobs WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT ? OFFSET ?`,
     );
     this.listByStatusPaginatedStmt = db.prepare(
-      `SELECT * FROM jobs WHERE status IN (SELECT value FROM json_each(?)) ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+      `SELECT * FROM jobs WHERE status IN (SELECT value FROM json_each(?)) AND deleted_at IS NULL ORDER BY created_at DESC LIMIT ? OFFSET ?`,
     );
     this.hasPendingChildrenStmt = db.prepare(
       `SELECT COUNT(*) as n FROM jobs WHERE parent_job_id = ? AND status NOT IN ('completed', 'failed', 'cancelled')`,
@@ -297,6 +309,30 @@ export class JobsRepo {
     );
     this.updateTokensStmt = db.prepare(
       `UPDATE jobs SET input_tokens = ?, output_tokens = ?, cost_usd = ?, duration_ms = ? WHERE id = ?`,
+    );
+    this.archiveStmt = db.prepare(
+      `UPDATE jobs SET archived_at = ? WHERE id = ? AND deleted_at IS NULL`,
+    );
+    this.restoreStmt = db.prepare(
+      `UPDATE jobs SET deleted_at = NULL, archived_at = NULL WHERE id = ?`,
+    );
+    this.permanentDeleteStmt = db.prepare(
+      `DELETE FROM jobs WHERE id = ?`,
+    );
+    this.listTrashedStmt = db.prepare(
+      `SELECT * FROM jobs WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC LIMIT ? OFFSET ?`,
+    );
+    this.countTrashedStmt = db.prepare(
+      `SELECT COUNT(*) as total FROM jobs WHERE deleted_at IS NOT NULL`,
+    );
+    this.listArchivedStmt = db.prepare(
+      `SELECT * FROM jobs WHERE archived_at IS NOT NULL AND deleted_at IS NULL ORDER BY archived_at DESC LIMIT ? OFFSET ?`,
+    );
+    this.countArchivedStmt = db.prepare(
+      `SELECT COUNT(*) as total FROM jobs WHERE archived_at IS NOT NULL AND deleted_at IS NULL`,
+    );
+    this.purgeOldTrashStmt = db.prepare(
+      `DELETE FROM jobs WHERE deleted_at IS NOT NULL AND deleted_at < ?`,
     );
   }
 
@@ -546,12 +582,54 @@ export class JobsRepo {
   }
 
   delete(jobId: string): boolean {
-    const result = this.deleteStmt.run(jobId);
+    const now = new Date().toISOString();
+    const result = this.deleteStmt.run(now, jobId);
     return result.changes > 0;
   }
 
   deleteBulk(jobIds: string[]): number {
-    const result = this.deleteBulkStmt.run(JSON.stringify(jobIds));
+    const now = new Date().toISOString();
+    const result = this.deleteBulkStmt.run(now, JSON.stringify(jobIds));
+    return result.changes;
+  }
+
+  /** Archive a job (soft-archive, still visible in archive list). */
+  archive(jobId: string): boolean {
+    const now = new Date().toISOString();
+    const result = this.archiveStmt.run(now, jobId);
+    return result.changes > 0;
+  }
+
+  /** Restore a trashed or archived job back to normal state. */
+  restore(jobId: string): boolean {
+    const result = this.restoreStmt.run(jobId);
+    return result.changes > 0;
+  }
+
+  /** Permanently delete a job from the database (no status restriction). */
+  permanentDelete(jobId: string): boolean {
+    const result = this.permanentDeleteStmt.run(jobId);
+    return result.changes > 0;
+  }
+
+  /** List soft-deleted (trashed) jobs. */
+  listTrashed(limit?: number, offset?: number): { jobs: Job[]; total: number } {
+    const rows = this.listTrashedStmt.all(limit ?? 50, offset ?? 0) as JobRow[];
+    const total = (this.countTrashedStmt.get() as { total: number }).total;
+    return { jobs: rows.map(rowToJob), total };
+  }
+
+  /** List archived jobs (not trashed). */
+  listArchived(limit?: number, offset?: number): { jobs: Job[]; total: number } {
+    const rows = this.listArchivedStmt.all(limit ?? 50, offset ?? 0) as JobRow[];
+    const total = (this.countArchivedStmt.get() as { total: number }).total;
+    return { jobs: rows.map(rowToJob), total };
+  }
+
+  /** Permanently delete jobs that have been in the trash longer than `daysOld` days. Returns count of purged rows. */
+  purgeOldTrash(daysOld: number): number {
+    const cutoff = new Date(Date.now() - daysOld * 24 * 60 * 60_000).toISOString();
+    const result = this.purgeOldTrashStmt.run(cutoff);
     return result.changes;
   }
 

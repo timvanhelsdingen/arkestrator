@@ -8,6 +8,7 @@ import type { SettingsRepo } from "../db/settings.repo.js";
 import type { UsersRepo, User } from "../db/users.repo.js";
 import type { AuditRepo } from "../db/audit.repo.js";
 import type { JobsRepo } from "../db/jobs.repo.js";
+import type { SkillsRepo } from "../db/skills.repo.js";
 import type { AgentsRepo } from "../db/agents.repo.js";
 import type { HeadlessProgramsRepo } from "../db/headless-programs.repo.js";
 import type { WebSocketHub } from "../ws/hub.js";
@@ -40,6 +41,11 @@ import {
   setCoordinatorTrainingLastRunByProgram,
   setCoordinatorTrainingSchedule,
 } from "../agents/coordinator-training.js";
+import {
+  getHousekeepingSchedule,
+  setHousekeepingSchedule,
+  queueHousekeepingJob,
+} from "../agents/housekeeping.js";
 import {
   getNetworkControls,
   normalizeNetworkControlsInput,
@@ -84,6 +90,7 @@ export function createSettingsRoutes(
   defaultCoordinatorPlaybookSourcePaths: string[] = [],
   db?: Database,
   workersRepo?: WorkersRepo,
+  skillsRepo?: SkillsRepo,
 ) {
   const router = new Hono();
 
@@ -4779,6 +4786,7 @@ export function createSettingsRoutes(
         coordinatorScriptsDir,
         coordinatorPlaybooksDir,
         settingsRepo,
+        skillsRepo,
         defaultCoordinatorPlaybookSourcePaths,
         sourcePaths: inputPaths,
         trainingPrompt,
@@ -5152,6 +5160,7 @@ export function createSettingsRoutes(
             jobsRepo,
             agentsRepo,
             settingsRepo,
+            skillsRepo,
             headlessProgramsRepo,
             hub,
             coordinatorScriptsDir,
@@ -5193,6 +5202,78 @@ export function createSettingsRoutes(
     });
 
     return c.json({ ok: true, apply, queued, failures });
+  });
+
+  // ── Housekeeping ──────────────────────────────────────────────────────
+
+  router.get("/housekeeping-schedule", (c) => {
+    const user = requireAdmin(c, usersRepo);
+    if (!user) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+    return c.json(getHousekeepingSchedule(settingsRepo));
+  });
+
+  router.put("/housekeeping-schedule", async (c) => {
+    const user = requireAdmin(c, usersRepo);
+    if (!user) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+
+    let body: any;
+    try {
+      body = await c.req.json();
+    } catch {
+      return errorResponse(c, 400, "Invalid JSON body", "INVALID_JSON");
+    }
+
+    const current = getHousekeepingSchedule(settingsRepo);
+    const next: any = {
+      enabled: typeof body?.enabled === "boolean" ? body.enabled : current.enabled,
+      intervalMinutes: body?.intervalMinutes == null ? current.intervalMinutes : Number(body.intervalMinutes),
+      lastRunAt: current.lastRunAt,
+    };
+    if (!Number.isFinite(next.intervalMinutes)) {
+      return errorResponse(c, 400, "intervalMinutes must be a number", "INVALID_INPUT");
+    }
+
+    setHousekeepingSchedule(settingsRepo, next);
+
+    auditRepo.log({
+      userId: user.id,
+      username: user.username,
+      action: "housekeeping_schedule_updated",
+      resource: "settings",
+      details: JSON.stringify({ schedule: next }),
+      ipAddress: getClientIp(c),
+    });
+
+    return c.json({ ok: true, schedule: next });
+  });
+
+  router.post("/housekeeping/run-now", async (c) => {
+    const user = requireAdmin(c, usersRepo);
+    if (!user) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+
+    if (!skillsRepo) {
+      return errorResponse(c, 500, "Skills repository not available", "INTERNAL_ERROR");
+    }
+
+    const result = queueHousekeepingJob({
+      jobsRepo,
+      skillsRepo,
+      agentsRepo,
+      settingsRepo,
+      hub,
+    });
+    if (!result) return errorResponse(c, 400, "No agent config available", "INVALID_INPUT");
+
+    auditRepo.log({
+      userId: user.id,
+      username: user.username,
+      action: "housekeeping_run_now",
+      resource: "settings",
+      details: JSON.stringify({ jobId: result.jobId }),
+      ipAddress: getClientIp(c),
+    });
+
+    return c.json(result);
   });
 
   // List users (by userId) that can edit coordinator playbook files without admin role.

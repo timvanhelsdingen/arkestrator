@@ -305,6 +305,9 @@ const COLUMN_ADDITIONS = [
   `ALTER TABLE agent_configs ADD COLUMN model_overrides TEXT`,
   // API key fine-grained permissions (JSON, same structure as user permissions)
   `ALTER TABLE api_keys ADD COLUMN permissions TEXT`,
+  // Soft-delete (trash) and archive timestamps for jobs
+  `ALTER TABLE jobs ADD COLUMN archived_at TEXT`,
+  `ALTER TABLE jobs ADD COLUMN deleted_at TEXT`,
 ];
 
 // Reset any jobs stuck in 'running' state (server crashed while they were active)

@@ -124,6 +124,10 @@ export const Job = z.object({
   parentJobId: z.string().uuid().optional(),
   /** Bridge programs used by this job (e.g. ["godot", "blender"]) — populated at submit and updated as execute_command calls are made */
   usedBridges: z.array(z.string()).default([]),
+  /** Timestamp when the job was archived (soft-archive). */
+  archivedAt: z.string().datetime().optional(),
+  /** Timestamp when the job was soft-deleted (trashed). */
+  deletedAt: z.string().datetime().optional(),
   /** User feedback on job quality, used for coordinator learning bias. */
   outcomeRating: JobOutcomeRating.optional(),
   /** Optional notes describing what worked/failed. */

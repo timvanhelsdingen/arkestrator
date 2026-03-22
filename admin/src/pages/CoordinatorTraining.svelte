@@ -166,6 +166,64 @@
       .filter((p) => p && p !== "global"),
   );
 
+  // Housekeeping Agent
+  interface HousekeepingScheduleState {
+    enabled: boolean;
+    intervalMinutes: number;
+    lastRunAt?: string;
+  }
+  let housekeepingSchedule = $state<HousekeepingScheduleState>({
+    enabled: false,
+    intervalMinutes: 1440,
+  });
+  let housekeepingLoading = $state(false);
+  let housekeepingSaving = $state(false);
+  let housekeepingRunning = $state(false);
+
+  async function loadHousekeepingSchedule() {
+    housekeepingLoading = true;
+    try {
+      const data = await api.getHousekeepingSchedule();
+      housekeepingSchedule = {
+        enabled: data.enabled ?? false,
+        intervalMinutes: data.intervalMinutes ?? 1440,
+        lastRunAt: data.lastRunAt,
+      };
+    } catch {
+      // endpoint may not exist yet on old servers
+    } finally {
+      housekeepingLoading = false;
+    }
+  }
+
+  async function saveHousekeepingSchedule() {
+    housekeepingSaving = true;
+    try {
+      await api.setHousekeepingSchedule({
+        enabled: housekeepingSchedule.enabled,
+        intervalMinutes: housekeepingSchedule.intervalMinutes,
+      });
+      toast.success("Housekeeping schedule saved");
+    } catch (err: any) {
+      toast.error(err.message ?? "Failed to save housekeeping schedule");
+    } finally {
+      housekeepingSaving = false;
+    }
+  }
+
+  async function runHousekeepingNow() {
+    housekeepingRunning = true;
+    try {
+      const result = await api.runHousekeeping();
+      toast.success(`Housekeeping job queued: ${result.jobId}`);
+      housekeepingSchedule = { ...housekeepingSchedule, lastRunAt: new Date().toISOString() };
+    } catch (err: any) {
+      toast.error(err.message ?? "Failed to run housekeeping");
+    } finally {
+      housekeepingRunning = false;
+    }
+  }
+
   let trainingJobsLoading = $state(false);
   let trainingJobs = $state<TrainingJobSummary[]>([]);
   let trainingJobsLastUpdatedAt = $state<string | null>(null);
@@ -1407,6 +1465,7 @@
     void loadCoordinationPolicy();
     void loadCoordinatorScripts().then(() => loadTrainingSchedule());
     void refreshTrainingRepositoryData();
+    void loadHousekeepingSchedule();
   });
 </script>
 
@@ -1505,6 +1564,72 @@
             disabled={scheduleSaving}
           >
             {scheduleSaving ? "Saving..." : "Save Training Schedule"}
+          </button>
+        </div>
+      {/if}
+    </section>
+  {/if}
+
+  {#if auth.canManageSecurity}
+    <section class="policy-panel">
+      <h2>Housekeeping Agent</h2>
+      <p class="hint">
+        A system-level manager that reviews all completed/failed jobs across bridges, identifies patterns, and generates skills to improve future operations.
+      </p>
+      {#if housekeepingLoading}
+        <p class="hint">Loading...</p>
+      {:else}
+        <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+          <button
+            class="btn-primary"
+            onclick={runHousekeepingNow}
+            disabled={housekeepingRunning}
+          >
+            {housekeepingRunning ? "Queuing..." : "Run Housekeeping Now"}
+          </button>
+          {#if housekeepingSchedule.lastRunAt}
+            <span class="hint" style="align-self: center;">
+              Last run: {formatScheduleDateTime(housekeepingSchedule.lastRunAt)}
+            </span>
+          {/if}
+        </div>
+
+        <label class="toggle policy-toggle">
+          <input
+            type="checkbox"
+            checked={housekeepingSchedule.enabled}
+            onchange={(e) =>
+              (housekeepingSchedule = {
+                ...housekeepingSchedule,
+                enabled: (e.target as HTMLInputElement).checked,
+              })}
+          />
+          <span>Enable scheduled housekeeping</span>
+        </label>
+        <label class="field compact">
+          <span>Interval (minutes)</span>
+          <input
+            type="number"
+            min="60"
+            step="60"
+            value={String(housekeepingSchedule.intervalMinutes)}
+            oninput={(e) =>
+              (housekeepingSchedule = {
+                ...housekeepingSchedule,
+                intervalMinutes: Math.max(60, Number((e.target as HTMLInputElement).value || 0)),
+              })}
+          />
+        </label>
+        <p class="hint" style="margin-top: 4px;">
+          The housekeeping agent reviews recent job history, identifies failure patterns and success techniques, and creates training skills to improve future operations.
+        </p>
+        <div style="margin-top: 8px;">
+          <button
+            class="btn-primary"
+            onclick={saveHousekeepingSchedule}
+            disabled={housekeepingSaving}
+          >
+            {housekeepingSaving ? "Saving..." : "Save Housekeeping Schedule"}
           </button>
         </div>
       {/if}

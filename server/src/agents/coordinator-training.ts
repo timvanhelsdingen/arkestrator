@@ -5,6 +5,7 @@ import type { JobsRepo } from "../db/jobs.repo.js";
 import type { AgentsRepo } from "../db/agents.repo.js";
 import type { SettingsRepo } from "../db/settings.repo.js";
 import type { HeadlessProgramsRepo } from "../db/headless-programs.repo.js";
+import type { SkillsRepo } from "../db/skills.repo.js";
 import type { WebSocketHub } from "../ws/hub.js";
 import { newId } from "../utils/id.js";
 import { logger } from "../utils/logger.js";
@@ -100,6 +101,7 @@ export interface GenerateCoordinatorTrainingOptions {
   coordinatorScriptsDir: string;
   coordinatorPlaybooksDir: string;
   settingsRepo: SettingsRepo;
+  skillsRepo?: SkillsRepo;
   defaultCoordinatorPlaybookSourcePaths?: string[];
   sourcePaths?: string[];
   trainingPrompt?: string;
@@ -123,6 +125,7 @@ export interface QueueCoordinatorTrainingJobDeps {
   jobsRepo: JobsRepo;
   agentsRepo: AgentsRepo;
   settingsRepo: SettingsRepo;
+  skillsRepo?: SkillsRepo;
   headlessProgramsRepo?: HeadlessProgramsRepo;
   hub: WebSocketHub;
   coordinatorScriptsDir: string;
@@ -1656,6 +1659,26 @@ export function generateCoordinatorTraining(
     );
   }
 
+  // Write training patterns to skills DB
+  if (options.skillsRepo) {
+    try {
+      const trainingBlockText = trainingLines.join("\n");
+      options.skillsRepo.upsertBySlugAndProgram({
+        slug: `training-${program}-patterns`,
+        name: `${program.charAt(0).toUpperCase() + program.slice(1)} Training Patterns`,
+        program,
+        category: "training",
+        title: `${program.charAt(0).toUpperCase() + program.slice(1)} Training Patterns`,
+        description: `Auto-generated training patterns for ${program}`,
+        content: trainingBlockText,
+        source: "training",
+      });
+      logger.info("coordinator-training", `Wrote training patterns skill for ${program} to skills DB`);
+    } catch (err: any) {
+      logger.warn("coordinator-training", `Failed to write training skill for ${program}: ${String(err?.message ?? err)}`);
+    }
+  }
+
   return {
     program,
     apply,
@@ -1956,6 +1979,7 @@ export function queueCoordinatorTrainingJob(
           coordinatorScriptsDir,
           coordinatorPlaybooksDir,
           settingsRepo,
+          skillsRepo: deps.skillsRepo,
           defaultCoordinatorPlaybookSourcePaths,
           sourcePaths: resolvedSourcePaths,
           trainingPrompt,

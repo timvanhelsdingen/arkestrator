@@ -1180,6 +1180,20 @@ export const api = {
         lastRunByProgram: Record<string, string>;
         nextRunByProgram: Record<string, string | null>;
       }>,
+    // Housekeeping
+    getHousekeepingSchedule: () =>
+      request("/api/settings/housekeeping-schedule") as Promise<{
+        enabled: boolean;
+        intervalMinutes: number;
+        lastRunAt?: string;
+      }>,
+    setHousekeepingSchedule: (payload: { enabled?: boolean; intervalMinutes?: number }) =>
+      request("/api/settings/housekeeping-schedule", {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      }) as Promise<{ ok: boolean }>,
+    runHousekeeping: () =>
+      request("/api/settings/housekeeping/run-now", { method: "POST" }) as Promise<{ jobId: string }>,
     importSnapshotZip: (file: File, includeServerFiles = false) => {
       const form = new FormData();
       form.append("file", file);

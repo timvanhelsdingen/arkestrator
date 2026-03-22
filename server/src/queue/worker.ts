@@ -14,6 +14,7 @@ import type { UsersRepo, TokenLimitPeriod } from "../db/users.repo.js";
 import type { DependenciesRepo } from "../db/dependencies.repo.js";
 import type { HeadlessProgramsRepo } from "../db/headless-programs.repo.js";
 import type { SettingsRepo } from "../db/settings.repo.js";
+import type { SkillsRepo } from "../db/skills.repo.js";
 import type { WorkerResourceLeaseManager } from "../agents/resource-control.js";
 import type { LocalLlmGate } from "../agents/local-llm-gate.js";
 import { spawnAgent } from "../agents/spawner.js";
@@ -36,6 +37,7 @@ export interface WorkerDeps {
   depsRepo: DependenciesRepo;
   headlessProgramsRepo: HeadlessProgramsRepo;
   settingsRepo?: SettingsRepo;
+  skillsRepo?: SkillsRepo;
   resourceLeaseManager: WorkerResourceLeaseManager;
   localLlmGate: LocalLlmGate;
   hub: WebSocketHub;
@@ -239,6 +241,7 @@ export class WorkerLoop {
       depsRepo: this.deps.depsRepo,
       headlessProgramsRepo: this.deps.headlessProgramsRepo,
       settingsRepo: this.deps.settingsRepo,
+      skillsRepo: this.deps.skillsRepo,
       workersRepo: this.deps.workersRepo,
       resourceLeaseManager: this.deps.resourceLeaseManager,
       localLlmGate: this.deps.localLlmGate,

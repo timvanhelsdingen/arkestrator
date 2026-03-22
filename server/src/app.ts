@@ -203,6 +203,7 @@ export function createApp(deps: AppDeps) {
       deps.config.coordinatorPlaybookSourcePaths,
       deps.db,
       deps.workersRepo,
+      deps.skillsRepo,
     ),
   );
 

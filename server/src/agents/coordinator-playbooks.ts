@@ -8,6 +8,8 @@ import {
   writeFileSync,
 } from "fs";
 import { basename, dirname, extname, isAbsolute, join, relative, sep } from "path";
+import type { SkillsRepo } from "../db/skills.repo.js";
+import { logger } from "../utils/logger.js";
 import {
   type TrainingRepositoryPolicy,
   type TrainingRepositoryOverrides,
@@ -85,6 +87,7 @@ export interface RecordCoordinatorExecutionOutcomeOptions {
   qualityWeight?: number;
   matches?: CoordinatorContextMatch[];
   outcome?: string;
+  skillsRepo?: SkillsRepo;
   metadata?: {
     jobId?: string;
     jobName?: string;
@@ -1905,6 +1908,39 @@ export function recordCoordinatorExecutionOutcome(
       },
     };
     writeJobLearningArtifact(dir, program, artifact, jobId);
+  }
+
+  // Write significant outcomes to skills DB
+  if (options.skillsRepo && signal !== "average") {
+    try {
+      const jobId = String(jobSnapshot?.id ?? normalizedMetadata?.jobId ?? "").trim();
+      const shortId = jobId ? jobId.slice(0, 8) : timestamp.replace(/\D/g, "").slice(0, 8);
+      const outcomeTitle = signal === "positive"
+        ? `Positive: ${(resolvedJobName || promptSummary || "").slice(0, 60)}`
+        : `Negative: ${(resolvedJobName || promptSummary || "").slice(0, 60)}`;
+      const outcomeContent = [
+        `## Outcome: ${signal}`,
+        `**Program:** ${program}`,
+        `**Prompt:** ${promptSummary}`,
+        `**Result:** ${outcomeSummary}`,
+        jobId ? `**Job ID:** ${jobId}` : "",
+        resolvedJobName ? `**Job Name:** ${resolvedJobName}` : "",
+      ].filter(Boolean).join("\n");
+
+      options.skillsRepo.upsertBySlugAndProgram({
+        slug: `outcome-${program}-${shortId}`,
+        name: outcomeTitle,
+        program,
+        category: "training",
+        title: outcomeTitle,
+        description: `Execution outcome recorded at ${timestamp}`,
+        content: outcomeContent,
+        source: "training",
+      });
+      logger.info("coordinator-playbooks", `Wrote outcome skill for ${program}/${shortId} to skills DB`);
+    } catch (err: any) {
+      logger.warn("coordinator-playbooks", `Failed to write outcome skill: ${String(err?.message ?? err)}`);
+    }
   }
 
   // Keep the training repository index fresh after each recorded outcome.
