@@ -126,7 +126,7 @@
     loading = true;
     try {
       const data = await api.skills.list();
-      skills = Array.isArray(data) ? data : [];
+      skills = Array.isArray(data?.skills ?? data) ? (data?.skills ?? data) : [];
     } catch (err: any) {
       toast.error(err.message ?? "Failed to load skills");
     } finally {

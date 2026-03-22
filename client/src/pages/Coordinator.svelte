@@ -2,7 +2,7 @@
   import { connection } from "../lib/stores/connection.svelte";
   import { api } from "../lib/api/rest";
 
-  type ScopeTab = "server" | "training" | "skills" | "client";
+  type ScopeTab = "server" | "training" | "client";
   type AnalyzeStatus = "queued" | "running" | "completed" | "failed";
   type AnalyzeMode = "fast" | "ai";
 
@@ -629,7 +629,7 @@
         ]);
       }
       loadClientPromptOverrides();
-      await loadExecutionReadiness();
+      await Promise.all([loadExecutionReadiness(), loadSkills()]);
     } catch (err: any) {
       error = err.message ?? String(err);
     } finally {
@@ -1089,7 +1089,6 @@
   function setScopeTab(nextTab: ScopeTab) {
     scopeTab = nextTab;
     if (nextTab !== "server") closeScriptEditor();
-    if (nextTab === "skills" && serverSkills.length === 0) loadSkills();
   }
 
   async function loadSkills() {
@@ -1257,9 +1256,6 @@
       <button class="tab" class:active={scopeTab === "training"} onclick={() => setScopeTab("training")}>
         Training
       </button>
-      <button class="tab" class:active={scopeTab === "skills"} onclick={() => setScopeTab("skills")}>
-        Skills
-      </button>
       <button class="tab" class:active={scopeTab === "client"} onclick={() => setScopeTab("client")}>
         Client Config
       </button>
@@ -1371,6 +1367,95 @@
           </p>
         </section>
       {/if}
+
+      <!-- Server Skills -->
+      <section class="panel">
+        <h3>Server Skills</h3>
+        <p class="desc">Skills loaded on the server that customize coordinator behavior per bridge.</p>
+        <div class="skill-toolbar">
+          <input type="text" placeholder="Filter skills..." bind:value={skillsFilter} class="skill-search" />
+          <button class="btn secondary" onclick={loadSkills} disabled={skillsLoading}>
+            {skillsLoading ? "Loading..." : "Refresh"}
+          </button>
+          <button class="btn secondary" onclick={pullAllSkills} disabled={skillsPulling}>
+            {skillsPulling ? "Pulling..." : "Pull from Bridge Repo"}
+          </button>
+          {#if canManage}
+            <button class="btn" onclick={() => { skillCreateOpen = !skillCreateOpen; skillCreateProgram = program; }}>
+              {skillCreateOpen ? "Cancel" : "Create Skill"}
+            </button>
+          {/if}
+        </div>
+
+        {#if skillCreateOpen}
+          <div class="skill-create-form">
+            <div class="form-row">
+              <label>Name <input type="text" bind:value={skillCreateName} placeholder="My Skill" /></label>
+              <label>Slug <input type="text" bind:value={skillCreateSlug} placeholder="auto-generated" /></label>
+            </div>
+            <div class="form-row">
+              <label>Program
+                <select bind:value={skillCreateProgram}>
+                  <option value="global">Global</option>
+                  {#each programs as p}{#if p.value !== "global"}<option value={p.value}>{p.label}</option>{/if}{/each}
+                </select>
+              </label>
+              <label>Category
+                <select bind:value={skillCreateCategory}>
+                  <option value="custom">Custom</option>
+                  <option value="coordinator">Coordinator</option>
+                  <option value="bridge">Bridge</option>
+                  <option value="training">Training</option>
+                  <option value="verification">Verification</option>
+                </select>
+              </label>
+            </div>
+            <label>Title <input type="text" bind:value={skillCreateTitle} placeholder="Descriptive title" /></label>
+            <label>Content <textarea rows="8" bind:value={skillCreateContent} spellcheck="false" placeholder="Skill instructions..."></textarea></label>
+            <button class="btn" onclick={createSkill} disabled={skillCreateSaving}>{skillCreateSaving ? "Creating..." : "Create"}</button>
+          </div>
+        {/if}
+
+        {#if skillViewSlug}
+          <div class="skill-view-modal">
+            <div class="skill-view-header">
+              <h4>{skillViewSlug}</h4>
+              <button class="btn secondary" onclick={closeSkillView}>Close</button>
+            </div>
+            {#if skillViewLoading}<p class="muted">Loading...</p>{:else}<pre class="skill-content">{skillViewContent}</pre>{/if}
+          </div>
+        {/if}
+
+        <table class="skill-table">
+          <thead><tr><th>Slug</th><th>Title</th><th>Program</th><th>Category</th><th>Source</th><th>Actions</th></tr></thead>
+          <tbody>
+            {#if skillsLoading}
+              <tr><td colspan="6" class="muted">Loading...</td></tr>
+            {:else if filteredSkills.length === 0}
+              <tr><td colspan="6" class="muted">
+                {#if serverSkills.length === 0}No skills loaded. <button class="btn-link" onclick={pullAllSkills}>Pull from Bridge Repo</button>{:else}No match.{/if}
+              </td></tr>
+            {:else}
+              {#each filteredSkills as skill}
+                <tr>
+                  <td class="mono">{skill.slug}</td>
+                  <td>{skill.title}</td>
+                  <td><span class="badge">{skill.program}</span></td>
+                  <td><span class="badge">{skill.category}</span></td>
+                  <td class="muted">{skill.source ?? ""}</td>
+                  <td class="actions">
+                    <button class="btn-sm" onclick={() => viewSkill(skill.slug, skill.program)}>View</button>
+                    {#if canManage && (skill.source === "user" || skill.source === "registry")}
+                      <button class="btn-sm danger" onclick={() => deleteSkill(skill.slug, skill.program)}>Delete</button>
+                    {/if}
+                  </td>
+                </tr>
+              {/each}
+            {/if}
+          </tbody>
+        </table>
+        <p class="mini">{filteredSkills.length} skill{filteredSkills.length !== 1 ? "s" : ""}</p>
+      </section>
     {:else if scopeTab === "training"}
       <section class="panel training-dashboard-panel">
         <h3>Training Dashboard</h3>
@@ -1558,145 +1643,6 @@
             </button>
           </div>
         {/if}
-      </section>
-    {:else if scopeTab === "skills"}
-      <section class="panel">
-        <h3>Skills</h3>
-        <p class="desc">
-          Skills are instructions and prompts that customize how the coordinator works with bridges.
-          Pull skills from the bridge repo, create your own, or push local skills to the server.
-        </p>
-        <div class="skill-toolbar">
-          <input
-            type="text"
-            placeholder="Filter skills..."
-            bind:value={skillsFilter}
-            class="skill-search"
-          />
-          <button class="btn secondary" onclick={loadSkills} disabled={skillsLoading}>
-            {skillsLoading ? "Loading..." : "Refresh"}
-          </button>
-          <button class="btn secondary" onclick={pullAllSkills} disabled={skillsPulling}>
-            {skillsPulling ? "Pulling..." : "Pull from Bridge Repo"}
-          </button>
-          <button class="btn" onclick={() => { skillCreateOpen = !skillCreateOpen; skillCreateProgram = program; }}>
-            {skillCreateOpen ? "Cancel" : "Create Skill"}
-          </button>
-        </div>
-
-        {#if skillCreateOpen}
-          <div class="skill-create-form">
-            <div class="form-row">
-              <label>
-                Name
-                <input type="text" bind:value={skillCreateName} placeholder="My Skill" />
-              </label>
-              <label>
-                Slug
-                <input type="text" bind:value={skillCreateSlug} placeholder="my-skill (auto-generated if empty)" />
-              </label>
-            </div>
-            <div class="form-row">
-              <label>
-                Program
-                <select bind:value={skillCreateProgram}>
-                  <option value="global">Global</option>
-                  {#each programs as p}
-                    {#if p.value !== "global"}
-                      <option value={p.value}>{p.label}</option>
-                    {/if}
-                  {/each}
-                </select>
-              </label>
-              <label>
-                Category
-                <select bind:value={skillCreateCategory}>
-                  <option value="custom">Custom</option>
-                  <option value="coordinator">Coordinator</option>
-                  <option value="bridge">Bridge</option>
-                  <option value="training">Training</option>
-                  <option value="verification">Verification</option>
-                  <option value="project">Project</option>
-                </select>
-              </label>
-            </div>
-            <label>
-              Title
-              <input type="text" bind:value={skillCreateTitle} placeholder="Descriptive title" />
-            </label>
-            <label>
-              Description
-              <input type="text" bind:value={skillCreateDescription} placeholder="Brief description" />
-            </label>
-            <label>
-              Content
-              <textarea rows="10" bind:value={skillCreateContent} spellcheck="false" placeholder="Skill instructions in markdown..."></textarea>
-            </label>
-            <button class="btn" onclick={createSkill} disabled={skillCreateSaving}>
-              {skillCreateSaving ? "Creating..." : "Create Skill"}
-            </button>
-          </div>
-        {/if}
-
-        {#if skillViewSlug}
-          <div class="skill-view-modal">
-            <div class="skill-view-header">
-              <h4>{skillViewSlug}</h4>
-              <button class="btn secondary" onclick={closeSkillView}>Close</button>
-            </div>
-            {#if skillViewLoading}
-              <p class="muted">Loading...</p>
-            {:else}
-              <pre class="skill-content">{skillViewContent}</pre>
-            {/if}
-          </div>
-        {/if}
-
-        <table class="skill-table">
-          <thead>
-            <tr>
-              <th>Slug</th>
-              <th>Title</th>
-              <th>Program</th>
-              <th>Category</th>
-              <th>Source</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {#if skillsLoading}
-              <tr><td colspan="6" class="muted">Loading skills...</td></tr>
-            {:else if filteredSkills.length === 0}
-              <tr><td colspan="6" class="muted">
-                {#if serverSkills.length === 0}
-                  No skills loaded.
-                  <button class="btn-link" onclick={pullAllSkills} disabled={skillsPulling}>
-                    Pull from Bridge Repo
-                  </button>
-                {:else}
-                  No skills match filter.
-                {/if}
-              </td></tr>
-            {:else}
-              {#each filteredSkills as skill}
-                <tr>
-                  <td class="mono">{skill.slug}</td>
-                  <td>{skill.title}</td>
-                  <td><span class="badge">{skill.program}</span></td>
-                  <td><span class="badge">{skill.category}</span></td>
-                  <td class="muted">{skill.source ?? ""}</td>
-                  <td class="actions">
-                    <button class="btn-sm" onclick={() => viewSkill(skill.slug, skill.program)}>View</button>
-                    {#if skill.source === "user" || skill.source === "registry"}
-                      <button class="btn-sm danger" onclick={() => deleteSkill(skill.slug, skill.program)}>Delete</button>
-                    {/if}
-                  </td>
-                </tr>
-              {/each}
-            {/if}
-          </tbody>
-        </table>
-        <p class="mini">{filteredSkills.length} skill{filteredSkills.length !== 1 ? "s" : ""}{serverSkills.length !== filteredSkills.length ? ` (${serverSkills.length} total)` : ""}</p>
       </section>
     {:else}
       <section class="panel">
