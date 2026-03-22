@@ -156,7 +156,7 @@ export function createSkillsRoutes(
     const principal = await getAuthPrincipal(c, usersRepo, apiKeysRepo);
     if (!principal) return null;
     if (principal.kind === "user") {
-      if (!principal.user.permissions.manageSettings) return null;
+      if (!principal.user.permissions.editCoordinator) return null;
       return { userId: principal.user.id, username: principal.user.username };
     }
     if (apiKeyRoleAllowed(principal.apiKey, ["admin"])) {

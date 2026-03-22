@@ -20,6 +20,23 @@
   let tab = $derived(chatStore.activeTab);
   let chatStreaming = $state(false);
 
+  // Resizable sidebar
+  let sidebarWidth = $state(280);
+  function startSidebarResize(e: MouseEvent) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = sidebarWidth;
+    function onMove(ev: MouseEvent) {
+      sidebarWidth = Math.max(200, Math.min(500, startW - (ev.clientX - startX)));
+    }
+    function onUp() {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }
+
   async function handleChat(prompt: string, resolvedRuntimeOptions?: JobRuntimeOptions) {
     if (!tab || !prompt.trim()) return;
 
@@ -422,7 +439,12 @@
         />
       {/if}
     </div>
-    <div class="chat-sidebar">
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="sidebar-resize-handle"
+      onmousedown={startSidebarResize}
+    ></div>
+    <div class="chat-sidebar" style="width: {sidebarWidth}px;">
       <ChatJobConfig />
       {#if chatStore.showContextPanel}
         <ChatContextPanel />
@@ -450,13 +472,24 @@
     overflow: hidden;
     min-width: 0;
   }
+  .sidebar-resize-handle {
+    width: 4px;
+    cursor: col-resize;
+    background: transparent;
+    flex-shrink: 0;
+    transition: background 0.15s;
+  }
+  .sidebar-resize-handle:hover,
+  .sidebar-resize-handle:active {
+    background: var(--accent);
+  }
   .chat-sidebar {
     display: flex;
     flex-direction: column;
     border-left: 1px solid var(--border);
-    overflow: hidden;
+    overflow-y: auto;
+    overflow-x: hidden;
     flex-shrink: 0;
-    width: 260px;
   }
   .clear-bar {
     display: flex;

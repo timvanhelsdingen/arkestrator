@@ -210,7 +210,10 @@
 
   const filteredSkills = $derived.by(() => {
     const q = skillsFilter.toLowerCase().trim();
-    let list = serverSkills;
+    // Filter by selected program: show skills for this program + global
+    let list = serverSkills.filter(
+      (s) => s.program === program || s.program === "global",
+    );
     if (q) {
       list = list.filter(
         (s) =>
