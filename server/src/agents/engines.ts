@@ -1604,39 +1604,22 @@ export function loadCoordinatorScript(dir: string, program?: string): string | u
 export function seedCoordinatorScripts(dir: string, skillsRepo?: import("../db/skills.repo.js").SkillsRepo): void {
   try {
     mkdirSync(dir, { recursive: true });
-    const globalContent = COORDINATOR_SCRIPT_DEFAULTS["global"];
-    if (!globalContent) return;
 
-    // Seed to DB (primary storage)
+    // Seed ALL coordinator scripts + pattern skills to DB
     if (skillsRepo) {
-      skillsRepo.upsertBySlugAndProgram({
-        name: "global-coordinator",
-        slug: "global-coordinator",
-        program: "global",
-        category: "coordinator",
-        title: "Global Coordinator Script",
-        description: "Global orchestration rules for all programs",
-        keywords: ["coordinator", "global", "orchestration"],
-        content: globalContent,
-        source: "builtin",
-        priority: 90,
-        autoFetch: true,
-        enabled: true,
-      });
-      // Seed built-in bridge skills
       for (const [program, content] of Object.entries(COORDINATOR_SCRIPT_DEFAULTS)) {
-        if (program === "global") continue;
+        const isGlobal = program === "global";
         skillsRepo.upsertBySlugAndProgram({
           name: `${program}-coordinator`,
           slug: `${program}-coordinator`,
-          program,
-          category: "bridge",
-          title: `${program.charAt(0).toUpperCase() + program.slice(1)} Coordinator`,
-          description: `Coordinator script for ${program}`,
-          keywords: [program, "coordinator", "bridge"],
+          program: isGlobal ? "global" : program,
+          category: isGlobal ? "coordinator" : "bridge",
+          title: isGlobal ? "Global Coordinator" : `${program.charAt(0).toUpperCase() + program.slice(1)} Coordinator`,
+          description: isGlobal ? "Global orchestration rules" : `Coordinator script for ${program}`,
+          keywords: [program, "coordinator"],
           content,
           source: "builtin",
-          priority: 70,
+          priority: isGlobal ? 90 : 70,
           autoFetch: true,
           enabled: true,
         });
@@ -1645,7 +1628,10 @@ export function seedCoordinatorScripts(dir: string, skillsRepo?: import("../db/s
       seedBuiltinPatternSkills(skillsRepo);
     }
 
-    // Also write to disk for backward compat
+    // Also write global to disk for backward compat
+    // Per-program scripts are created dynamically when bridges connect via ensureCoordinatorScript().
+    const globalContent = COORDINATOR_SCRIPT_DEFAULTS["global"];
+    if (!globalContent) return;
     const filePath = join(dir, "global.md");
     const hashPath = join(dir, ".global.hash");
     const newHash = Bun.hash(globalContent).toString(16);
@@ -1672,33 +1658,29 @@ export function seedCoordinatorScripts(dir: string, skillsRepo?: import("../db/s
   }
 }
 
-/** Seed built-in scripting pattern skills (Blender bpy, Godot GDScript, etc.) */
-function seedBuiltinPatternSkills(skillsRepo: import("../db/skills.repo.js").SkillsRepo): void {
-  const patterns: Array<{ slug: string; program: string; title: string; description: string; keywords: string[]; content: string }> = [
-    { slug: "blender-python-patterns", program: "blender", title: "Blender Python Scripting Patterns", description: "Common bpy scripting patterns for scene manipulation, mesh creation, materials, rendering.", keywords: ["blender","bpy","python","mesh","material","render","scene"], content: "# Blender Python Scripting Patterns\n\n## Scene Management\n- Use `bpy.context.scene` for the active scene\n- Use `bpy.data.objects` to access all objects\n- Always call `bpy.context.view_layer.update()` after transformations\n\n## Mesh Creation\n- Use `bpy.ops.mesh.primitive_*_add()` for basic shapes\n- For custom meshes: create mesh data, add vertices/faces, link to object\n- Use bmesh for complex procedural geometry\n\n## Materials & Shaders\n- Create materials with `bpy.data.materials.new()`\n- Use `material.use_nodes = True` for node-based shaders\n\n## Rendering\n- Set render engine: `bpy.context.scene.render.engine = 'CYCLES'` or `'BLENDER_EEVEE_NEXT'`\n- Render: `bpy.ops.render.render(write_still=True)`\n\n## Verification\n- After creating objects, verify they exist in `bpy.data.objects`\n- After rendering, check output file exists and has non-zero size" },
-    { slug: "godot-gdscript-patterns", program: "godot", title: "Godot GDScript Patterns", description: "Common GDScript patterns for scene management, node creation, physics, UI.", keywords: ["godot","gdscript","scene","node","physics","collision","signal"], content: "# Godot GDScript Patterns\n\n## Scene Structure\n- Root node types: Node2D (2D), Node3D (3D), Control (UI)\n- Use `.tscn` for scenes, `.tres` for resources, `.gd` for scripts\n\n## Node Management\n- `get_tree().root` for scene tree root\n- `add_child()`, `remove_child()`, `queue_free()` for lifecycle\n- `@onready` for node references, `@export` for inspector properties\n\n## Physics\n- RigidBody3D for dynamic physics objects\n- StaticBody3D + CollisionShape3D for static collision\n- CharacterBody3D + `move_and_slide()` for controllable characters\n\n## Verification\n- Test with `godot --headless --path <project> --script <test_script>`" },
-    { slug: "houdini-python-patterns", program: "houdini", title: "Houdini Python/VEX Patterns", description: "Common patterns for Houdini node graphs, geometry, simulations, rendering.", keywords: ["houdini","hython","vex","sop","geometry","simulation","render"], content: "# Houdini Python/VEX Patterns\n\n## Node Graph\n- `hou.node('/obj')` for object context\n- `node.createNode('type')` to add nodes\n- `node.parm('name').set(value)` to set parameters\n\n## Geometry\n- SOPs for surface operations\n- Use VEX wrangles for attribute manipulation\n\n## Simulations\n- DOPs for dynamics: RBD, FLIP, Pyro, Vellum\n- Always cache simulations to disk\n\n## Verification\n- Check node errors: `node.errors()`, `node.warnings()`" },
-    { slug: "comfyui-workflow-patterns", program: "comfyui", title: "ComfyUI Workflow Patterns", description: "Common patterns for building and executing ComfyUI workflows.", keywords: ["comfyui","workflow","image","generation","diffusion","checkpoint","sampler"], content: "# ComfyUI Workflow Patterns\n\n## Workflow Structure\n- Workflows are JSON node graphs with numbered node IDs\n- Output nodes (SaveImage, PreviewImage) trigger execution\n\n## Common Nodes\n- CheckpointLoaderSimple: loads model files\n- CLIPTextEncode: text prompts to conditioning\n- KSampler: core sampling node\n- VAEDecode: latents to pixels\n- SaveImage: saves output\n\n## Best Practices\n- Use queue_prompt API to submit workflows\n- Verify output images exist and have expected dimensions" },
-  ];
-  for (const p of patterns) {
-    skillsRepo.upsertBySlugAndProgram({
-      ...p,
-      name: p.slug,
-      category: "bridge",
-      source: "builtin",
-      priority: 40,
-      autoFetch: false,
-      enabled: true,
-    });
-  }
-}
-
 /**
  * Return the built-in default content for a coordinator script.
  * Used by the settings API to support "Reset to Default".
  */
 export function getCoordinatorScriptDefault(program: string): string | undefined {
   return COORDINATOR_SCRIPT_DEFAULTS[program];
+}
+
+/** Seed built-in scripting pattern skills to DB */
+function seedBuiltinPatternSkills(skillsRepo: import("../db/skills.repo.js").SkillsRepo): void {
+  const patterns: Array<{ slug: string; program: string; title: string; desc: string; kw: string[]; content: string }> = [
+    { slug: "blender-python-patterns", program: "blender", title: "Blender Python Patterns", desc: "Common bpy scripting patterns", kw: ["blender","bpy","python","mesh","material","render"], content: "# Blender Python Patterns\n\n## Scene: `bpy.context.scene`, `bpy.data.objects`\n## Mesh: `bpy.ops.mesh.primitive_*_add()`, bmesh\n## Materials: `bpy.data.materials.new()`, `use_nodes=True`\n## Render: `bpy.ops.render.render(write_still=True)`\n## Verify: check `bpy.data.objects`, output file size" },
+    { slug: "godot-gdscript-patterns", program: "godot", title: "Godot GDScript Patterns", desc: "Common GDScript patterns", kw: ["godot","gdscript","scene","node","physics","signal"], content: "# Godot GDScript Patterns\n\n## Scenes: `.tscn`, `.tres`, `.gd`\n## Nodes: `add_child()`, `queue_free()`, `@onready`, `@export`\n## Physics: RigidBody3D, StaticBody3D+CollisionShape3D, CharacterBody3D\n## Test: `godot --headless --path <project> --script <test>`" },
+    { slug: "houdini-python-patterns", program: "houdini", title: "Houdini Python/VEX Patterns", desc: "Common Houdini patterns", kw: ["houdini","hython","vex","sop","geometry","sim"], content: "# Houdini Patterns\n\n## Nodes: `hou.node('/obj')`, `createNode()`, `parm().set()`\n## Geo: SOPs, VEX wrangles\n## Sims: DOPs (RBD, FLIP, Pyro, Vellum), cache to disk\n## Verify: `node.errors()`, `node.warnings()`" },
+    { slug: "comfyui-workflow-patterns", program: "comfyui", title: "ComfyUI Workflow Patterns", desc: "ComfyUI workflow building", kw: ["comfyui","workflow","image","diffusion","checkpoint"], content: "# ComfyUI Patterns\n\n## Workflows: JSON node graphs, numbered IDs\n## Nodes: CheckpointLoaderSimple, CLIPTextEncode, KSampler, VAEDecode, SaveImage\n## Execute: queue_prompt API, poll history\n## Verify: output images exist, expected dimensions" },
+  ];
+  for (const p of patterns) {
+    skillsRepo.upsertBySlugAndProgram({
+      name: p.slug, slug: p.slug, program: p.program, category: "bridge",
+      title: p.title, description: p.desc, keywords: p.kw, content: p.content,
+      source: "builtin", priority: 40, autoFetch: false, enabled: true,
+    });
+  }
 }
 
 /** Optional dependencies for dynamic program discovery. */
@@ -1781,17 +1763,14 @@ export function ensureCoordinatorScript(
   const normalized = program.trim().toLowerCase();
   if (!normalized || normalized === "global") return;
 
-  const content = registryContent
-    ?? COORDINATOR_SCRIPT_DEFAULTS[normalized]
-    ?? `# ${program.charAt(0).toUpperCase() + program.slice(1)} Coordinator Script\n\n` +
-       `# Auto-generated for bridge program: ${normalized}\n` +
-       `# Customize this file to add program-specific coordinator guidance.\n`;
-
-  // Upsert to skills DB (primary storage)
+  // Upsert to skills DB if no skill exists for this program
   if (skillsRepo) {
-    const existing = skillsRepo.getAny?.(`${normalized}-coordinator`, normalized);
+    const existing = skillsRepo.getAny(`${normalized}-coordinator`, normalized);
     if (!existing) {
+      const content = registryContent ?? COORDINATOR_SCRIPT_DEFAULTS[normalized]
+        ?? `# ${normalized.charAt(0).toUpperCase() + normalized.slice(1)} Coordinator\n\nCoordinator script for ${normalized}. Add guidance by creating skills or pulling from the bridge registry.`;
       skillsRepo.upsertBySlugAndProgram({
+        name: `${normalized}-coordinator`,
         slug: `${normalized}-coordinator`,
         program: normalized,
         category: "bridge",
@@ -1799,34 +1778,24 @@ export function ensureCoordinatorScript(
         description: `Coordinator script for ${normalized}`,
         keywords: [normalized, "coordinator", "bridge"],
         content,
-        source: registryContent ? "registry" : "builtin",
+        source: registryContent ? "bridge-repo" : "builtin",
         priority: 70,
         autoFetch: true,
         enabled: true,
       });
-    } else if (existing.source === "builtin" || existing.source === "registry") {
-      // Update builtin/registry skills but don't overwrite user-edited ones
-      skillsRepo.upsertBySlugAndProgram({
-        slug: `${normalized}-coordinator`,
-        program: normalized,
-        category: "bridge",
-        title: existing.title,
-        description: existing.description,
-        keywords: existing.keywords,
-        content,
-        source: registryContent ? "registry" : "builtin",
-        priority: existing.priority,
-        autoFetch: existing.autoFetch,
-        enabled: existing.enabled,
-      });
     }
-    // source='user' → don't overwrite
   }
 
   try {
     mkdirSync(dir, { recursive: true });
     const filePath = join(dir, `${normalized}.md`);
     const hashPath = join(dir, `.${normalized}.hash`);
+
+    const content = registryContent
+      ?? COORDINATOR_SCRIPT_DEFAULTS[normalized]
+      ?? `# ${program.charAt(0).toUpperCase() + program.slice(1)} Coordinator Script\n\n` +
+         `# Auto-generated for bridge program: ${normalized}\n` +
+         `# Customize this file to add program-specific coordinator guidance.\n`;
 
     const newHash = Bun.hash(content).toString(16);
 

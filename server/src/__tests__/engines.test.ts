@@ -4,13 +4,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
-  BLENDER_COORDINATOR_PROMPT,
-  COMFYUI_COORDINATOR_PROMPT,
   DEFAULT_ORCHESTRATOR_PROMPT,
-  GODOT_COORDINATOR_PROMPT,
-  HOUDINI_COORDINATOR_PROMPT,
-  UNREAL_COORDINATOR_PROMPT,
-  UNITY_COORDINATOR_PROMPT,
   buildCommand,
 } from "../agents/engines";
 import { existsSync } from "node:fs";
@@ -336,40 +330,13 @@ describe("buildCommand (codex orchestration)", () => {
     expect(prompt).toContain("Unity Editor");
   });
 
-  test("global coordinator prompt enforces project-first references and bounded execution", () => {
-    expect(DEFAULT_ORCHESTRATOR_PROMPT).toContain("Cross-Bridge Orchestration - Global Coordinator");
-    expect(DEFAULT_ORCHESTRATOR_PROMPT).toContain("project-specific scripts/docs from repo/client source paths");
-    expect(DEFAULT_ORCHESTRATOR_PROMPT).toContain("Do not recursively scan user home/temp/disks");
-    expect(DEFAULT_ORCHESTRATOR_PROMPT).toContain("deterministic success criteria and verification commands");
-    expect(DEFAULT_ORCHESTRATOR_PROMPT).toContain("Do not skip verification before reporting done.");
+  test("global coordinator prompt is a minimal template with core rules", () => {
+    expect(DEFAULT_ORCHESTRATOR_PROMPT).toContain("Global Coordinator");
+    expect(DEFAULT_ORCHESTRATOR_PROMPT).toContain("Plan before executing");
+    expect(DEFAULT_ORCHESTRATOR_PROMPT).toContain("get_skill()");
+    expect(DEFAULT_ORCHESTRATOR_PROMPT).toContain("Verify results after execution");
     expect(DEFAULT_ORCHESTRATOR_PROMPT).toContain("Probe `am` before relying on it");
-    expect(DEFAULT_ORCHESTRATOR_PROMPT).not.toContain("always available in PATH");
-  });
-
-  test("all bridge coordinator prompts enforce scoped search and deterministic verification", () => {
-    const prompts = [
-      BLENDER_COORDINATOR_PROMPT,
-      GODOT_COORDINATOR_PROMPT,
-      HOUDINI_COORDINATOR_PROMPT,
-      COMFYUI_COORDINATOR_PROMPT,
-      UNITY_COORDINATOR_PROMPT,
-      UNREAL_COORDINATOR_PROMPT,
-    ];
-    for (const prompt of prompts) {
-      expect(prompt).toContain("repo/client source paths");
-      expect(prompt).toContain("Do not search user-wide temp/home folders");
-      expect(prompt).toContain("Verification Requirement");
-      expect(prompt).toContain("PASS");
-    }
-  });
-
-  test("houdini coordinator prompt remains generalized and applies pyro gates only when requested", () => {
-    expect(HOUDINI_COORDINATOR_PROMPT).toContain("Houdini Agent - General Coordinator");
-    expect(HOUDINI_COORDINATOR_PROMPT).toContain("Classify task type");
-    expect(HOUDINI_COORDINATOR_PROMPT).toContain("project-specific scripts/docs from repo/client source paths");
-    expect(HOUDINI_COORDINATOR_PROMPT).toContain("Do not force pyro/explosion setup unless the user explicitly requests");
-    expect(HOUDINI_COORDINATOR_PROMPT).toContain("Apply pyro/explosion wiring gates only for explicit pyro/explosion tasks.");
-    expect(HOUDINI_COORDINATOR_PROMPT).toContain("Tokeru Houdini notes");
+    // Bridge-specific prompts are no longer hardcoded — they come from the bridge repo
   });
 });
 

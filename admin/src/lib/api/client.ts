@@ -1188,12 +1188,13 @@ export const api = {
   },
 
   skills: {
-    list: (program?: string, category?: string) => {
+    list: (program?: string, category?: string, source?: string) => {
       const params = new URLSearchParams();
       if (program) params.set("program", program);
       if (category) params.set("category", category);
+      if (source) params.set("source", source);
       const qs = params.toString();
-      return request(`/api/skills${qs ? `?${qs}` : ""}`) as Promise<any[]>;
+      return request(`/api/skills${qs ? `?${qs}` : ""}`) as Promise<any>;
     },
     get: (slug: string, program?: string) => {
       const params = new URLSearchParams();
@@ -1205,7 +1206,7 @@ export const api = {
       request("/api/skills/search", {
         method: "POST",
         body: JSON.stringify({ query, program, category }),
-      }) as Promise<any[]>,
+      }) as Promise<any>,
     create: (skill: { name: string; slug: string; program: string; category: string; title: string; description: string; keywords: string[]; content: string }) =>
       request("/api/skills", {
         method: "POST",
@@ -1223,5 +1224,22 @@ export const api = {
       request("/api/skills/registry") as Promise<any>,
     install: (skill: { slug: string; program: string; sourceUrl?: string }) =>
       request("/api/skills/install", { method: "POST", body: JSON.stringify(skill) }) as Promise<any>,
+    pullProgram: (program: string) =>
+      request(`/api/skills/pull/${encodeURIComponent(program)}`, { method: "POST" }) as Promise<any>,
+    pullAll: () =>
+      request("/api/skills/pull-all", { method: "POST" }) as Promise<any>,
+    export: async (opts?: { program?: string; category?: string; source?: string }) => {
+      const params = new URLSearchParams();
+      if (opts?.program) params.set("program", opts.program);
+      if (opts?.category) params.set("category", opts.category);
+      if (opts?.source) params.set("source", opts.source);
+      const qs = params.toString();
+      return request(`/api/skills/export${qs ? `?${qs}` : ""}`, { method: "POST" }) as Promise<any>;
+    },
+    importZip: (file: File) => {
+      const form = new FormData();
+      form.append("file", file);
+      return request("/api/skills/import", { method: "POST", body: form }) as Promise<any>;
+    },
   },
 };

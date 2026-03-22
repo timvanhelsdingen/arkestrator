@@ -4,9 +4,11 @@ import type { SkillsRepo } from "../db/skills.repo.js";
 import type { SkillIndex } from "../skills/skill-index.js";
 import type { UsersRepo } from "../db/users.repo.js";
 import type { ApiKeysRepo } from "../db/apikeys.repo.js";
+import type { SettingsRepo } from "../db/settings.repo.js";
 import { getAuthPrincipal, apiKeyRoleAllowed } from "../middleware/auth.js";
 import { errorResponse } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
+import { pullBridgeSkills, pullAllBridgeSkills } from "../skills/skill-registry.js";
 
 // --- Registry cache ---
 const REGISTRY_URL =
@@ -96,6 +98,7 @@ export function createSkillsRoutes(
   skillIndex: SkillIndex,
   usersRepo: UsersRepo,
   apiKeysRepo: ApiKeysRepo,
+  settingsRepo?: SettingsRepo,
 ) {
   const router = new Hono();
 
@@ -331,6 +334,39 @@ export function createSkillsRoutes(
       return c.json({ skill }, 201);
     } catch (err: any) {
       return errorResponse(c, 500, err?.message ?? "Failed to install skill", "INTERNAL_ERROR");
+    }
+  });
+
+  // POST /pull/:program — manually trigger skill pull from bridge repo for a program
+  router.post("/pull/:program", async (c) => {
+    const auth = await requireWriteAccess(c);
+    if (!auth) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+
+    const program = c.req.param("program");
+    if (!program || !program.trim()) {
+      return errorResponse(c, 400, "Program name is required", "BAD_REQUEST");
+    }
+
+    try {
+      const result = await pullBridgeSkills(program, skillsRepo, settingsRepo, true);
+      skillIndex.refresh();
+      return c.json({ ok: true, program, ...result });
+    } catch (err: any) {
+      return errorResponse(c, 500, err?.message ?? "Failed to pull bridge skills", "INTERNAL_ERROR");
+    }
+  });
+
+  // POST /pull-all — pull skills for all known programs from bridge registry
+  router.post("/pull-all", async (c) => {
+    const auth = await requireWriteAccess(c);
+    if (!auth) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+
+    try {
+      const result = await pullAllBridgeSkills(skillsRepo, settingsRepo);
+      skillIndex.refresh();
+      return c.json({ ok: true, ...result });
+    } catch (err: any) {
+      return errorResponse(c, 500, err?.message ?? "Failed to pull bridge skills", "INTERNAL_ERROR");
     }
   });
 

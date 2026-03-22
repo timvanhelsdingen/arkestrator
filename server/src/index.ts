@@ -347,7 +347,7 @@ async function main() {
     logger.info("server", `Updated ${program} headless executable to detected path: ${resolved}`);
   }
 
-  // Seed coordinator scripts + skills to DB (and disk for backward compat)
+  // Seed coordinator scripts directory with per-bridge defaults (on every startup, for new scripts)
   seedCoordinatorScripts(config.coordinatorScriptsDir, skillsRepo);
   logger.info("server", `Coordinator scripts seeded at ${config.coordinatorScriptsDir}`);
   seedCoordinatorPlaybooks(config.coordinatorPlaybooksDir);

@@ -19,8 +19,6 @@
   let localModelsLoadedKey = $state("");
   let providerCatalogsLoadedKey = $state("");
   let localModelsLoading = $state(false);
-  let coordDropdownOpen = $state(false);
-
   let agentConfigId = $derived(chatStore.activeTab?.agentConfigId ?? "");
   let runtimeOptions = $derived(chatStore.activeTab?.runtimeOptions);
 
@@ -244,41 +242,8 @@
     return value.charAt(0).toUpperCase() + value.slice(1);
   }
 
-  // --- Coordination dropdown ---
 
-  type CoordKey = "coordinator" | "bridge" | "training";
-  const COORD_OPTIONS: { key: CoordKey; label: string; hint: string }[] = [
-    { key: "coordinator", label: "Playbooks", hint: "Task matching & guidance" },
-    { key: "bridge", label: "Bridge Scripts", hint: "Per-program scripts" },
-    { key: "training", label: "Training", hint: "Auto-generated learning" },
-  ];
-
-  function isCoordEnabled(key: CoordKey): boolean {
-    return (runtimeOptions?.coordinationScripts?.[key] ?? "enabled") !== "disabled";
-  }
-
-  function toggleCoordOption(key: CoordKey) {
-    const current = runtimeOptions?.coordinationScripts;
-    const currentValue = current?.[key] ?? "enabled";
-    const newValue = currentValue === "disabled" ? "enabled" : "disabled";
-    chatStore.setCoordinationScripts({ ...current, [key]: newValue });
-  }
-
-  function resetCoordToAll() {
-    chatStore.setCoordinationScripts(undefined);
-    coordDropdownOpen = false;
-  }
-
-  function handleClickOutside(e: MouseEvent) {
-    const target = e.target as HTMLElement;
-    if (!target.closest(".coordination-dropdown")) {
-      coordDropdownOpen = false;
-    }
-  }
 </script>
-
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<svelte:document onclick={handleClickOutside} />
 
 <div class="job-config">
   <div class="config-header">
@@ -398,57 +363,10 @@
       />
     </div>
 
-    <!-- Coord -->
-    <div class="config-row coordination-dropdown">
-      <label>Coord</label>
-      <button
-        class="coord-trigger"
-        class:has-overrides={runtimeOptions?.coordinationScripts != null}
-        onclick={() => (coordDropdownOpen = !coordDropdownOpen)}
-      >
-        <span class="coord-label">
-          {#if !runtimeOptions?.coordinationScripts}
-            All
-          {:else if !COORD_OPTIONS.some((o) => isCoordEnabled(o.key))}
-            None
-          {:else}
-            {COORD_OPTIONS.filter((o) => isCoordEnabled(o.key)).map((o) => o.label).join(", ")}
-          {/if}
-        </span>
-        <span class="dropdown-arrow">{coordDropdownOpen ? "\u25B2" : "\u25BC"}</span>
-      </button>
-
-      {#if coordDropdownOpen}
-        <div class="coord-menu">
-          <button class="menu-item auto-item" class:active={!runtimeOptions?.coordinationScripts} onclick={resetCoordToAll}>
-            <span class="check">{!runtimeOptions?.coordinationScripts ? "\u2713" : ""}</span>
-            <span>All Enabled</span>
-          </button>
-          <div class="menu-divider"></div>
-          {#each COORD_OPTIONS as opt (opt.key)}
-            <button
-              class="menu-item"
-              class:active={isCoordEnabled(opt.key)}
-              onclick={() => toggleCoordOption(opt.key)}
-            >
-              <span class="check">{isCoordEnabled(opt.key) ? "\u2713" : ""}</span>
-              <span>{opt.label}</span>
-              <span class="menu-hint">{opt.hint}</span>
-            </button>
-          {/each}
-        </div>
-      {/if}
-    </div>
-
     <!-- Skills -->
     <div class="config-row config-row-inline">
-      <label for="jc-skills-mode">Skills</label>
-      <input
-        id="jc-skills-mode"
-        type="checkbox"
-        checked={runtimeOptions?.skillsMode ?? false}
-        onchange={(e) => chatStore.setSkillsMode((e.target as HTMLInputElement).checked)}
-      />
+      <span class="config-label-text">Skills</span>
+      <span class="skills-active-label">Active</span>
     </div>
 
     <!-- Name -->
@@ -507,8 +425,11 @@
     gap: 8px;
   }
 
-  .config-row-inline input[type="checkbox"] {
-    width: auto;
+  .config-label-text {
+    font-size: 9px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    letter-spacing: 0.45px;
   }
 
   .config-row select,
@@ -561,101 +482,9 @@
     opacity: 0.65;
   }
 
-  /* Coordination dropdown */
-  .coordination-dropdown {
-    position: relative;
-  }
-
-  .coord-trigger {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 6px;
+  .skills-active-label {
     font-size: 12px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--bg-base);
-    color: var(--text-primary);
-    width: 100%;
-  }
-
-  .coord-trigger:hover {
-    border-color: var(--accent);
-  }
-
-  .coord-trigger.has-overrides {
-    border-color: var(--accent);
-    background: var(--accent);
-    color: white;
-  }
-
-  .coord-label {
-    flex: 1;
-    text-align: left;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .dropdown-arrow {
-    font-size: 8px;
-    color: inherit;
-    opacity: 0.6;
-    flex-shrink: 0;
-  }
-
-  .coord-menu {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
-    margin-top: 4px;
-    min-width: 200px;
-    max-height: 320px;
-    overflow-y: auto;
-    background: var(--bg-elevated);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    z-index: 100;
-    padding: 4px 0;
-  }
-
-  .menu-item {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    width: 100%;
-    padding: 6px 10px;
-    font-size: var(--font-size-sm);
-    color: var(--text-primary);
-    text-align: left;
-  }
-
-  .menu-item:hover {
-    background: var(--bg-hover);
-  }
-
-  .menu-item.active {
-    color: var(--accent);
-  }
-
-  .check {
-    width: 14px;
-    font-size: 12px;
-    flex-shrink: 0;
-    text-align: center;
-  }
-
-  .menu-hint {
-    margin-left: auto;
-    font-size: 11px;
-    color: var(--text-muted);
-  }
-
-  .menu-divider {
-    height: 1px;
-    background: var(--border);
-    margin: 4px 0;
+    color: var(--status-completed);
+    font-weight: 500;
   }
 </style>

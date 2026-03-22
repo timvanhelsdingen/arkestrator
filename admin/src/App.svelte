@@ -14,7 +14,6 @@
   import Policies from "./pages/Policies.svelte";
   import AuditLog from "./pages/AuditLog.svelte";
   import CoordinatorTraining from "./pages/CoordinatorTraining.svelte";
-  import Skills from "./pages/Skills.svelte";
 
   let ready = $state(false);
 
@@ -106,8 +105,6 @@
           <Policies />
         {:else if nav.current === "coordinator-training" && (auth.canEditCoordinator || auth.canManageSecurity)}
           <CoordinatorTraining />
-        {:else if nav.current === "skills" && (auth.canEditCoordinator || auth.canManageSecurity)}
-          <Skills />
         {:else if nav.current === "audit-log" && auth.canViewAuditLog}
           <AuditLog />
         {:else}

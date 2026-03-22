@@ -11,7 +11,6 @@
   import ChatMessageList from "../lib/components/chat/ChatMessageList.svelte";
   import ChatInput from "../lib/components/chat/ChatInput.svelte";
   import ChatContextPanel from "../lib/components/chat/ChatContextPanel.svelte";
-  import ChatJobConfig from "../lib/components/chat/ChatJobConfig.svelte";
 
   const CLIENT_PROMPT_OVERRIDES_STORAGE_KEY = "arkestrator-coordinator-client-prompt-overrides-v1";
   const JOB_CHAT_CONTEXT_MESSAGE_LIMIT = 6;
@@ -422,12 +421,9 @@
         />
       {/if}
     </div>
-    <div class="chat-sidebar">
-      <ChatJobConfig />
-      {#if chatStore.showContextPanel}
-        <ChatContextPanel />
-      {/if}
-    </div>
+    {#if chatStore.showContextPanel}
+      <ChatContextPanel />
+    {/if}
   </div>
 </div>
 
@@ -449,14 +445,6 @@
     flex-direction: column;
     overflow: hidden;
     min-width: 0;
-  }
-  .chat-sidebar {
-    display: flex;
-    flex-direction: column;
-    border-left: 1px solid var(--border);
-    overflow: hidden;
-    flex-shrink: 0;
-    width: 260px;
   }
   .clear-bar {
     display: flex;

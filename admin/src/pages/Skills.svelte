@@ -36,6 +36,15 @@
   // Filters
   let filterProgram = $state("");
   let filterCategory = $state("");
+  let filterSource = $state("");
+
+  // Import
+  let importFileInput: HTMLInputElement | undefined = $state(undefined);
+  let importing = $state(false);
+
+  // Pull
+  let pullingAll = $state(false);
+  let pullingProgram = $state<string | null>(null);
 
   // Search preview
   let searchQuery = $state("");
@@ -83,6 +92,9 @@
     if (filterCategory) {
       result = result.filter((s) => s.category === filterCategory);
     }
+    if (filterSource) {
+      result = result.filter((s) => s.source === filterSource);
+    }
     return result;
   });
 
@@ -98,6 +110,14 @@
     const set = new Set<string>();
     for (const s of skills) {
       if (s.category) set.add(s.category);
+    }
+    return Array.from(set).sort();
+  });
+
+  let uniqueSources = $derived.by(() => {
+    const set = new Set<string>();
+    for (const s of skills) {
+      if (s.source) set.add(s.source);
     }
     return Array.from(set).sort();
   });
@@ -227,6 +247,72 @@
     }
   }
 
+  async function exportSkills() {
+    try {
+      const { blob, fileName } = await api.skills.export({
+        program: filterProgram || undefined,
+        category: filterCategory || undefined,
+        source: filterSource || undefined,
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName ?? "skills-export.zip";
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+      toast.success("Skills exported");
+    } catch (err: any) {
+      toast.error(err.message ?? "Failed to export skills");
+    }
+  }
+
+  async function importSkills(file: File) {
+    importing = true;
+    try {
+      const result = await api.skills.importZip(file);
+      toast.success(`Imported ${result.imported} skill(s), ${result.skipped} skipped`);
+      await load();
+    } catch (err: any) {
+      toast.error(err.message ?? "Failed to import skills");
+    } finally {
+      importing = false;
+      if (importFileInput) importFileInput.value = "";
+    }
+  }
+
+  function handleImportFile(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (file) importSkills(file);
+  }
+
+  async function pullAll() {
+    pullingAll = true;
+    try {
+      const result = await api.skills.pullAll();
+      toast.success(result?.message ?? "Pulled skills from bridge repo");
+      await load();
+    } catch (err: any) {
+      toast.error(err.message ?? "Failed to pull skills");
+    } finally {
+      pullingAll = false;
+    }
+  }
+
+  async function pullProgram(prog: string) {
+    pullingProgram = prog;
+    try {
+      const result = await api.skills.pullProgram(prog);
+      toast.success(result?.message ?? `Pulled skills for ${prog}`);
+      await load();
+    } catch (err: any) {
+      toast.error(err.message ?? `Failed to pull skills for ${prog}`);
+    } finally {
+      pullingProgram = null;
+    }
+  }
+
   function autoSlug() {
     createSlug = createName
       .trim()
@@ -255,10 +341,24 @@
           <option value={c}>{c}</option>
         {/each}
       </select>
+      <select bind:value={filterSource}>
+        <option value="">All Sources</option>
+        {#each uniqueSources as s}
+          <option value={s}>{s}</option>
+        {/each}
+      </select>
     </div>
     <div class="toolbar-actions">
       <button class="btn-primary" onclick={() => (createOpen = true)}>Create Skill</button>
       <button class="btn-secondary" onclick={openRegistry}>Browse Registry</button>
+      <button class="btn-secondary" onclick={pullAll} disabled={pullingAll}>
+        {pullingAll ? "Pulling..." : "Pull from Bridge Repo"}
+      </button>
+      <button class="btn-secondary" onclick={exportSkills}>Export</button>
+      <button class="btn-secondary" onclick={() => importFileInput?.click()} disabled={importing}>
+        {importing ? "Importing..." : "Import"}
+      </button>
+      <input type="file" accept=".zip,.json" bind:this={importFileInput} onchange={handleImportFile} class="hidden-file-input" />
       <button class="btn-secondary" onclick={refreshIndex}>Refresh Index</button>
       <button class="btn-secondary" onclick={load} disabled={loading}>Reload</button>
     </div>
@@ -319,7 +419,7 @@
             <td>{skill.title}</td>
             <td class="muted">{skill.program || "-"}</td>
             <td><span class="badge badge-cat">{skill.category}</span></td>
-            <td><span class="badge {skill.source === 'user' ? 'badge-custom' : skill.source === 'registry' ? 'badge-registry' : 'badge-default'}">{skill.source}</span></td>
+            <td><span class="badge {skill.source === 'user' ? 'badge-custom' : skill.source === 'registry' ? 'badge-registry' : skill.source === 'training' ? 'badge-training' : skill.source === 'bridge-repo' ? 'badge-bridge-repo' : 'badge-default'}">{skill.source}</span></td>
             <td>
               {#if skill.enabled}
                 <span class="badge badge-ok">yes</span>
@@ -542,6 +642,9 @@
     min-height: 200px;
   }
   .badge-registry { color: #b07cd8; background: rgba(176, 124, 216, 0.12); }
+  .badge-training { color: #d8a07c; background: rgba(216, 160, 124, 0.12); }
+  .badge-bridge-repo { color: #7cd89e; background: rgba(124, 216, 158, 0.12); }
+  .hidden-file-input { display: none; }
   .registry-list { display: flex; flex-direction: column; gap: 8px; max-height: 400px; overflow-y: auto; margin-bottom: 12px; }
   .registry-item { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
   .registry-info { flex: 1; min-width: 0; }
