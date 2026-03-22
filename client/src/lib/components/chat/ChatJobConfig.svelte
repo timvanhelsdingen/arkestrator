@@ -14,15 +14,19 @@
     type ProviderModelCatalog,
   } from "../../api/rest";
 
-  let coordinationEnabled = $derived(
-    connection.allowClientCoordination
-      ? clientCoordination.enabled
-      : true // server-managed coordination is always on
-  );
+  let coordinationEnabled = $derived.by(() => {
+    const cs = chatStore.activeTab?.runtimeOptions?.coordinationScripts;
+    if (!cs) return true; // default: enabled
+    return cs.coordinator !== "disabled" || cs.bridge !== "disabled" || cs.training !== "disabled";
+  });
 
   function toggleCoordination() {
-    if (connection.allowClientCoordination) {
-      clientCoordination.enabled = !clientCoordination.enabled;
+    if (coordinationEnabled) {
+      // Disable all coordination scripts
+      chatStore.setCoordinationScripts({ coordinator: "disabled", bridge: "disabled", training: "disabled" });
+    } else {
+      // Re-enable (remove override = use defaults)
+      chatStore.setCoordinationScripts(undefined);
     }
   }
 
@@ -375,15 +379,14 @@
       />
     </div>
 
-    <!-- Coordination -->
+    <!-- Coordination Scripts -->
     <div class="config-row config-row-inline">
-      <span class="config-label-text">Coordination</span>
+      <span class="config-label-text">Coordination Scripts</span>
       <button
         class="coordination-toggle"
         class:on={coordinationEnabled}
         onclick={toggleCoordination}
-        disabled={!connection.allowClientCoordination}
-        title={connection.allowClientCoordination ? "Toggle coordination scripts & skills" : "Managed by server"}
+        title="Include coordinator scripts, bridge skills, and training in job prompts"
       >
         {coordinationEnabled ? "On" : "Off"}
       </button>
