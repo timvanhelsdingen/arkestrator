@@ -211,7 +211,7 @@ export function createApp(deps: AppDeps) {
   const skillIndex = new SkillIndex(() =>
     materializeSkills({ skillsRepo: deps.skillsRepo }),
   );
-  app.route("/api/skills", createSkillsRoutes(deps.skillsRepo, skillIndex, deps.usersRepo, deps.apiKeysRepo, deps.settingsRepo));
+  app.route("/api/skills", createSkillsRoutes(deps.skillsRepo, skillIndex, deps.usersRepo, deps.apiKeysRepo, deps.settingsRepo, deps.workersRepo));
 
   // MCP tool server for AI agent bridge interaction and job orchestration
   const mcpDeps = {

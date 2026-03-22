@@ -5,6 +5,7 @@ import type { SkillIndex } from "../skills/skill-index.js";
 import type { UsersRepo } from "../db/users.repo.js";
 import type { ApiKeysRepo } from "../db/apikeys.repo.js";
 import type { SettingsRepo } from "../db/settings.repo.js";
+import type { WorkersRepo } from "../db/workers.repo.js";
 import { getAuthPrincipal, apiKeyRoleAllowed } from "../middleware/auth.js";
 import { errorResponse } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
@@ -135,6 +136,7 @@ export function createSkillsRoutes(
   usersRepo: UsersRepo,
   apiKeysRepo: ApiKeysRepo,
   settingsRepo?: SettingsRepo,
+  workersRepo?: WorkersRepo,
 ) {
   const router = new Hono();
 
@@ -405,7 +407,8 @@ export function createSkillsRoutes(
     if (!auth) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
 
     try {
-      const result = await pullAllBridgeSkills(skillsRepo, settingsRepo);
+      const connectedPrograms = workersRepo?.getDistinctPrograms() ?? [];
+      const result = await pullAllBridgeSkills(skillsRepo, settingsRepo, connectedPrograms);
       skillIndex.refresh();
       return c.json({ ok: true, ...result });
     } catch (err: any) {

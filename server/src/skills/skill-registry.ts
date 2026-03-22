@@ -196,12 +196,17 @@ export async function pullBridgeSkills(
 }
 
 /**
- * Pull skills for all known programs from the bridge registry.
- * Used by the "pull-all" admin endpoint.
+ * Pull skills for connected/installed bridge programs from the bridge registry.
+ * Only pulls for programs that are actually in use (passed via connectedPrograms),
+ * not every bridge in the registry.
+ *
+ * @param connectedPrograms - List of bridge program names currently connected/installed.
+ *   If omitted or empty, falls back to pulling all registry bridges (legacy behavior).
  */
 export async function pullAllBridgeSkills(
   skillsRepo: SkillsRepo,
   settingsRepo?: SettingsRepo,
+  connectedPrograms?: string[],
 ): Promise<{ total: number; errors: string[] }> {
   const registry = await fetchBridgeRegistry();
   let total = 0;
@@ -211,8 +216,17 @@ export async function pullAllBridgeSkills(
     return { total: 0, errors: ["No bridges found in registry"] };
   }
 
-  for (const bridge of registry.bridges) {
-    const result = await pullBridgeSkills(bridge.program, skillsRepo, settingsRepo, true);
+  // Filter to only connected/installed bridges
+  const programs = connectedPrograms && connectedPrograms.length > 0
+    ? connectedPrograms
+    : registry.bridges.map((b) => b.program);
+
+  for (const program of programs) {
+    // Only pull if this program exists in the registry
+    const inRegistry = registry.bridges.some((b) => b.program === program);
+    if (!inRegistry) continue;
+
+    const result = await pullBridgeSkills(program, skillsRepo, settingsRepo, true);
     total += result.pulled;
     allErrors.push(...result.errors);
   }

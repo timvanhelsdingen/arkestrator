@@ -41,7 +41,7 @@ import { readSharedConfig, writeSharedConfig, getSharedConfigPath } from "./util
 import { normalizeCodexArgs } from "./utils/codex-args.js";
 import { seedCoordinatorScripts, ensureCoordinatorScript } from "./agents/engines.js";
 import { seedCoordinatorPlaybooks } from "./agents/coordinator-playbooks.js";
-import { pullAllBridgeSkills } from "./skills/skill-registry.js";
+import { pullAllBridgeSkills, pullBridgeSkills } from "./skills/skill-registry.js";
 import { runScheduledCoordinatorTrainingTick } from "./agents/coordinator-training.js";
 import { runHousekeepingScheduleTick } from "./agents/housekeeping.js";
 import { deriveWorkerIdentity } from "./utils/worker-identity.js";
@@ -640,6 +640,15 @@ async function main() {
               );
               // Auto-create coordinator script for newly detected programs
               ensureCoordinatorScript(config.coordinatorScriptsDir, ws.data.program, undefined, skillsRepo);
+              // Auto-pull skills for this bridge from the repo (non-blocking)
+              const autoPull = settingsRepo.get("auto_pull_bridge_skills");
+              if (autoPull !== "false") {
+                pullBridgeSkills(ws.data.program, skillsRepo, settingsRepo, true)
+                  .then((r) => {
+                    if (r.pulled > 0) logger.info("skills", `Auto-pulled ${r.pulled} skills for ${ws.data.program}`);
+                  })
+                  .catch((err) => logger.warn("skills", `Auto-pull failed for ${ws.data.program}: ${err}`));
+              }
             }
           }
           hub.broadcastWorkerStatus(workersRepo);
