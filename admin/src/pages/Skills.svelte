@@ -411,7 +411,17 @@
       {#if loading}
         <tr><td colspan="7" class="muted">Loading skills...</td></tr>
       {:else if filteredSkills.length === 0}
-        <tr><td colspan="7" class="muted">No skills found.</td></tr>
+        <tr><td colspan="7" class="muted">
+          {#if skills.length === 0}
+            No skills loaded yet.
+            <button class="btn-link" onclick={pullAll} disabled={pullingAll}>
+              {pullingAll ? "Pulling..." : "Pull from Bridge Repo"}
+            </button>
+            to fetch skills from connected bridges.
+          {:else}
+            No skills match the current filters.
+          {/if}
+        </td></tr>
       {:else}
         {#each filteredSkills as skill}
           <tr>
@@ -590,6 +600,9 @@
   .toolbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 14px; }
   .filters { display: flex; gap: 8px; }
   .filters select { font-size: var(--font-size-sm); padding: 6px 8px; }
+  .btn-link { background: none; border: none; color: var(--accent); cursor: pointer; text-decoration: underline; padding: 0; font-size: inherit; }
+  .btn-link:hover { opacity: 0.8; }
+  .btn-link:disabled { opacity: 0.5; cursor: default; }
   .toolbar-actions { display: flex; gap: 8px; }
   .search-panel { margin-bottom: 14px; }
   .search-row { display: flex; gap: 8px; margin-bottom: 6px; }

@@ -11,8 +11,11 @@ import { logger } from "../utils/logger.js";
 import { pullBridgeSkills, pullAllBridgeSkills } from "../skills/skill-registry.js";
 
 // --- Registry cache ---
+// Uses the same registry.json as skill-registry.ts (bridge format with nested skills)
 const REGISTRY_URL =
-  "https://raw.githubusercontent.com/timvanhelsdingen/arkestrator-bridges/main/skills/registry.json";
+  "https://raw.githubusercontent.com/timvanhelsdingen/arkestrator-bridges/main/registry.json";
+const BRIDGE_RAW_BASE =
+  "https://raw.githubusercontent.com/timvanhelsdingen/arkestrator-bridges/main";
 const REGISTRY_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 interface RegistrySkillEntry {
@@ -23,6 +26,12 @@ interface RegistrySkillEntry {
   description: string;
   version: string;
   contentUrl: string;
+}
+
+interface BridgeRegistryEntry {
+  id: string;
+  program: string;
+  skills?: Array<{ slug: string; file: string; title: string; category?: string }>;
 }
 
 interface RegistryData {
@@ -42,10 +51,37 @@ async function fetchRegistry(): Promise<RegistryData> {
       logger.warn("skills-registry", `GitHub fetch failed: ${res.status} ${res.statusText}`);
       return { version: 1, skills: [] };
     }
-    const data = (await res.json()) as RegistryData;
-    if (!data || !Array.isArray(data.skills)) {
-      return { version: 1, skills: [] };
+    const raw = (await res.json()) as { version?: number; bridges?: BridgeRegistryEntry[] };
+
+    // Transform bridge registry format → flat skill list
+    const skills: RegistrySkillEntry[] = [];
+    for (const bridge of raw.bridges ?? []) {
+      const program = bridge.program ?? bridge.id;
+      // Each bridge has a coordinator.md (always available)
+      skills.push({
+        slug: `${program}-coordinator`,
+        program,
+        category: "bridge",
+        title: `${program} Coordinator`,
+        description: `Coordinator instructions for the ${program} bridge`,
+        version: "1.0.0",
+        contentUrl: `${BRIDGE_RAW_BASE}/${bridge.id}/coordinator.md`,
+      });
+      // Plus any listed skills
+      for (const skill of bridge.skills ?? []) {
+        skills.push({
+          slug: skill.slug,
+          program,
+          category: skill.category ?? "custom",
+          title: skill.title,
+          description: "",
+          version: "1.0.0",
+          contentUrl: `${BRIDGE_RAW_BASE}/${bridge.id}/${skill.file}`,
+        });
+      }
     }
+
+    const data: RegistryData = { version: raw.version ?? 1, skills };
     registryCache = { data, fetchedAt: Date.now() };
     return data;
   } catch (err: any) {
@@ -252,9 +288,9 @@ export function createSkillsRoutes(
 
     const registry = await fetchRegistry();
 
-    // Mark which skills are already installed
+    // Mark which skills are already installed (check all sources, not just user/registry)
     const installedSlugs = new Set<string>();
-    const existingSkills = skillsRepo.list();
+    const existingSkills = skillsRepo.listAll();
     for (const s of existingSkills) {
       installedSlugs.add(`${s.slug}:${s.program}`);
     }

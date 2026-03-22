@@ -2,7 +2,7 @@
   import { connection } from "../lib/stores/connection.svelte";
   import { api } from "../lib/api/rest";
 
-  type ScopeTab = "server" | "training" | "client";
+  type ScopeTab = "server" | "training" | "skills" | "client";
   type AnalyzeStatus = "queued" | "running" | "completed" | "failed";
   type AnalyzeMode = "fast" | "ai";
 
@@ -176,6 +176,58 @@
   let selectedProjectRawText = $state("");
   let selectedProjectRawLoading = $state(false);
   let selectedProjectRawSaving = $state(false);
+
+  // Skills
+  interface SkillEntry {
+    slug: string;
+    name?: string;
+    program: string;
+    category: string;
+    title: string;
+    description?: string;
+    content?: string;
+    source?: string;
+    priority?: number;
+    autoFetch?: boolean;
+    enabled?: boolean;
+  }
+  let serverSkills = $state<SkillEntry[]>([]);
+  let skillsLoading = $state(false);
+  let skillsFilter = $state("");
+  let skillViewSlug = $state<string | null>(null);
+  let skillViewContent = $state("");
+  let skillViewLoading = $state(false);
+  let skillCreateOpen = $state(false);
+  let skillCreateName = $state("");
+  let skillCreateSlug = $state("");
+  let skillCreateProgram = $state("global");
+  let skillCreateCategory = $state<string>("custom");
+  let skillCreateTitle = $state("");
+  let skillCreateDescription = $state("");
+  let skillCreateContent = $state("");
+  let skillCreateSaving = $state(false);
+  let skillsPulling = $state(false);
+
+  const filteredSkills = $derived.by(() => {
+    const q = skillsFilter.toLowerCase().trim();
+    let list = serverSkills;
+    if (q) {
+      list = list.filter(
+        (s) =>
+          s.slug.toLowerCase().includes(q) ||
+          s.title.toLowerCase().includes(q) ||
+          (s.program ?? "").toLowerCase().includes(q) ||
+          (s.category ?? "").toLowerCase().includes(q),
+      );
+    }
+    return list;
+  });
+
+  const skillPrograms = $derived.by(() => {
+    const set = new Set<string>();
+    for (const s of serverSkills) if (s.program) set.add(s.program);
+    return Array.from(set).sort();
+  });
 
   // Local client prompt overrides
   const CLIENT_PROMPT_OVERRIDES_STORAGE_KEY = "arkestrator-coordinator-client-prompt-overrides-v1";
@@ -1037,6 +1089,112 @@
   function setScopeTab(nextTab: ScopeTab) {
     scopeTab = nextTab;
     if (nextTab !== "server") closeScriptEditor();
+    if (nextTab === "skills" && serverSkills.length === 0) loadSkills();
+  }
+
+  async function loadSkills() {
+    skillsLoading = true;
+    try {
+      const data = await api.skills.list();
+      serverSkills = Array.isArray(data?.skills ?? data) ? (data?.skills ?? data) : [];
+    } catch (err: any) {
+      error = err.message ?? "Failed to load skills";
+    } finally {
+      skillsLoading = false;
+    }
+  }
+
+  async function viewSkill(slug: string, prog: string) {
+    skillViewSlug = slug;
+    skillViewLoading = true;
+    try {
+      const data = await api.skills.get(slug, prog);
+      skillViewContent = data?.skill?.content ?? data?.content ?? "";
+    } catch (err: any) {
+      skillViewContent = `Error: ${err.message}`;
+    } finally {
+      skillViewLoading = false;
+    }
+  }
+
+  function closeSkillView() {
+    skillViewSlug = null;
+    skillViewContent = "";
+  }
+
+  async function createSkill() {
+    const slug = skillCreateSlug.trim() || skillCreateName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    if (!slug || !skillCreateTitle.trim() || !skillCreateContent.trim()) {
+      error = "Slug, title, and content are required.";
+      return;
+    }
+    skillCreateSaving = true;
+    try {
+      await api.skills.create({
+        name: skillCreateName.trim() || slug,
+        slug,
+        program: skillCreateProgram || "global",
+        category: skillCreateCategory || "custom",
+        title: skillCreateTitle.trim(),
+        description: skillCreateDescription.trim(),
+        content: skillCreateContent,
+      });
+      info = `Skill "${slug}" created.`;
+      skillCreateOpen = false;
+      skillCreateName = "";
+      skillCreateSlug = "";
+      skillCreateTitle = "";
+      skillCreateDescription = "";
+      skillCreateContent = "";
+      await loadSkills();
+    } catch (err: any) {
+      error = err.message ?? "Failed to create skill";
+    } finally {
+      skillCreateSaving = false;
+    }
+  }
+
+  async function deleteSkill(slug: string, prog: string) {
+    try {
+      await api.skills.delete(slug, prog);
+      info = `Deleted skill "${slug}".`;
+      await loadSkills();
+    } catch (err: any) {
+      error = err.message ?? "Failed to delete skill";
+    }
+  }
+
+  async function pullAllSkills() {
+    skillsPulling = true;
+    try {
+      const result = await api.skills.pullAll();
+      info = `Pulled ${result?.total ?? 0} skills from bridge repo.`;
+      await loadSkills();
+    } catch (err: any) {
+      error = err.message ?? "Failed to pull skills";
+    } finally {
+      skillsPulling = false;
+    }
+  }
+
+  async function pushSkillToServer(skill: SkillEntry) {
+    try {
+      await api.skills.create({
+        name: skill.name || skill.slug,
+        slug: skill.slug,
+        program: skill.program,
+        category: skill.category,
+        title: skill.title,
+        description: skill.description ?? "",
+        content: skill.content ?? "",
+        priority: skill.priority,
+        autoFetch: skill.autoFetch,
+      });
+      info = `Pushed "${skill.slug}" to server.`;
+      await loadSkills();
+    } catch (err: any) {
+      error = err.message ?? "Failed to push skill to server";
+    }
   }
 
   function previewScript(content: string): string {
@@ -1098,6 +1256,9 @@
       </button>
       <button class="tab" class:active={scopeTab === "training"} onclick={() => setScopeTab("training")}>
         Training
+      </button>
+      <button class="tab" class:active={scopeTab === "skills"} onclick={() => setScopeTab("skills")}>
+        Skills
       </button>
       <button class="tab" class:active={scopeTab === "client"} onclick={() => setScopeTab("client")}>
         Client Config
@@ -1397,6 +1558,145 @@
             </button>
           </div>
         {/if}
+      </section>
+    {:else if scopeTab === "skills"}
+      <section class="panel">
+        <h3>Skills</h3>
+        <p class="desc">
+          Skills are instructions and prompts that customize how the coordinator works with bridges.
+          Pull skills from the bridge repo, create your own, or push local skills to the server.
+        </p>
+        <div class="skill-toolbar">
+          <input
+            type="text"
+            placeholder="Filter skills..."
+            bind:value={skillsFilter}
+            class="skill-search"
+          />
+          <button class="btn secondary" onclick={loadSkills} disabled={skillsLoading}>
+            {skillsLoading ? "Loading..." : "Refresh"}
+          </button>
+          <button class="btn secondary" onclick={pullAllSkills} disabled={skillsPulling}>
+            {skillsPulling ? "Pulling..." : "Pull from Bridge Repo"}
+          </button>
+          <button class="btn" onclick={() => { skillCreateOpen = !skillCreateOpen; skillCreateProgram = program; }}>
+            {skillCreateOpen ? "Cancel" : "Create Skill"}
+          </button>
+        </div>
+
+        {#if skillCreateOpen}
+          <div class="skill-create-form">
+            <div class="form-row">
+              <label>
+                Name
+                <input type="text" bind:value={skillCreateName} placeholder="My Skill" />
+              </label>
+              <label>
+                Slug
+                <input type="text" bind:value={skillCreateSlug} placeholder="my-skill (auto-generated if empty)" />
+              </label>
+            </div>
+            <div class="form-row">
+              <label>
+                Program
+                <select bind:value={skillCreateProgram}>
+                  <option value="global">Global</option>
+                  {#each programs as p}
+                    {#if p.value !== "global"}
+                      <option value={p.value}>{p.label}</option>
+                    {/if}
+                  {/each}
+                </select>
+              </label>
+              <label>
+                Category
+                <select bind:value={skillCreateCategory}>
+                  <option value="custom">Custom</option>
+                  <option value="coordinator">Coordinator</option>
+                  <option value="bridge">Bridge</option>
+                  <option value="training">Training</option>
+                  <option value="verification">Verification</option>
+                  <option value="project">Project</option>
+                </select>
+              </label>
+            </div>
+            <label>
+              Title
+              <input type="text" bind:value={skillCreateTitle} placeholder="Descriptive title" />
+            </label>
+            <label>
+              Description
+              <input type="text" bind:value={skillCreateDescription} placeholder="Brief description" />
+            </label>
+            <label>
+              Content
+              <textarea rows="10" bind:value={skillCreateContent} spellcheck="false" placeholder="Skill instructions in markdown..."></textarea>
+            </label>
+            <button class="btn" onclick={createSkill} disabled={skillCreateSaving}>
+              {skillCreateSaving ? "Creating..." : "Create Skill"}
+            </button>
+          </div>
+        {/if}
+
+        {#if skillViewSlug}
+          <div class="skill-view-modal">
+            <div class="skill-view-header">
+              <h4>{skillViewSlug}</h4>
+              <button class="btn secondary" onclick={closeSkillView}>Close</button>
+            </div>
+            {#if skillViewLoading}
+              <p class="muted">Loading...</p>
+            {:else}
+              <pre class="skill-content">{skillViewContent}</pre>
+            {/if}
+          </div>
+        {/if}
+
+        <table class="skill-table">
+          <thead>
+            <tr>
+              <th>Slug</th>
+              <th>Title</th>
+              <th>Program</th>
+              <th>Category</th>
+              <th>Source</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#if skillsLoading}
+              <tr><td colspan="6" class="muted">Loading skills...</td></tr>
+            {:else if filteredSkills.length === 0}
+              <tr><td colspan="6" class="muted">
+                {#if serverSkills.length === 0}
+                  No skills loaded.
+                  <button class="btn-link" onclick={pullAllSkills} disabled={skillsPulling}>
+                    Pull from Bridge Repo
+                  </button>
+                {:else}
+                  No skills match filter.
+                {/if}
+              </td></tr>
+            {:else}
+              {#each filteredSkills as skill}
+                <tr>
+                  <td class="mono">{skill.slug}</td>
+                  <td>{skill.title}</td>
+                  <td><span class="badge">{skill.program}</span></td>
+                  <td><span class="badge">{skill.category}</span></td>
+                  <td class="muted">{skill.source ?? ""}</td>
+                  <td class="actions">
+                    <button class="btn-sm" onclick={() => viewSkill(skill.slug, skill.program)}>View</button>
+                    {#if skill.source === "user" || skill.source === "registry"}
+                      <button class="btn-sm danger" onclick={() => deleteSkill(skill.slug, skill.program)}>Delete</button>
+                    {/if}
+                  </td>
+                </tr>
+              {/each}
+            {/if}
+          </tbody>
+        </table>
+        <p class="mini">{filteredSkills.length} skill{filteredSkills.length !== 1 ? "s" : ""}{serverSkills.length !== filteredSkills.length ? ` (${serverSkills.length} total)` : ""}</p>
       </section>
     {:else}
       <section class="panel">
@@ -1764,4 +2064,24 @@
       grid-template-columns: 1fr;
     }
   }
+
+  /* Skills tab */
+  .skill-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+  .skill-search { flex: 1; min-width: 160px; padding: 6px 8px; font-size: var(--font-size-sm); }
+  .skill-table { width: 100%; border-collapse: collapse; font-size: var(--font-size-sm); }
+  .skill-table th { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); font-weight: 600; }
+  .skill-table td { padding: 6px 8px; border-bottom: 1px solid var(--border-light, rgba(255,255,255,0.06)); }
+  .skill-table .mono { font-family: var(--font-mono); font-size: 0.85em; }
+  .skill-table .badge { display: inline-block; padding: 2px 6px; border-radius: 3px; background: var(--bg-subtle, rgba(255,255,255,0.06)); font-size: 0.85em; }
+  .skill-table .actions { display: flex; gap: 4px; }
+  .btn-sm { font-size: 0.8em; padding: 2px 8px; cursor: pointer; background: var(--bg-subtle, rgba(255,255,255,0.08)); border: 1px solid var(--border); border-radius: 3px; color: inherit; }
+  .btn-sm:hover { background: var(--bg-hover, rgba(255,255,255,0.12)); }
+  .btn-sm.danger { color: var(--danger, #e55); }
+  .btn-link { background: none; border: none; color: var(--accent); cursor: pointer; text-decoration: underline; padding: 0; font-size: inherit; }
+  .skill-create-form { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--border); border-radius: 4px; margin-bottom: 12px; background: var(--bg-subtle, rgba(255,255,255,0.03)); }
+  .skill-create-form .form-row { display: flex; gap: 8px; }
+  .skill-create-form .form-row > label { flex: 1; }
+  .skill-view-modal { padding: 12px; border: 1px solid var(--border); border-radius: 4px; margin-bottom: 12px; background: var(--bg-subtle, rgba(255,255,255,0.03)); }
+  .skill-view-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .skill-content { white-space: pre-wrap; font-family: var(--font-mono); font-size: 0.85em; max-height: 400px; overflow-y: auto; padding: 8px; background: var(--bg-deep, rgba(0,0,0,0.2)); border-radius: 4px; }
 </style>

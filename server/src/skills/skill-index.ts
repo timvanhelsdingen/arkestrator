@@ -119,7 +119,10 @@ export interface SkillSummary {
   program: string;
   category: string;
   description: string;
+  source: string;
+  priority: number;
   autoFetch: boolean;
+  enabled: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -262,7 +265,10 @@ export class SkillIndex {
         program: s.program,
         category: s.category,
         description: s.description,
+        source: s.source,
+        priority: s.priority,
         autoFetch: s.autoFetch,
+        enabled: s.enabled,
       }));
   }
 

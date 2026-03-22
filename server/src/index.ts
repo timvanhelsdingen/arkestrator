@@ -41,6 +41,7 @@ import { readSharedConfig, writeSharedConfig, getSharedConfigPath } from "./util
 import { normalizeCodexArgs } from "./utils/codex-args.js";
 import { seedCoordinatorScripts, ensureCoordinatorScript } from "./agents/engines.js";
 import { seedCoordinatorPlaybooks } from "./agents/coordinator-playbooks.js";
+import { pullAllBridgeSkills } from "./skills/skill-registry.js";
 import { runScheduledCoordinatorTrainingTick } from "./agents/coordinator-training.js";
 import { deriveWorkerIdentity } from "./utils/worker-identity.js";
 import {
@@ -352,6 +353,9 @@ async function main() {
   logger.info("server", `Coordinator scripts seeded at ${config.coordinatorScriptsDir}`);
   seedCoordinatorPlaybooks(config.coordinatorPlaybooksDir);
   logger.info("server", `Coordinator playbooks seeded at ${config.coordinatorPlaybooksDir}`);
+
+  // Auto-pull bridge skills on first run — deferred to after server is fully up
+  const shouldAutoPullSkills = skillsRepo.listAll().length === 0;
 
   // 5. Create infrastructure
   const hub = new WebSocketHub();
@@ -748,6 +752,20 @@ async function main() {
   );
   if (tlsConfig) {
     logger.info("server", "TLS enabled");
+  }
+
+  // Auto-pull bridge skills on first run (deferred to avoid startup race conditions)
+  if (shouldAutoPullSkills) {
+    setTimeout(() => {
+      logger.info("server", "No skills found — auto-pulling from bridge registry...");
+      pullAllBridgeSkills(skillsRepo, settingsRepo)
+        .then((result) => {
+          logger.info("server", `Auto-pull complete: ${result.total} skills pulled, ${result.errors.length} errors`);
+        })
+        .catch((err) => {
+          logger.warn("server", `Auto-pull failed: ${err?.message ?? err}`);
+        });
+    }, 3000);
   }
 
   // 12. Graceful shutdown

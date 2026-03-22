@@ -804,4 +804,57 @@ export const api = {
       });
     },
   },
+
+  skills: {
+    list: (program?: string, category?: string) => {
+      const params = new URLSearchParams();
+      if (program) params.set("program", program);
+      if (category) params.set("category", category);
+      const qs = params.toString();
+      return request(`/api/skills${qs ? `?${qs}` : ""}`);
+    },
+    get: (slug: string, program?: string) => {
+      const qs = program ? `?program=${encodeURIComponent(program)}` : "";
+      return request(`/api/skills/${encodeURIComponent(slug)}${qs}`);
+    },
+    search: (query: string, program?: string, category?: string) =>
+      request("/api/skills/search", {
+        method: "POST",
+        body: JSON.stringify({ query, program, category }),
+      }),
+    create: (skill: {
+      name: string;
+      slug: string;
+      program?: string;
+      category: string;
+      title: string;
+      description?: string;
+      keywords?: string[];
+      content: string;
+      priority?: number;
+      autoFetch?: boolean;
+    }) =>
+      request("/api/skills", {
+        method: "POST",
+        body: JSON.stringify(skill),
+      }),
+    update: (slug: string, updates: Record<string, unknown>, program?: string) => {
+      const qs = program ? `?program=${encodeURIComponent(program)}` : "";
+      return request(`/api/skills/${encodeURIComponent(slug)}${qs}`, {
+        method: "PUT",
+        body: JSON.stringify(updates),
+      });
+    },
+    delete: (slug: string, program?: string) => {
+      const qs = program ? `?program=${encodeURIComponent(program)}` : "";
+      return request(`/api/skills/${encodeURIComponent(slug)}${qs}`, {
+        method: "DELETE",
+      });
+    },
+    registry: () => request("/api/skills/registry"),
+    pullAll: () => request("/api/skills/pull-all", { method: "POST" }),
+    pullProgram: (program: string) =>
+      request(`/api/skills/pull/${encodeURIComponent(program)}`, { method: "POST" }),
+    refreshIndex: () => request("/api/skills/refresh-index", { method: "POST" }),
+  },
 };
