@@ -154,14 +154,21 @@ export function createSkillsRoutes(
   // Helper: authenticate and require write permission (admin or user with manageSettings)
   async function requireWriteAccess(c: any): Promise<{ userId: string; username: string } | null> {
     const principal = await getAuthPrincipal(c, usersRepo, apiKeysRepo);
-    if (!principal) return null;
+    if (!principal) {
+      logger.warn("skills", "requireWriteAccess: no principal found");
+      return null;
+    }
     if (principal.kind === "user") {
-      if (!principal.user.permissions.editCoordinator) return null;
+      if (!principal.user.permissions.editCoordinator) {
+        logger.warn("skills", `requireWriteAccess: user ${principal.user.username} lacks editCoordinator`);
+        return null;
+      }
       return { userId: principal.user.id, username: principal.user.username };
     }
     if (apiKeyRoleAllowed(principal.apiKey, ["admin"])) {
       return { userId: principal.apiKey.id, username: `apikey:${principal.apiKey.label}` };
     }
+    logger.warn("skills", `requireWriteAccess: apiKey role ${principal.apiKey.role} not allowed`);
     return null;
   }
 

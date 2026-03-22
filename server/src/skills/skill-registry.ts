@@ -150,7 +150,7 @@ export async function pullBridgeSkills(
   if (bridge?.skills && bridge.skills.length > 0) {
     for (const skillEntry of bridge.skills) {
       try {
-        const skillUrl = `${BRIDGE_RAW_BASE}/${normalized}/${skillEntry.file}`;
+        const skillUrl = `${BRIDGE_RAW_BASE}/${skillEntry.file}`;
         const skillRes = await fetch(skillUrl);
         if (!skillRes.ok) {
           errors.push(`Failed to fetch skill ${skillEntry.slug}: ${skillRes.status} ${skillRes.statusText}`);
