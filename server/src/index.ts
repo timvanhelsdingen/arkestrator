@@ -416,6 +416,7 @@ async function main() {
 
   // 5. Create infrastructure
   const hub = new WebSocketHub();
+  const skillsPulledThisSession = new Set<string>(); // tracks which programs had skills pulled this session
   const processTracker = new ProcessTracker(config.jobTimeoutMs);
   const scheduler = new Scheduler(jobsRepo);
   const resourceLeaseManager = new WorkerResourceLeaseManager();
@@ -696,14 +697,18 @@ async function main() {
               );
               // Auto-create coordinator script for newly detected programs
               ensureCoordinatorScript(config.coordinatorScriptsDir, ws.data.program, undefined, skillsRepo);
-              // Auto-pull skills for this bridge from the repo (non-blocking)
+              // Auto-pull skills for this bridge from the repo (once per program per session)
               const autoPull = settingsRepo.get("auto_pull_bridge_skills");
-              if (autoPull !== "false") {
+              if (autoPull !== "false" && !skillsPulledThisSession.has(ws.data.program)) {
+                skillsPulledThisSession.add(ws.data.program);
                 pullBridgeSkills(ws.data.program, skillsRepo, settingsRepo, true)
                   .then((r) => {
                     if (r.pulled > 0) logger.info("skills", `Auto-pulled ${r.pulled} skills for ${ws.data.program}`);
                   })
-                  .catch((err) => logger.warn("skills", `Auto-pull failed for ${ws.data.program}: ${err}`));
+                  .catch((err) => {
+                    skillsPulledThisSession.delete(ws.data.program); // retry on next connect
+                    logger.warn("skills", `Auto-pull failed for ${ws.data.program}: ${err}`);
+                  });
               }
             }
           }
