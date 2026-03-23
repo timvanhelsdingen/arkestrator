@@ -9,10 +9,11 @@
   import ConfirmDialog from "../lib/components/ui/ConfirmDialog.svelte";
   import type { BridgeInfo } from "../lib/stores/workers.svelte";
 
-  let expandedWorker = $state<string | null>(null);
+  let monitoredWorkerIds = $state<Set<string>>(new Set());
   let confirmOpen = $state(false);
   let confirmWorkerName = $state("");
   let confirmWorkerId = $state("");
+  let sidebarWidth = $state(320);
 
   // Refresh on mount and poll every 5 seconds while page is visible
   requestStatus();
@@ -23,19 +24,36 @@
     return String(worker.machineId ?? worker.id ?? worker.name).trim().toLowerCase();
   }
 
-  function toggleExpand(worker: { id: string; machineId?: string | null; name: string }) {
+  function toggleMonitor(worker: { id: string; machineId?: string | null; name: string }) {
     const key = workerKey(worker);
-    expandedWorker = expandedWorker === key ? null : key;
+    const next = new Set(monitoredWorkerIds);
+    if (next.has(key)) {
+      next.delete(key);
+    } else {
+      next.add(key);
+    }
+    monitoredWorkerIds = next;
   }
 
-  function handleHeaderKeydown(
-    e: KeyboardEvent,
-    worker: { id: string; machineId?: string | null; name: string },
-  ) {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      toggleExpand(worker);
+  function removeMonitor(key: string) {
+    const next = new Set(monitoredWorkerIds);
+    next.delete(key);
+    monitoredWorkerIds = next;
+  }
+
+  function startSidebarResize(e: MouseEvent) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = sidebarWidth;
+    function onMove(ev: MouseEvent) {
+      sidebarWidth = Math.max(240, Math.min(520, startW - (ev.clientX - startX)));
     }
+    function onUp() {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
   }
 
   function bridgesForWorker(worker: { id: string; machineId?: string | null; name: string }) {
@@ -96,7 +114,6 @@
     });
   }
 
-  /** Get the OS user for a worker from its connected bridges */
   function osUserForWorker(worker: { id: string; machineId?: string | null; name: string }): string | undefined {
     const bridges = bridgesForWorker(worker);
     for (const b of bridges) {
@@ -119,6 +136,10 @@
       console.error("Failed to delete worker:", err);
     }
   }
+
+  let monitoredWorkers = $derived(
+    workersStore.workers.filter(w => monitoredWorkerIds.has(workerKey(w)))
+  );
 </script>
 
 <div class="workers-page">
@@ -131,139 +152,153 @@
     <button class="refresh-btn" onclick={() => requestStatus()} title="Refresh workers">&#x21bb;</button>
   </div>
 
-  <div class="worker-list">
-    {#each workersStore.workers as worker (worker.id)}
-      {@const workerBridges = displayBridgesForWorker(worker)}
-      {@const osUser = osUserForWorker(worker)}
-      {@const isExpanded = expandedWorker === workerKey(worker)}
-      <div class="worker-card" class:expanded={isExpanded}>
-        <!-- Machine header row -->
+  <div class="workers-body">
+    <!-- Grid of worker cards -->
+    <div class="workers-grid">
+      {#each workersStore.workers as worker (worker.id)}
+        {@const workerBridges = displayBridgesForWorker(worker)}
+        {@const isMonitored = monitoredWorkerIds.has(workerKey(worker))}
         <div
-          class="card-header"
+          class="worker-card"
+          class:monitored={isMonitored}
+          onclick={() => toggleMonitor(worker)}
           role="button"
           tabindex="0"
-          onclick={() => toggleExpand(worker)}
-          onkeydown={(e) => handleHeaderKeydown(e, worker)}
+          onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleMonitor(worker); } }}
         >
-          <div class="header-left">
-            <span class="expand-icon" class:has-bridges={workerBridges.length > 0}>
-              {#if workerBridges.length > 0}
-                {isExpanded ? "▾" : "▸"}
-              {:else}
-                <span class="no-expand">&nbsp;</span>
-              {/if}
-            </span>
+          <div class="card-top">
             <Badge
               text={worker.status}
               variant={worker.status === "online" ? "completed" : "cancelled"}
             />
             <strong class="worker-name">{worker.name}</strong>
             {#if connection.username && isLocalWorker(worker.name, worker.machineId)}
-              <span class="account-chip" title="Signed-in Arkestrator account on this machine">
-                Account {connection.username}
-              </span>
+              <span class="account-chip">You</span>
             {/if}
           </div>
-          <div class="header-right">
-            {#if worker.activeBridgeCount > 0}
-              <span class="bridge-count">{worker.activeBridgeCount} bridge{worker.activeBridgeCount !== 1 ? "s" : ""}</span>
+          <div class="card-info">
+            {#if workerBridges.length > 0}
+              <span class="info-item">{workerBridges.length} bridge{workerBridges.length !== 1 ? "s" : ""}</span>
             {/if}
             {#if worker.lastIp}
-              <span class="worker-ip">{worker.lastIp}</span>
+              <span class="info-item mono">{worker.lastIp}</span>
             {/if}
-            <span class="last-seen" title="Last seen">{timeAgo(worker.lastSeenAt)}</span>
+          </div>
+          {#if worker.knownPrograms && worker.knownPrograms.length > 0}
+            <div class="card-programs">
+              {#each worker.knownPrograms as prog}
+                <Badge text={prog} variant={prog} />
+              {/each}
+            </div>
+          {/if}
+          <div class="card-footer">
+            <span class="last-seen">{timeAgo(worker.lastSeenAt)}</span>
             <button class="action-btn danger" onclick={(e) => { e.stopPropagation(); confirmDeleteWorker(worker.id, worker.name); }} title="Remove worker">✕</button>
           </div>
         </div>
+      {:else}
+        <div class="empty">
+          <p>No workers registered</p>
+          <p class="hint">Workers are created automatically when a bridge connects with a worker name. Connect a DCC app (Godot, Blender, etc.) to see workers here.</p>
+        </div>
+      {/each}
+    </div>
 
-        <!-- Expanded bridges section -->
-        {#if isExpanded}
-          <div class="expanded-content">
-            <!-- Machine details -->
-            <div class="machine-details">
-              {#if worker.lastProjectPath}
-                <div class="detail-item">
-                  <span class="detail-label">Path</span>
-                  <code>{worker.lastProjectPath}</code>
-                </div>
-              {/if}
-              <div class="detail-item">
-                <span class="detail-label">First seen</span>
-                <span>{timeAgo(worker.firstSeenAt)}</span>
+    <!-- Monitor sidebar -->
+    {#if monitoredWorkers.length > 0}
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="sidebar-resize-handle" onmousedown={startSidebarResize}></div>
+      <div class="workers-monitor" style="width: {sidebarWidth}px;">
+        <div class="monitor-header">
+          <h3>Monitor <span class="monitor-count">{monitoredWorkers.length}</span></h3>
+          <button class="clear-btn" onclick={() => { monitoredWorkerIds = new Set(); }}>Clear</button>
+        </div>
+        <div class="monitor-list">
+          {#each monitoredWorkers as worker (worker.id)}
+            {@const workerBridges = displayBridgesForWorker(worker)}
+            {@const osUser = osUserForWorker(worker)}
+            <div class="monitor-card">
+              <div class="monitor-card-header">
+                <Badge
+                  text={worker.status}
+                  variant={worker.status === "online" ? "completed" : "cancelled"}
+                />
+                <strong class="monitor-name">{worker.name}</strong>
+                <button class="action-btn" onclick={() => removeMonitor(workerKey(worker))} title="Remove from monitor">✕</button>
               </div>
-              {#if osUser}
-                <div class="detail-item">
-                  <span class="detail-label">OS user</span>
-                  <span title="Remote machine OS account">{osUser}</span>
+              <div class="monitor-details">
+                {#if worker.lastIp}
+                  <div class="detail-row">
+                    <span class="detail-label">IP</span>
+                    <code>{worker.lastIp}</code>
+                  </div>
+                {/if}
+                {#if worker.lastProjectPath}
+                  <div class="detail-row">
+                    <span class="detail-label">Path</span>
+                    <code>{worker.lastProjectPath}</code>
+                  </div>
+                {/if}
+                {#if osUser}
+                  <div class="detail-row">
+                    <span class="detail-label">User</span>
+                    <span>{osUser}</span>
+                  </div>
+                {/if}
+                <div class="detail-row">
+                  <span class="detail-label">Seen</span>
+                  <span>{timeAgo(worker.lastSeenAt)}</span>
                 </div>
-              {/if}
-              {#if worker.knownPrograms && worker.knownPrograms.length > 0}
-                <div class="detail-item">
-                  <span class="detail-label">Programs</span>
-                  <span class="program-tags">
-                    {#each worker.knownPrograms as prog}
-                      <Badge text={prog} variant={prog} />
-                    {/each}
-                  </span>
-                </div>
-              {/if}
-            </div>
-
-            <!-- Connected bridges -->
-            {#if workerBridges.length > 0}
-              <div class="bridges-section">
-                <div class="bridges-header">Bridges</div>
-                {#each workerBridges as bridge (bridge.id)}
-                  {@const bridgeProjects = (bridge.activeProjects && bridge.activeProjects.length > 0)
-                    ? bridge.activeProjects
-                    : (bridge.projectPath ? [bridge.projectPath] : [])}
-                  <div class="bridge-row" class:offline-row={!bridge.connected}>
-                    <div class="bridge-main">
-                      {#if bridge.program}
-                        <Badge text={bridge.program} variant={bridge.program} />
-                      {/if}
-                      <span class="bridge-name">{bridge.name}</span>
-                      <span class="bridge-state" class:offline-state={!bridge.connected}>
-                        {bridge.connected ? "online" : "offline"}
-                      </span>
-                      {#if bridge.programVersion}
-                        <span class="bridge-version">v{bridge.programVersion}</span>
-                      {/if}
-                      {#if bridge.sessionCount > 1}
-                        <span class="bridge-sessions">{bridge.sessionCount} sessions</span>
-                      {/if}
-                    </div>
-                    <div class="bridge-meta">
+                {#if worker.knownPrograms && worker.knownPrograms.length > 0}
+                  <div class="detail-row">
+                    <span class="detail-label">Programs</span>
+                    <span class="program-tags">
+                      {#each worker.knownPrograms as prog}
+                        <Badge text={prog} variant={prog} />
+                      {/each}
+                    </span>
+                  </div>
+                {/if}
+              </div>
+              {#if workerBridges.length > 0}
+                <div class="monitor-bridges">
+                  <div class="bridges-label">Bridges</div>
+                  {#each workerBridges as bridge (bridge.id)}
+                    {@const bridgeProjects = (bridge.activeProjects && bridge.activeProjects.length > 0)
+                      ? bridge.activeProjects
+                      : (bridge.projectPath ? [bridge.projectPath] : [])}
+                    <div class="bridge-row" class:offline-row={!bridge.connected}>
+                      <div class="bridge-main">
+                        {#if bridge.program}
+                          <Badge text={bridge.program} variant={bridge.program} />
+                        {/if}
+                        <span class="bridge-name">{bridge.name}</span>
+                        <span class="bridge-state" class:offline-state={!bridge.connected}>
+                          {bridge.connected ? "online" : "offline"}
+                        </span>
+                        {#if bridge.programVersion}
+                          <span class="bridge-version">v{bridge.programVersion}</span>
+                        {/if}
+                        {#if bridge.sessionCount > 1}
+                          <span class="bridge-sessions">{bridge.sessionCount} sess</span>
+                        {/if}
+                      </div>
                       {#if bridgeProjects.length > 0}
-                        <div class="bridge-path-list">
-                          {#each bridgeProjects as path, i (path)}
-                            <code class="bridge-path" title={path}>
-                              {`- ${path}`}
-                            </code>
+                        <div class="bridge-paths">
+                          {#each bridgeProjects as path (path)}
+                            <code class="bridge-path">{path}</code>
                           {/each}
                         </div>
                       {/if}
-                      {#if bridge.connectedAt}
-                        <span class="bridge-connected" title="Connected">{timeAgo(bridge.connectedAt)}</span>
-                      {:else if bridge.lastSeen}
-                        <span class="bridge-connected" title="Last seen">{timeAgo(bridge.lastSeen)}</span>
-                      {/if}
                     </div>
-                  </div>
-                {/each}
-              </div>
-            {:else}
-              <div class="no-bridges">No active bridges</div>
-            {/if}
-          </div>
-        {/if}
+                  {/each}
+                </div>
+              {/if}
+            </div>
+          {/each}
+        </div>
       </div>
-    {:else}
-      <div class="empty">
-        <p>No workers registered</p>
-        <p class="hint">Workers are created automatically when a bridge connects with a worker name. Connect a DCC app (Godot, Blender, etc.) to see workers here.</p>
-      </div>
-    {/each}
+    {/if}
   </div>
 </div>
 
@@ -278,14 +313,16 @@
 />
 
 <style>
-  .workers-page { padding: 16px; overflow-y: auto; height: 100%; }
+  .workers-page { padding: 16px; overflow: hidden; height: 100%; display: flex; flex-direction: column; }
   .page-header {
     display: flex;
     align-items: center;
     gap: 8px;
     margin-bottom: 16px;
+    flex-shrink: 0;
   }
   h2 { font-size: var(--font-size-lg); }
+  h3 { font-size: var(--font-size-base); margin: 0; }
   .worker-count {
     font-size: var(--font-size-sm);
     color: var(--text-muted);
@@ -308,86 +345,92 @@
   }
   .refresh-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
 
-  .worker-list { display: flex; flex-direction: column; gap: 4px; }
+  /* Body: grid + optional sidebar */
+  .workers-body {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+    min-height: 0;
+  }
+
+  /* 3-wide grid */
+  .workers-grid {
+    flex: 1;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    overflow-y: auto;
+    padding-right: 4px;
+    align-content: start;
+    min-width: 0;
+  }
 
   .worker-card {
     background: var(--bg-surface);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
-    overflow: hidden;
-  }
-  .worker-card.expanded {
-    border-color: var(--border-active, var(--border));
-  }
-
-  /* Card header acts as a keyboard-accessible expand/collapse control */
-  .card-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    width: 100%;
-    padding: 10px 12px;
-    background: none;
-    border: none;
-    color: inherit;
-    font: inherit;
+    padding: 12px;
     cursor: pointer;
-    text-align: left;
+    transition: border-color 0.15s;
+    display: flex;
+    flex-direction: column;
     gap: 8px;
   }
-  .card-header:hover {
-    background: var(--bg-hover);
+  .worker-card:hover {
+    border-color: var(--accent);
   }
-  .header-left {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    min-width: 0;
+  .worker-card.monitored {
+    border-color: var(--accent);
+    background: color-mix(in oklab, var(--accent) 8%, var(--bg-surface));
   }
-  .header-right {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-shrink: 0;
-  }
-  .expand-icon {
-    width: 14px;
-    font-size: 12px;
-    color: var(--text-muted);
-    flex-shrink: 0;
-  }
-  .expand-icon.has-bridges { color: var(--text-secondary); }
-  .no-expand { visibility: hidden; }
 
+  .card-top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
   .worker-name {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    font-size: var(--font-size-sm);
   }
   .account-chip {
-    font-size: var(--font-size-sm);
-    color: var(--text-secondary);
-    background: color-mix(in oklab, var(--bg-elevated) 65%, transparent);
-    border: 1px solid var(--border-color);
-    border-radius: 999px;
-    padding: 2px 8px;
-    white-space: nowrap;
-  }
-  .bridge-count {
-    font-size: var(--font-size-sm);
+    font-size: 10px;
     color: var(--text-muted);
+    background: color-mix(in oklab, var(--bg-elevated) 65%, transparent);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 1px 6px;
     white-space: nowrap;
+    flex-shrink: 0;
   }
-  .worker-ip {
+  .card-info {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .info-item {
     font-size: 11px;
     color: var(--text-muted);
+  }
+  .info-item.mono {
     font-family: var(--font-mono);
-    white-space: nowrap;
+  }
+  .card-programs {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+  .card-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: auto;
   }
   .last-seen {
     font-size: 11px;
     color: var(--text-muted);
-    white-space: nowrap;
   }
   .action-btn {
     width: 22px;
@@ -409,74 +452,136 @@
     color: white;
   }
 
-  /* Expanded content */
-  .expanded-content {
-    border-top: 1px solid var(--border);
-    padding: 0 12px 12px 12px;
+  /* Sidebar resize handle (Chat pattern) */
+  .sidebar-resize-handle {
+    width: 4px;
+    cursor: col-resize;
+    background: transparent;
+    flex-shrink: 0;
+    transition: background 0.15s;
+  }
+  .sidebar-resize-handle:hover,
+  .sidebar-resize-handle:active {
+    background: var(--accent);
   }
 
-  .machine-details {
+  /* Monitor sidebar */
+  .workers-monitor {
     display: flex;
-    flex-wrap: wrap;
-    gap: 6px 16px;
-    padding: 10px 0;
-    font-size: var(--font-size-sm);
+    flex-direction: column;
+    border-left: 1px solid var(--border);
+    overflow-y: auto;
+    flex-shrink: 0;
+    background: var(--bg-base);
   }
-  .detail-item {
+  .monitor-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .monitor-count {
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--text-muted);
+    margin-left: 4px;
+  }
+  .clear-btn {
+    font-size: var(--font-size-sm);
+    color: var(--text-muted);
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+  }
+  .clear-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+  .monitor-list {
+    flex: 1;
+    overflow-y: auto;
+  }
+
+  .monitor-card {
+    border-bottom: 1px solid var(--border);
+    padding: 10px 12px;
+  }
+  .monitor-card-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .monitor-name {
+    flex: 1;
+    font-size: var(--font-size-sm);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .monitor-details {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 8px;
+  }
+  .detail-row {
     display: flex;
     align-items: center;
     gap: 6px;
+    font-size: var(--font-size-sm);
   }
   .detail-label {
     color: var(--text-muted);
     font-weight: 500;
+    min-width: 48px;
+    flex-shrink: 0;
   }
-  .detail-item span:not(.detail-label) {
+  .detail-row span:not(.detail-label) {
     color: var(--text-secondary);
   }
   .program-tags {
     display: flex;
     gap: 4px;
+    flex-wrap: wrap;
   }
   code {
-    background: var(--bg-base);
+    background: var(--bg-surface);
     padding: 1px 4px;
     border-radius: 2px;
     font-family: var(--font-mono);
-    font-size: var(--font-size-sm);
+    font-size: 11px;
     color: var(--text-secondary);
+    word-break: break-all;
   }
 
-  /* Bridges section */
-  .bridges-section {
+  /* Monitor bridges */
+  .monitor-bridges {
     padding-top: 4px;
   }
-  .bridges-header {
-    font-size: 11px;
+  .bridges-label {
+    font-size: 10px;
     color: var(--text-muted);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    margin-bottom: 6px;
+    margin-bottom: 4px;
   }
   .bridge-row {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 8px;
-    padding: 6px 8px;
+    padding: 4px 6px;
     margin-bottom: 2px;
     border-radius: var(--radius-sm);
-    background: var(--bg-base);
+    background: var(--bg-surface);
   }
   .bridge-row.offline-row {
-    opacity: 0.78;
+    opacity: 0.6;
   }
   .bridge-main {
     display: flex;
     align-items: center;
-    gap: 8px;
-    min-width: 0;
+    gap: 6px;
+    flex-wrap: wrap;
   }
   .bridge-name {
     color: var(--text-secondary);
@@ -486,11 +591,11 @@
     text-overflow: ellipsis;
   }
   .bridge-version {
-    font-size: 11px;
+    font-size: 10px;
     color: var(--text-muted);
   }
   .bridge-sessions {
-    font-size: 11px;
+    font-size: 10px;
     color: var(--text-muted);
   }
   .bridge-state {
@@ -502,45 +607,22 @@
   .bridge-state.offline-state {
     color: var(--text-muted);
   }
-  .bridge-meta {
-    display: flex;
-    flex: 1 1 auto;
-    min-width: 0;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 4px;
-  }
-  .bridge-path-list {
+  .bridge-paths {
     display: flex;
     flex-direction: column;
-    align-items: stretch;
-    gap: 2px;
-    max-width: none;
+    gap: 1px;
+    margin-top: 2px;
   }
   .bridge-path {
-    font-size: 11px;
+    font-size: 10px;
     display: block;
-    max-width: none;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     word-break: break-word;
-    overflow: visible;
-    text-overflow: clip;
-  }
-  .bridge-connected {
-    font-size: 11px;
-    color: var(--text-muted);
-    white-space: nowrap;
-    align-self: flex-end;
-  }
-  .no-bridges {
-    font-size: var(--font-size-sm);
-    color: var(--text-muted);
-    padding: 8px;
-    text-align: center;
   }
 
   .empty {
+    grid-column: 1 / -1;
     padding: 40px;
     text-align: center;
     color: var(--text-muted);
@@ -548,5 +630,12 @@
   .hint {
     font-size: var(--font-size-sm);
     margin-top: 8px;
+  }
+
+  @media (max-width: 1200px) {
+    .workers-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 800px) {
+    .workers-grid { grid-template-columns: 1fr; }
   }
 </style>

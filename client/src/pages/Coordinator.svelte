@@ -108,6 +108,23 @@
   type ScriptEditorTarget = "global" | "bridge" | null;
   let scriptEditorTarget = $state<ScriptEditorTarget>(null);
   let scriptEditorDraft = $state("");
+  let editorPanelWidth = $state(520);
+
+  function startEditorResize(e: MouseEvent) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = editorPanelWidth;
+    function onMove(ev: MouseEvent) {
+      editorPanelWidth = Math.max(360, Math.min(800, startW - (ev.clientX - startX)));
+    }
+    function onUp() {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }
+
   let loading = $state(false);
   let error = $state("");
   let info = $state("");
@@ -1291,87 +1308,61 @@
       <p>You don't have permission to manage coordinator resources.</p>
     </div>
   {:else}
-    <div
-      class="coordinator-layout"
-      class:server-script-layout={scopeTab === "server" && isAdmin && !!scriptEditorTarget}
-    >
-      <aside class="coord-left">
-    <div class="tabs">
-      <button class="tab" class:active={scopeTab === "server"} onclick={() => setScopeTab("server")}>
-        Server Config
-      </button>
-      <button class="tab" class:active={scopeTab === "training"} onclick={() => setScopeTab("training")}>
-        Training
-      </button>
-      <button class="tab" class:active={scopeTab === "client"} onclick={() => setScopeTab("client")}>
-        Client Config
-      </button>
+    <!-- Toolbar bar -->
+    <div class="coord-toolbar-bar">
+      <div class="coord-toolbar-row">
+        <div class="tabs">
+          <button class="tab" class:active={scopeTab === "server"} onclick={() => setScopeTab("server")}>
+            Server Config
+          </button>
+          <button class="tab" class:active={scopeTab === "training"} onclick={() => setScopeTab("training")}>
+            Training
+          </button>
+          <button class="tab" class:active={scopeTab === "client"} onclick={() => setScopeTab("client")}>
+            Client Config
+          </button>
+        </div>
+        <div class="toolbar-select">
+          <label>
+            Bridge
+            <select value={program} onchange={(e) => onProgramChanged((e.target as HTMLSelectElement).value)}>
+              {#each programs as p}
+                <option value={p.value}>{p.label}</option>
+              {/each}
+            </select>
+          </label>
+        </div>
+        <button class="btn secondary" onclick={refreshAll} disabled={loading}>Refresh</button>
+        <button class="btn secondary" onclick={runExecutionProbe} disabled={readinessProbing}>
+          {readinessProbing ? "Probing..." : "Probe"}
+        </button>
+      </div>
+      <div class="coord-toolbar-row readiness-row">
+        <span class="readiness-pill" class:online={getBridgeOnlineCount(program) > 0}>
+          {readinessLoading ? "..." : getBridgeOnlineCount(program) > 0 ? `${getBridgeOnlineCount(program)} online` : "No bridge"}
+        </span>
+        <span class="readiness-pill">{fallbackModeLabel(program)}</span>
+        {#if getHeadlessStatus(program)?.executable}
+          <span class="readiness-pill mono">{getHeadlessStatus(program)?.executable}</span>
+        {/if}
+      </div>
     </div>
 
     {#if error}<div class="error">{error}</div>{/if}
     {#if info}<div class="info">{info}</div>{/if}
 
-    <section class="panel toolbar-panel">
-      <div class="toolbar">
-        <label>
-          Bridge
-          <select value={program} onchange={(e) => onProgramChanged((e.target as HTMLSelectElement).value)}>
-            {#each programs as p}
-              <option value={p.value}>{p.label}</option>
-            {/each}
-          </select>
-        </label>
-        <button class="btn secondary" onclick={refreshAll} disabled={loading}>Refresh</button>
-      </div>
-    </section>
-
-    <section class="panel">
-      <h3>Execution Readiness</h3>
-      <p class="desc">
-        Quick visibility into whether this bridge can execute now (live bridge) or via fallback.
-      </p>
-      <div class="readiness-grid">
-        <div class="source-item">
-          <strong>Bridge Online</strong>
-          <div class="mini">
-            {#if readinessLoading}
-              Checking...
-            {:else}
-              {getBridgeOnlineCount(program) > 0 ? `${getBridgeOnlineCount(program)} online` : "No live bridge"}
-            {/if}
-          </div>
-        </div>
-        <div class="source-item">
-          <strong>Fallback Mode</strong>
-          <div class="mini">{fallbackModeLabel(program)}</div>
-        </div>
-        <div class="source-item">
-          <strong>Executable</strong>
-          <div class="mini mono">{getHeadlessStatus(program)?.executable || "-"}</div>
-        </div>
-      </div>
-      <div class="actions">
-        <button class="btn secondary" onclick={loadExecutionReadiness} disabled={readinessLoading}>
-          {readinessLoading ? "Refreshing..." : "Refresh Readiness"}
-        </button>
-        <button class="btn secondary" onclick={runExecutionProbe} disabled={readinessProbing}>
-          {readinessProbing ? "Running Probe..." : "Run Probe"}
-        </button>
-      </div>
-      {#if readinessOutput}
+    {#if readinessOutput}
+      <div class="probe-output-bar">
         <label>
           Probe Output
-          <textarea rows="8" value={readinessOutput} readonly spellcheck="false"></textarea>
+          <textarea rows="6" value={readinessOutput} readonly spellcheck="false"></textarea>
         </label>
-      {/if}
-    </section>
+        <button class="btn secondary" onclick={() => { readinessOutput = ""; }} style="margin-top: 6px;">Dismiss</button>
+      </div>
+    {/if}
 
-      </aside>
-
-      <div
-        class="coord-right"
-        class:with-script-pane={scopeTab === "server" && isAdmin && !!scriptEditorTarget}
-      >
+    <!-- Main content body (with optional script editor side panel) -->
+    <div class="coord-body">
       <div class="coord-main">
 
     {#if scopeTab === "server"}
@@ -1776,8 +1767,12 @@
       </section>
     {/if}
       </div>
+
+      <!-- Script editor side panel (resizable) -->
       {#if scopeTab === "server" && isAdmin && scriptEditorTarget}
-        <aside class="coord-script-pane">
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div class="sidebar-resize-handle" onmousedown={startEditorResize}></div>
+        <aside class="coord-editor-panel" style="width: {editorPanelWidth}px;">
           <section class="panel script-editor-panel">
             <h3>{scriptEditorTarget === "global" ? "Global Coordinator Script" : `${program} Coordinator Script`}</h3>
             <p class="desc">
@@ -1789,7 +1784,7 @@
             </p>
             <label>
               Script
-              <textarea class="script-editor-textarea" rows="18" bind:value={scriptEditorDraft} spellcheck="false"></textarea>
+              <textarea class="script-editor-textarea" bind:value={scriptEditorDraft} spellcheck="false"></textarea>
             </label>
             <div class="actions">
               <button class="btn" onclick={saveScriptEditor} disabled={scriptsSaving}>
@@ -1800,7 +1795,6 @@
           </section>
         </aside>
       {/if}
-      </div>
     </div>
   {/if}
 </div>
@@ -1809,83 +1803,121 @@
   .coordinator-page {
     padding: 16px;
     height: 100%;
-    overflow-y: auto;
-    max-width: none;
-    width: 100%;
-    margin: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    max-width: 1100px;
   }
 
-  .coordinator-layout {
-    display: grid;
-    grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
-    gap: 14px;
-    align-items: start;
+  /* Toolbar bar */
+  .coord-toolbar-bar {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px 0;
+    margin-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
   }
-  .coordinator-layout.server-script-layout {
-    grid-template-columns: minmax(320px, 560px) minmax(460px, 1fr);
-    gap: 12px;
+  .coord-toolbar-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
   }
-  .coordinator-layout.server-script-layout .coord-right.with-script-pane {
-    display: contents;
+  .coord-toolbar-row .tabs {
+    margin-bottom: 0;
   }
-  .coordinator-layout.server-script-layout .coord-left {
-    position: static;
-    max-height: none;
-    overflow-y: visible;
-    padding-right: 0;
-    grid-column: 1;
-    grid-row: 1;
+  .readiness-row {
+    gap: 6px;
   }
-  .coordinator-layout.server-script-layout .coord-main {
-    grid-column: 1;
-    grid-row: 2;
+  .toolbar-select {
+    min-width: 140px;
   }
-  .coordinator-layout.server-script-layout .coord-script-pane {
-    grid-column: 2;
-    grid-row: 1 / span 2;
+  .toolbar-select label {
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--font-size-sm);
+    white-space: nowrap;
   }
-  .coord-left {
-    position: sticky;
-    top: 10px;
-    max-height: calc(100vh - 170px);
-    overflow-y: auto;
-    padding-right: 2px;
+  .toolbar-select select {
+    width: auto;
+    min-width: 120px;
   }
-  .coord-right {
-    min-width: 0;
+  .readiness-pill {
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    background: var(--bg-base);
+    white-space: nowrap;
   }
-  .coord-right.with-script-pane {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) clamp(460px, 38vw, 620px);
-    gap: 12px;
-    align-items: start;
+  .readiness-pill.online {
+    border-color: var(--status-completed);
+    color: var(--status-completed);
+  }
+
+  /* Probe output collapsible bar */
+  .probe-output-bar {
+    margin-bottom: 12px;
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg-surface);
+    flex-shrink: 0;
+  }
+
+  /* Body: content + optional editor panel */
+  .coord-body {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+    min-height: 0;
   }
   .coord-main {
+    flex: 1;
+    overflow-y: auto;
     min-width: 0;
   }
-  .coord-script-pane {
-    position: sticky;
-    top: 10px;
-    max-height: calc(100vh - 70px);
+
+  /* Resizable editor side panel */
+  .sidebar-resize-handle {
+    width: 4px;
+    cursor: col-resize;
+    background: transparent;
+    flex-shrink: 0;
+    transition: background 0.15s;
+  }
+  .sidebar-resize-handle:hover,
+  .sidebar-resize-handle:active {
+    background: var(--accent);
+  }
+  .coord-editor-panel {
+    display: flex;
+    flex-direction: column;
+    border-left: 1px solid var(--border);
     overflow-y: auto;
-    padding-right: 2px;
+    flex-shrink: 0;
   }
   .script-editor-panel {
-    height: calc(100vh - 90px);
-    min-height: 560px;
-    display: grid;
-    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
     overflow: hidden;
   }
   .script-editor-panel label {
-    display: grid;
-    grid-template-rows: auto minmax(0, 1fr);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
     min-height: 0;
   }
   .script-editor-textarea {
-    height: 100%;
-    min-height: 0;
-    resize: vertical;
+    flex: 1;
+    min-height: 200px;
+    resize: none;
   }
   .training-dashboard-panel {
     display: grid;
@@ -1915,16 +1947,6 @@
     background: var(--bg-surface);
     padding: 12px;
     margin-bottom: 12px;
-  }
-  .toolbar {
-    display: flex;
-    gap: 10px;
-    align-items: end;
-    flex-wrap: wrap;
-  }
-  .toolbar label {
-    min-width: 220px;
-    flex: 1 1 220px;
   }
   .tabs {
     display: flex;
@@ -1972,12 +1994,6 @@
     font-size: var(--font-size-sm);
     line-height: 1.4;
     word-break: break-word;
-  }
-  .readiness-grid {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 8px;
-    margin-bottom: 8px;
   }
   .mono {
     font-family: var(--font-mono);
@@ -2064,43 +2080,10 @@
     max-width: 100%;
     min-height: 96px;
   }
-  @media (max-width: 1200px) {
-    .coordinator-layout {
-      grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
-    }
-    .coordinator-layout.server-script-layout {
-      grid-template-columns: minmax(260px, 380px) minmax(0, 1fr);
-    }
-    .coord-right.with-script-pane {
-      grid-template-columns: 1fr;
-    }
-    .coord-script-pane {
-      position: static;
-      max-height: none;
-      overflow-y: visible;
-      padding-right: 0;
-    }
-  }
   @media (max-width: 1024px) {
-    .coordinator-layout {
-      grid-template-columns: 1fr;
-    }
-    .coordinator-layout.server-script-layout .coord-right.with-script-pane {
-      display: block;
-    }
-    .coordinator-layout.server-script-layout .coord-main,
-    .coordinator-layout.server-script-layout .coord-script-pane {
-      grid-column: auto;
-      grid-row: auto;
-    }
-    .coord-left {
-      position: static;
-      max-height: none;
-      overflow-y: visible;
-      padding-right: 0;
-    }
-    .readiness-grid {
-      grid-template-columns: 1fr;
+    .coord-toolbar-bar {
+      flex-direction: column;
+      align-items: flex-start;
     }
     .training-grid {
       grid-template-columns: 1fr;

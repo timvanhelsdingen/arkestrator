@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { api } from "../lib/api/rest";
+  import { open as openDialog } from "@tauri-apps/plugin-dialog";
 
   interface PathMappingEntry { platform: string; path: string; }
   interface PathMapping { label: string; entries: PathMappingEntry[]; }
@@ -20,10 +21,34 @@
     updatedAt: string;
   }
 
+  // Prompt presets
+  const PROMPT_PRESETS: { label: string; prompt: string }[] = [
+    {
+      label: "Folder per bridge",
+      prompt: "Create a separate subfolder for each bridge program (Blender, Godot, Houdini, etc.) under the project root. Place all generated assets and files for that program inside its respective folder.",
+    },
+    {
+      label: "Organized by asset type",
+      prompt: "Organize project files by asset type: models/, textures/, scripts/, scenes/, audio/, and exports/. Each bridge should output to the appropriate asset type folder.",
+    },
+    {
+      label: "Pipeline stages",
+      prompt: "Organize files by pipeline stage: 01_concept/, 02_modeling/, 03_texturing/, 04_rigging/, 05_animation/, 06_lighting/, 07_rendering/, 08_compositing/. Each stage maps to the appropriate bridge program.",
+    },
+    {
+      label: "Version controlled",
+      prompt: "Use a versioned folder structure: keep a _latest/ folder with the most recent outputs and a _versions/ folder with timestamped snapshots. Agents should always output to _latest/ and archive previous versions before overwriting.",
+    },
+  ];
+
   let projects = $state<Project[]>([]);
   let error = $state("");
   let showForm = $state(false);
   let editingId = $state<string | null>(null);
+
+  // New project creation flow
+  let rootFolder = $state("");
+  let subfolder = $state("");
 
   let form = $state({
     name: "",
@@ -42,6 +67,35 @@
     githubRepos: false,
   });
 
+  /** Sanitize a string for use as a cross-platform folder name */
+  function sanitizeFolderName(input: string): string {
+    return input
+      .toLowerCase()
+      .replace(/\s+/g, "-")           // spaces → hyphens
+      .replace(/[<>:"\/\\|?*]/g, "")  // remove illegal chars
+      .replace(/\.+$/g, "")           // no trailing dots
+      .replace(/-{2,}/g, "-")         // collapse multiple hyphens
+      .replace(/^-|-$/g, "");         // no leading/trailing hyphens
+  }
+
+  /** Derive the project folder name from root + optional subfolder */
+  function projectPath(): string {
+    if (!rootFolder) return "";
+    const sep = rootFolder.includes("\\") ? "\\" : "/";
+    if (subfolder.trim()) {
+      return rootFolder + sep + sanitizeFolderName(subfolder);
+    }
+    return rootFolder;
+  }
+
+  /** Derive a display name from the effective path */
+  function deriveProjectName(): string {
+    const path = projectPath();
+    if (!path) return "";
+    const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
+    return parts[parts.length - 1] || "Untitled";
+  }
+
   function resetForm() {
     form = {
       name: "",
@@ -53,6 +107,8 @@
     };
     expandedSections = { pathMappings: false, folders: false, files: false, githubRepos: false };
     editingId = null;
+    rootFolder = "";
+    subfolder = "";
   }
 
   async function load() {
@@ -68,8 +124,40 @@
     }
   }
 
-  function startEdit(project: Project) {
+  /** Start new project — opens folder picker, then shows form */
+  async function startNew() {
+    try {
+      const folder = await openDialog({
+        directory: true,
+        title: "Select project root folder",
+      });
+      if (!folder) return;
+
+      resetForm();
+      rootFolder = folder as string;
+      // Pre-fill name from folder
+      const parts = rootFolder.replace(/\\/g, "/").split("/").filter(Boolean);
+      form.name = parts[parts.length - 1] || "Untitled";
+      form.folders = [{ path: rootFolder, description: "Project root" }];
+      showForm = true;
+    } catch {
+      // User cancelled
+    }
+  }
+
+  async function startEdit(project: Project) {
+    // Toggle: if already editing this project, close the form
+    if (editingId === project.id && showForm) {
+      showForm = false;
+      editingId = null;
+      return;
+    }
+    // Close form, wait for Svelte to process, then reopen with new data
+    showForm = false;
+    await tick();
     editingId = project.id;
+    rootFolder = "";
+    subfolder = "";
     form = {
       name: project.name,
       prompt: project.prompt ?? "",
@@ -78,7 +166,9 @@
       files: structuredClone(project.files ?? []),
       githubRepos: structuredClone(project.githubRepos ?? []),
     };
-    // Auto-expand sections that have data
+    if (form.folders.length > 0) {
+      rootFolder = form.folders[0].path;
+    }
     expandedSections = {
       pathMappings: (project.pathMappings?.length ?? 0) > 0,
       folders: (project.folders?.length ?? 0) > 0,
@@ -89,7 +179,29 @@
   }
 
   async function save() {
-    // Filter out empty entries before saving
+    // If subfolder was specified, update the project path and name
+    if (!editingId && rootFolder && subfolder.trim()) {
+      const sanitized = sanitizeFolderName(subfolder);
+      if (sanitized) {
+        const sep = rootFolder.includes("\\") ? "\\" : "/";
+        const fullPath = rootFolder + sep + sanitized;
+        form.name = sanitized;
+        // Update or set the first folder entry
+        if (form.folders.length > 0) {
+          form.folders[0] = { path: fullPath, description: "Project root" };
+        } else {
+          form.folders = [{ path: fullPath, description: "Project root" }];
+        }
+        // Create the folder on disk via Tauri
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          await invoke("fs_create_directory", { path: fullPath, recursive: true });
+        } catch {
+          // Best effort — folder may already exist or invoke may not be available
+        }
+      }
+    }
+
     const cleanMappings = form.pathMappings
       .map(m => ({
         ...m,
@@ -123,14 +235,26 @@
     }
   }
 
-  async function deleteProject(id: string, name: string) {
+  async function deleteProject(e: MouseEvent, id: string, name: string) {
+    e.stopPropagation();
     if (!confirm(`Delete project "${name}"?`)) return;
     try {
       await api.projects.delete(id);
+      if (editingId === id) {
+        showForm = false;
+        resetForm();
+      }
       await load();
     } catch (err: any) {
       error = err.message;
     }
+  }
+
+  function applyPreset(preset: { label: string; prompt: string }) {
+    if (form.prompt && !form.prompt.endsWith("\n")) {
+      form.prompt += "\n\n";
+    }
+    form.prompt += preset.prompt;
   }
 
   // Multiparm helpers
@@ -175,6 +299,10 @@
     return parts.length ? parts.join(", ") : "";
   }
 
+  function shortId(id: string): string {
+    return id.split("-")[0] || id.slice(0, 8);
+  }
+
   onMount(load);
 </script>
 
@@ -182,40 +310,44 @@
   <div class="list-panel">
     <div class="toolbar">
       <h2>Projects</h2>
-      <button class="btn-primary" onclick={() => { resetForm(); showForm = true; }}>+ New Project</button>
+      <span class="project-count">{projects.length}</span>
     </div>
 
     {#if error}
       <div class="error-banner">{error}</div>
     {/if}
 
-    <div class="project-list">
+    <div class="project-grid">
+      <!-- New Project card (opens folder picker) -->
+      <button class="project-card new-card" onclick={startNew}>
+        <span class="new-icon">+</span>
+        <span class="new-label">New Project</span>
+      </button>
+
       {#each projects as project (project.id)}
-        <div class="project-card">
-          <div class="project-header">
-            <strong>{project.name}</strong>
+        <div class="project-card" class:selected={editingId === project.id}>
+          <div class="card-top">
+            <strong class="card-name">{project.name}</strong>
           </div>
-          <div class="project-details">
-            {#if project.prompt}
-              <div class="prompt-preview">{project.prompt.length > 120 ? project.prompt.slice(0, 120) + "..." : project.prompt}</div>
-            {/if}
-            {#if summarizeProject(project)}
-              <div class="project-summary">{summarizeProject(project)}</div>
-            {/if}
-          </div>
-          <div class="project-actions">
-            <button class="btn-sm" onclick={() => startEdit(project)}>Edit</button>
-            <button class="btn-sm danger" onclick={() => deleteProject(project.id, project.name)}>Delete</button>
+          <span class="card-id">{shortId(project.id)}</span>
+          {#if project.prompt}
+            <div class="card-prompt">{project.prompt.length > 80 ? project.prompt.slice(0, 80) + "..." : project.prompt}</div>
+          {/if}
+          {#if summarizeProject(project)}
+            <div class="card-summary">{summarizeProject(project)}</div>
+          {/if}
+          <div class="card-actions">
+            <button type="button" class="card-action-btn" onclick={() => startEdit(project)}>Edit</button>
+            <button type="button" class="card-action-btn danger" onclick={(e) => deleteProject(e, project.id, project.name)}>Delete</button>
           </div>
         </div>
-      {:else}
-        {#if !error}
-          <div class="empty">
-            <p>No projects configured</p>
-            <p class="hint">Projects define context documents that get injected into agent system prompts when selected.</p>
-          </div>
-        {/if}
       {/each}
+
+      {#if projects.length === 0 && !error}
+        <div class="empty-hint">
+          <p>Projects define context that gets injected into agent system prompts.</p>
+        </div>
+      {/if}
     </div>
   </div>
 
@@ -226,6 +358,26 @@
         <button class="btn-close" onclick={() => { showForm = false; resetForm(); }}>&times;</button>
       </div>
       <form onsubmit={(e) => { e.preventDefault(); save(); }}>
+        {#if rootFolder && !editingId}
+          <div class="folder-path-row">
+            <span class="folder-path-base">{rootFolder.replace(/\\/g, "/")}</span>
+            <span class="folder-path-sep">/</span>
+            <input
+              class="folder-path-sub"
+              bind:value={subfolder}
+              placeholder={form.name || "subfolder"}
+              oninput={() => {
+                if (subfolder.trim()) {
+                  form.name = sanitizeFolderName(subfolder);
+                }
+              }}
+            />
+          </div>
+          <span class="field-hint" style="margin-bottom: 10px; display: block;">
+            Type a subfolder name to create a new directory, or leave empty to use the selected folder as-is. Names are auto-sanitized for cross-platform compatibility.
+          </span>
+        {/if}
+
         <label class="field">
           Name
           <input bind:value={form.name} required placeholder="My Project" />
@@ -233,6 +385,14 @@
 
         <label class="field">
           Project Prompt
+          <div class="preset-bar">
+            <span class="preset-label">Presets:</span>
+            {#each PROMPT_PRESETS as preset}
+              <button type="button" class="preset-chip" onclick={() => applyPreset(preset)} title={preset.prompt}>
+                {preset.label}
+              </button>
+            {/each}
+          </div>
           <textarea bind:value={form.prompt} rows="8" placeholder="Per-project instructions for the AI agent (e.g., coding conventions, file structure, tool preferences, important context)"></textarea>
           <span class="field-hint">Injected into every agent's system prompt when this project is selected</span>
         </label>
@@ -356,15 +516,184 @@
 
 <style>
   .projects-page { display: flex; height: 100%; overflow: hidden; }
-  .list-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .list-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
   .toolbar {
     display: flex;
-    justify-content: space-between;
     align-items: center;
+    gap: 10px;
     padding: 12px 16px;
     border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
   }
   h2 { font-size: var(--font-size-lg); }
+  .project-count {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: var(--bg-elevated);
+    color: var(--text-muted);
+  }
+
+  /* Grid layout */
+  .project-grid {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 10px;
+    align-content: start;
+  }
+
+  /* Project cards */
+  .project-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 14px;
+    cursor: pointer;
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-height: 80px;
+    transition: border-color 0.15s;
+  }
+  .project-card:hover {
+    border-color: var(--accent);
+  }
+  .project-card.selected {
+    border-color: var(--accent);
+    background: color-mix(in oklab, var(--accent) 8%, var(--bg-surface));
+  }
+
+  /* New project card */
+  .new-card {
+    border: 2px dashed var(--accent);
+    background: transparent;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent);
+    gap: 4px;
+  }
+  .new-card:hover {
+    background: color-mix(in oklab, var(--accent) 8%, transparent);
+  }
+  .new-icon {
+    font-size: 28px;
+    font-weight: 300;
+    line-height: 1;
+  }
+  .new-label {
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+  }
+
+  /* Folder path row in form */
+  .folder-path-row {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    margin-bottom: 6px;
+    font-family: var(--font-mono);
+    font-size: var(--font-size-sm);
+    background: var(--bg-base);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 6px 10px;
+    overflow: hidden;
+  }
+  .folder-path-base {
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex-shrink: 1;
+    min-width: 0;
+  }
+  .folder-path-sep {
+    color: var(--text-muted);
+    flex-shrink: 0;
+    margin: 0 2px;
+  }
+  .folder-path-sub {
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: var(--font-size-sm);
+    flex: 1;
+    min-width: 80px;
+    padding: 0;
+  }
+  .folder-path-sub::placeholder {
+    color: var(--text-muted);
+    opacity: 0.5;
+  }
+
+  /* Card content */
+  .card-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 6px;
+  }
+  .card-name {
+    font-size: var(--font-size-sm);
+    color: var(--text-primary);
+    word-break: break-word;
+  }
+  .card-actions {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+  .card-action-btn {
+    font-size: 11px;
+    color: var(--text-muted);
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-elevated);
+  }
+  .card-action-btn:hover { color: var(--accent); }
+  .card-action-btn.danger:hover { color: var(--status-failed); }
+  .card-id {
+    font-size: 10px;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+    opacity: 0.7;
+  }
+  .card-prompt {
+    font-size: 11px;
+    color: var(--text-secondary);
+    line-height: 1.4;
+    word-break: break-word;
+  }
+  .card-summary {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-top: auto;
+  }
+
+  .empty-hint {
+    grid-column: 1 / -1;
+    padding: 20px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: var(--font-size-sm);
+  }
+
+  .error-banner {
+    padding: 8px 16px;
+    background: rgba(244, 71, 71, 0.15);
+    color: var(--status-failed);
+    font-size: var(--font-size-sm);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
   .btn-primary {
     padding: 6px 16px;
     background: var(--accent);
@@ -377,65 +706,6 @@
     background: var(--bg-elevated);
     color: var(--text-primary);
     border-radius: var(--radius-sm);
-  }
-  .error-banner {
-    padding: 8px 16px;
-    background: rgba(244, 71, 71, 0.15);
-    color: var(--status-failed);
-    font-size: var(--font-size-sm);
-    border-bottom: 1px solid var(--border);
-  }
-  .project-list {
-    flex: 1;
-    overflow-y: auto;
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-  .project-card {
-    background: var(--bg-surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    padding: 14px;
-  }
-  .project-header {
-    margin-bottom: 8px;
-  }
-  .project-details {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    font-size: var(--font-size-sm);
-    color: var(--text-secondary);
-    margin-bottom: 10px;
-  }
-  .prompt-preview {
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
-  .project-summary {
-    color: var(--text-muted);
-    font-size: 11px;
-  }
-  .project-actions { display: flex; gap: 6px; }
-  .btn-sm {
-    padding: 3px 10px;
-    font-size: var(--font-size-sm);
-    background: var(--bg-elevated);
-    border-radius: var(--radius-sm);
-    color: var(--text-primary);
-  }
-  .btn-sm:hover { background: var(--bg-active); }
-  .btn-sm.danger:hover { background: var(--status-failed); color: white; }
-  .empty {
-    padding: 40px;
-    text-align: center;
-    color: var(--text-muted);
-  }
-  .hint {
-    font-size: var(--font-size-sm);
-    margin-top: 8px;
   }
 
   /* Form panel */
@@ -479,6 +749,35 @@
     color: var(--text-muted);
   }
   .form-actions { display: flex; gap: 8px; margin-top: 16px; }
+
+  /* Preset bar */
+  .preset-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 4px;
+  }
+  .preset-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+  .preset-chip {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--bg-base);
+    color: var(--text-secondary);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .preset-chip:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
 
   /* Collapsible sections */
   .section {
