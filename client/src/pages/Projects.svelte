@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from "svelte";
+  import { onMount } from "svelte";
   import { api } from "../lib/api/rest";
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
 
@@ -145,26 +145,25 @@
     }
   }
 
-  async function startEdit(project: Project) {
+  function startEdit(project: Project) {
     // Toggle: if already editing this project, close the form
     if (editingId === project.id && showForm) {
       showForm = false;
       editingId = null;
       return;
     }
-    // Close form, wait for Svelte to process, then reopen with new data
-    showForm = false;
-    await tick();
+    // Use JSON round-trip instead of structuredClone — Svelte 5 $state proxies can't be structuredCloned
+    const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v));
     editingId = project.id;
     rootFolder = "";
     subfolder = "";
     form = {
       name: project.name,
       prompt: project.prompt ?? "",
-      pathMappings: structuredClone(project.pathMappings ?? []),
-      folders: structuredClone(project.folders ?? []),
-      files: structuredClone(project.files ?? []),
-      githubRepos: structuredClone(project.githubRepos ?? []),
+      pathMappings: clone(project.pathMappings ?? []),
+      folders: clone(project.folders ?? []),
+      files: clone(project.files ?? []),
+      githubRepos: clone(project.githubRepos ?? []),
     };
     if (form.folders.length > 0) {
       rootFolder = form.folders[0].path;
