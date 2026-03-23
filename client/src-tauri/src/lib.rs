@@ -1,4 +1,5 @@
 mod bridges;
+mod comfyui;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -1237,7 +1238,14 @@ pub fn run() {
             bridges::get_installed_bridges,
             bridges::save_bridge_installation,
             bridges::uninstall_bridge,
-            bridges::check_path_exists
+            bridges::check_path_exists,
+            comfyui::detect_comfyui_paths,
+            comfyui::launch_comfyui,
+            comfyui::stop_comfyui,
+            comfyui::is_comfyui_running,
+            comfyui::check_comfyui_nodes,
+            comfyui::get_comfyui_autostart,
+            comfyui::set_comfyui_autostart
         ])
         .setup(|app| {
             if let Ok(path) = shared_config_path() {
@@ -1272,10 +1280,16 @@ pub fn run() {
                             let _ = window.hide();
                         }
                     }
-                    TRAY_MENU_QUIT => app.exit(0),
+                    TRAY_MENU_QUIT => {
+                        comfyui::shutdown_comfyui();
+                        app.exit(0);
+                    }
                     _ => {}
                 })
                 .build(app)?;
+
+            // Auto-start ComfyUI if configured
+            comfyui::auto_start_comfyui_if_configured();
 
             if cfg!(debug_assertions) {
                 app.handle().plugin(

@@ -563,6 +563,40 @@ export const api = {
         source: "setting" | "env" | "default";
         defaultBaseUrl: string;
       }>,
+    getComfyuiUrl: () =>
+      request("/api/settings/comfyui-url") as Promise<{
+        url: string | null;
+        effectiveUrl: string;
+        source: "setting" | "env" | "default";
+        defaultUrl: string;
+      }>,
+    setComfyuiUrl: (url: string | null) =>
+      request("/api/settings/comfyui-url", {
+        method: "PUT",
+        body: JSON.stringify({ url }),
+      }) as Promise<{
+        ok: boolean;
+        url: string | null;
+        effectiveUrl: string;
+        source: "setting" | "env" | "default";
+        defaultUrl: string;
+      }>,
+    testComfyuiUrl: () =>
+      request("/api/settings/comfyui-url/test", {
+        method: "POST",
+      }) as Promise<{
+        reachable: boolean;
+        latencyMs: number;
+        error?: string;
+        systemStats?: any;
+      }>,
+    getComfyuiPath: () =>
+      request("/api/settings/comfyui-path") as Promise<{ path: string | null }>,
+    setComfyuiPath: (path: string | null) =>
+      request("/api/settings/comfyui-path", {
+        method: "PUT",
+        body: JSON.stringify({ path }),
+      }) as Promise<{ ok: boolean; path: string | null }>,
     exportConfigSnapshot: (includeServerFiles = false) =>
       request("/api/settings/config-snapshot/export", {
         method: "POST",
