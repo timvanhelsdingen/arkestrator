@@ -1842,13 +1842,32 @@ export async function spawnAgent(
         broadcastJobUpdated(deps, job.id);
         resumePausedDependents(deps, job.id);
       } else {
-        const msg = localLoop.error || "Local agentic loop failed";
-        applyUsedBridgeAttribution(localLoop.logBuffer ? `${localLoop.logBuffer}\n${msg}` : msg);
-        deps.jobsRepo.fail(job.id, msg, localLoop.logBuffer);
-        recordCoordinatorOutcome(false, msg);
-        sendComplete(deps, job, false, [], [], workspace.mode, msg);
-        broadcastJobUpdated(deps, job.id);
-        notifyBlockedDependents(deps, job.id, "failed");
+        // If the agentic loop returned failure but the logs contain a [done]
+        // marker, the agent actually completed its work. Bridge/tool timeouts
+        // can cause the loop to abort even though the agent produced full output.
+        const agentActuallyCompleted = localLoop.logBuffer?.includes("[done]") ?? false;
+        if (agentActuallyCompleted && localLoop.commands.length > 0) {
+          logger.info(
+            "spawner",
+            `Job ${job.id}: local agentic loop returned failure but agent completed ([done] in logs). Treating as success.`,
+          );
+          applyUsedBridgeAttribution(localLoop.logBuffer);
+          deps.jobsRepo.completeWithCommands(job.id, localLoop.commands, localLoop.logBuffer);
+          const rejected = deps.jobInterventionsRepo?.rejectPendingForJob(job.id, "Job finished before queued guidance could be delivered.") ?? [];
+          broadcastInterventionUpdates(deps, job.id, rejected);
+          recordCoordinatorOutcome(true);
+          sendComplete(deps, job, true, [], [], workspace.mode);
+          broadcastJobUpdated(deps, job.id);
+          resumePausedDependents(deps, job.id);
+        } else {
+          const msg = localLoop.error || "Local agentic loop failed";
+          applyUsedBridgeAttribution(localLoop.logBuffer ? `${localLoop.logBuffer}\n${msg}` : msg);
+          deps.jobsRepo.fail(job.id, msg, localLoop.logBuffer);
+          recordCoordinatorOutcome(false, msg);
+          sendComplete(deps, job, false, [], [], workspace.mode, msg);
+          broadcastJobUpdated(deps, job.id);
+          notifyBlockedDependents(deps, job.id, "failed");
+        }
       }
 
       try {
@@ -2425,17 +2444,54 @@ export async function spawnAgent(
     resumePausedDependents(deps, job.id);
   } else {
     watcher?.stop();
-    const errorMsg = `Process exited with code ${exitCode}`;
-    deps.jobsRepo.fail(job.id, errorMsg, logBuffer);
-    const rejected = deps.jobInterventionsRepo?.rejectPendingForJob(job.id, "Job failed before queued guidance could be delivered.") ?? [];
-    broadcastInterventionUpdates(deps, job.id, rejected);
-    applyUsedBridgeAttribution(logBuffer ? `${logBuffer}\n${errorMsg}` : errorMsg);
-    recordCoordinatorOutcome(false);
-    sendComplete(deps, job, false, [], [], workspace.mode, errorMsg);
-    broadcastJobUpdated(deps, job.id);
+    // If the process exited non-zero but the logs contain [done], the agent
+    // completed its work successfully. Some CLI agents return non-zero exit
+    // codes even on success (e.g. when bridge tool calls timed out mid-run
+    // but the agent handled them and produced full output).
+    const agentActuallyCompleted = logBuffer.includes("[done]");
+    if (agentActuallyCompleted) {
+      logger.info(
+        "spawner",
+        `Job ${job.id}: process exited with code ${exitCode} but agent completed ([done] in logs). Treating as success.`,
+      );
+      applyUsedBridgeAttribution(logBuffer);
+      if (workspace.mode === "command") {
+        const textForParsing = sjState ? sjState.plainText : logBuffer;
+        const expectedCommandLanguage = resolveExpectedCommandLanguage(
+          job.editorContext?.metadata,
+          job.bridgeProgram,
+        );
+        const commands = parseCommandOutput(textForParsing, {
+          expectedLanguage: expectedCommandLanguage,
+        });
+        deps.jobsRepo.completeWithCommands(job.id, commands, logBuffer);
+        const rejected = deps.jobInterventionsRepo?.rejectPendingForJob(job.id, "Job finished before queued guidance could be delivered.") ?? [];
+        broadcastInterventionUpdates(deps, job.id, rejected);
+        recordCoordinatorOutcome(true);
+        sendComplete(deps, job, true, [], commands, workspace.mode);
+      } else {
+        const fileChanges = watcher ? await watcher.getChanges(beforePaths!) : [];
+        deps.jobsRepo.complete(job.id, fileChanges, logBuffer);
+        const rejected = deps.jobInterventionsRepo?.rejectPendingForJob(job.id, "Job finished before queued guidance could be delivered.") ?? [];
+        broadcastInterventionUpdates(deps, job.id, rejected);
+        recordCoordinatorOutcome(true);
+        sendComplete(deps, job, true, fileChanges, [], workspace.mode);
+      }
+      broadcastJobUpdated(deps, job.id);
+      resumePausedDependents(deps, job.id);
+    } else {
+      const errorMsg = `Process exited with code ${exitCode}`;
+      deps.jobsRepo.fail(job.id, errorMsg, logBuffer);
+      const rejected = deps.jobInterventionsRepo?.rejectPendingForJob(job.id, "Job failed before queued guidance could be delivered.") ?? [];
+      broadcastInterventionUpdates(deps, job.id, rejected);
+      applyUsedBridgeAttribution(logBuffer ? `${logBuffer}\n${errorMsg}` : errorMsg);
+      recordCoordinatorOutcome(false);
+      sendComplete(deps, job, false, [], [], workspace.mode, errorMsg);
+      broadcastJobUpdated(deps, job.id);
 
-    // Notify dependents that this job failed
-    notifyBlockedDependents(deps, job.id, "failed");
+      // Notify dependents that this job failed
+      notifyBlockedDependents(deps, job.id, "failed");
+    }
   }
 
   // 9. Record token usage (idempotent — may have already been called by an early-return path)

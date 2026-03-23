@@ -1915,6 +1915,15 @@ export function recordCoordinatorExecutionOutcome(
     try {
       const jobId = String(jobSnapshot?.id ?? normalizedMetadata?.jobId ?? "").trim();
       const shortId = jobId ? jobId.slice(0, 8) : timestamp.replace(/\D/g, "").slice(0, 8);
+      // Include a sanitized project/job name in the slug for discoverability
+      const slugName = (resolvedJobName || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 40);
+      const slugBase = slugName
+        ? `outcome-${program}-${slugName}-${shortId}`
+        : `outcome-${program}-${shortId}`;
       const outcomeTitle = signal === "positive"
         ? `Positive: ${(resolvedJobName || promptSummary || "").slice(0, 60)}`
         : `Negative: ${(resolvedJobName || promptSummary || "").slice(0, 60)}`;
@@ -1928,7 +1937,7 @@ export function recordCoordinatorExecutionOutcome(
       ].filter(Boolean).join("\n");
 
       options.skillsRepo.upsertBySlugAndProgram({
-        slug: `outcome-${program}-${shortId}`,
+        slug: slugBase,
         name: outcomeTitle,
         program,
         category: "training",

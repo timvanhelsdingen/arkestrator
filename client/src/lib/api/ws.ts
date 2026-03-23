@@ -373,7 +373,7 @@ async function handleWorkerHeadlessCommand(payload: any) {
     sendMessage({
       type: "worker_headless_result",
       id: crypto.randomUUID(),
-      payload: result,
+      payload: { ...(result as Record<string, unknown>), correlationId },
     });
   } catch (err: any) {
     sendMessage({

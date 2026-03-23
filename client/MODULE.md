@@ -3,6 +3,9 @@
 ## Purpose
 Primary user-facing desktop dashboard (Tauri v2 + Svelte 5). Users manage jobs, configure agents, view workers, manage projects. Connects to server via REST + WebSocket.
 
+## Recent Updates (2026-03-23)
+- Headless dispatch fix (2026-03-23): `src/lib/api/ws.ts` `handleWorkerHeadlessCommand()` now passes `correlationId` through to the result payload when sending `worker_headless_result` back to the server. Previously the Tauri command result lacked correlationId, causing the server's `resolvePendingCommand()` to never match, resulting in all headless commands timing out. Fixes hython/blender/godot headless execution and eliminates INVALID_MESSAGE WebSocket errors from missing correlationId.
+
 ## Recent Updates (2026-03-22)
 - Chat sidebar restore (2026-03-22): `pages/Chat.svelte` restored the `chat-sidebar` div with `ChatJobConfig` component (Agent, Model, Reasoning, Verify, Job Name controls) on the right side of the chat layout. This panel was accidentally removed in v0.1.60.
 

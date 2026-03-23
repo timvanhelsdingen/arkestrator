@@ -1,5 +1,15 @@
 # Arkestrator
 
+## Recent Update (2026-03-23)
+
+- Bug-fix audit pass (v0.1.64):
+  - **Headless dispatch fix**: Client now passes `correlationId` through to `worker_headless_result` payload. Previously the Tauri command result omitted it, causing all headless commands (hython, blender CLI, godot headless) to timeout because the server could never resolve the pending promise.
+  - **Job false-failure fix**: Both local agentic loop and subprocess paths now check for `[done]` marker in logs before marking a job as "failed". If the agent completed its work despite tool timeouts or non-zero exit codes, the job is correctly marked "completed".
+  - **INVALID_MESSAGE fix**: Root cause was the missing correlationId (same as headless fix). Also improved Zod validation error messages to include structured issue details and inbound message type.
+  - **Training outcome skills**: Outcome skill slugs now include the project name for discoverability. Failed training jobs now record negative outcome skills to the DB.
+  - **Headless executable resolver**: Now runs `where`/`which` to verify bare names are on PATH before returning them as fallback.
+  - **WebSocket error messages**: Zod validation errors now show field paths and issue messages instead of raw Zod output.
+
 ## Recent Update (2026-03-19)
 
 - Blackmagic Fusion bridge plugin: new Python bridge for Fusion Standalone and DaVinci Resolve's Fusion page. Supports all context sources: comp structure, selected/active tools with full settings, flow graph topology, Loaders/Savers with clip paths, 3D scene hierarchy, modifiers/expressions, keyframes, Fuse/RunScript source files, and macros. Dockable UI panel with per-source "Add to Context" buttons. Executes both Python (`exec()`) and Lua (`comp:Execute()`). Includes installer for auto-detection of Fusion/Resolve script directories.

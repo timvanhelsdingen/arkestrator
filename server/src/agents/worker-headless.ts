@@ -410,7 +410,21 @@ function resolveHeadlessExecutable(
     }
   }
 
-  // Fallback: return the bare name and hope it's on PATH
+  // Fallback: verify the bare name is on PATH before returning it
+  try {
+    const whichCmd = process.platform === "win32" ? "where" : "which";
+    const proc = Bun.spawnSync([whichCmd, exe], { stdout: "pipe", stderr: "pipe" });
+    const resolved = proc.stdout.toString().trim().split(/\r?\n/)[0]?.trim();
+    if (proc.exitCode === 0 && resolved && existsSync(resolved)) {
+      logger.info("worker-headless", `Resolved ${exe} via PATH: ${resolved}`);
+      return resolved;
+    }
+  } catch {
+    // which/where not available or failed — fall through
+  }
+
+  // Last resort: return the bare name
+  logger.warn("worker-headless", `Could not resolve ${exe} — returning bare name`);
   return exe;
 }
 

@@ -109,7 +109,11 @@ export function handleMessage(
 
   const result = Message.safeParse(parsed);
   if (!result.success) {
-    errorReply(ws, "INVALID_MESSAGE", result.error.message);
+    const issues = result.error.issues.slice(0, 5).map((i) =>
+      `${i.path.join(".")}: ${i.message}`,
+    ).join("; ");
+    const msgType = String((parsed as Record<string, unknown>)?.type ?? "unknown");
+    errorReply(ws, "INVALID_MESSAGE", `type=${msgType}: ${issues}`);
     return;
   }
 
