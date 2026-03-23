@@ -5326,7 +5326,7 @@ export function createSettingsRoutes(
           },
           {
             program,
-            trigger: "scheduled",
+            trigger: "manual",
             apply,
             submittedBy: user.id,
           },

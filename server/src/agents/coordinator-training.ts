@@ -1838,17 +1838,38 @@ export function queueCoordinatorTrainingJob(
     throw new Error(`Invalid coordinator program: ${program}`);
   }
 
-  const resolvedSourcePaths = resolveTrainingSourcePaths(
-    settingsRepo,
-    defaultCoordinatorPlaybookSourcePaths,
-    coordinatorPlaybooksDir,
-    normalizedProgram,
-    Array.isArray(sourcePaths) && sourcePaths.length > 0
-      ? sourcePaths
-      : (trigger === "scheduled"
-        ? resolveScheduledVaultSourcePaths(coordinatorPlaybooksDir, normalizedProgram)
-        : sourcePaths),
-  );
+  // Scheduled training always includes configured source paths alongside vault
+  // learning data. This ensures real project references are always available,
+  // not just internal training artifacts.
+  let resolvedSourcePaths: string[];
+  if (Array.isArray(sourcePaths) && sourcePaths.length > 0) {
+    resolvedSourcePaths = resolveTrainingSourcePaths(
+      settingsRepo,
+      defaultCoordinatorPlaybookSourcePaths,
+      coordinatorPlaybooksDir,
+      normalizedProgram,
+      sourcePaths,
+    );
+  } else if (trigger === "scheduled") {
+    // Merge vault paths with configured source paths
+    const vaultPaths = resolveScheduledVaultSourcePaths(coordinatorPlaybooksDir, normalizedProgram);
+    const configuredPaths = resolveTrainingSourcePaths(
+      settingsRepo,
+      defaultCoordinatorPlaybookSourcePaths,
+      coordinatorPlaybooksDir,
+      normalizedProgram,
+      undefined, // let it read from settings
+    );
+    resolvedSourcePaths = [...new Set([...configuredPaths, ...vaultPaths])];
+  } else {
+    resolvedSourcePaths = resolveTrainingSourcePaths(
+      settingsRepo,
+      defaultCoordinatorPlaybookSourcePaths,
+      coordinatorPlaybooksDir,
+      normalizedProgram,
+      undefined,
+    );
+  }
 
   const agentConfigId = resolveTrainingAgentId(agentsRepo, settingsRepo, preferredAgentConfigId);
   const now = new Date().toISOString();
@@ -1937,9 +1958,13 @@ export function queueCoordinatorTrainingJob(
             (bridge) => String(bridge.program ?? "").trim().toLowerCase() === normalizedProgram,
           );
           const headlessEnabled = headlessProgramsRepo?.getByProgram(normalizedProgram)?.enabled === true;
+          // Headless mode requires a desktop client connected for the target worker.
+          // If no bridge is online (which implies no client on that worker), headless
+          // dispatch will fail. Fall back to bridge or filesystem in that case.
+          const headlessViable = headlessEnabled && (bridgeOnline || !!targetWorkerName);
           // Training should prefer headless CLI to avoid interfering with user's live session.
-          // Priority: headless > bridge (live) > filesystem
-          const autoMode: "bridge" | "headless" | "filesystem" = headlessEnabled
+          // Priority: headless (if viable) > bridge (live) > filesystem
+          const autoMode: "bridge" | "headless" | "filesystem" = headlessViable
             ? "headless"
             : bridgeOnline
             ? "bridge"

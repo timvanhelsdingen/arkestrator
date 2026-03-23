@@ -71,8 +71,11 @@ function resolveClientForHeadlessProgram(
     return { error: `No connected desktop client for worker "${requestedWorker}"` };
   }
 
+  // Use workerName as the canonical identifier per bridge connection.
+  // Including both machineId and workerName creates false duplicates
+  // when a single bridge has both set (e.g. "5d0140dd..." and "tvh-13900k").
   const bridgeWorkers = uniqueWorkerKeys(
-    hub.getBridgesByProgram(program).flatMap((ws) => [ws.data.machineId, ws.data.workerName]),
+    hub.getBridgesByProgram(program).map((ws) => ws.data.workerName ?? ws.data.machineId),
   );
   if (bridgeWorkers.length === 1) {
     const clients = hub.getClientConnectionsByWorker(bridgeWorkers[0]);

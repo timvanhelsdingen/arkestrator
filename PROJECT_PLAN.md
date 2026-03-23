@@ -1,5 +1,13 @@
 # Arkestrator
 
+## Recent Update (2026-03-24)
+
+- Training system audit and fix pass:
+  - **Run-now trigger fix**: `coordinator-training/run-now` endpoint now uses `trigger: "manual"` instead of `trigger: "scheduled"`, so it properly reads configured source paths (e.g. user-added project directories) instead of only checking internal vault paths.
+  - **Scheduled training source paths**: Scheduled training now merges configured source paths with vault learning data instead of using vault-only paths. Ensures real project references are always available for training even when the vault is sparse.
+  - **Headless viability check**: Training mode selection now verifies headless dispatch is actually viable (bridge online or explicit targetWorkerName) before choosing headless mode. Falls back to filesystem analysis instead of failing with "No connected bridge" errors.
+  - **Worker identity dedup**: `resolveClientForHeadlessProgram()` now uses `workerName` as canonical bridge identity instead of `flatMap([machineId, workerName])`, preventing false "multiple workers" errors when a single bridge reports both identifiers.
+
 ## Recent Update (2026-03-23)
 
 - Bug-fix audit pass (v0.1.64):
