@@ -2024,9 +2024,21 @@ export function queueCoordinatorTrainingJob(
             const analysisTimeoutMs = Math.round(TRAINING_AGENTIC_ANALYSIS_TIMEOUT_MS * levelCfg.timeoutMultiplier);
             const terminal = await waitForCoordinatorTrainingJobTerminalState(jobsRepo, analysisJobId, analysisTimeoutMs);
             analysisStatus = terminal.status;
-            if (terminal.status !== "completed") {
+            // If the child job "failed" but the agent actually completed (logs contain [done]),
+            // still try to extract training data. Bridge timeouts can mark a job as failed even
+            // when the agent produced full output.
+            const agentActuallyCompleted = terminal.logs?.includes("[done]") ?? false;
+            if (terminal.status !== "completed" && !agentActuallyCompleted) {
               const detail = terminal.error ? ` (${terminal.error})` : "";
               throw new Error(`Agentic source analysis ${terminal.status}${detail}`.trim());
+            }
+            if (terminal.status !== "completed" && agentActuallyCompleted) {
+              appendJobLog(
+                hub,
+                jobsRepo,
+                created.id,
+                `Analysis job ${analysisJobId} marked as ${terminal.status} but agent completed. Extracting training data from logs.`,
+              );
             }
             const logsTail = String(terminal.logs ?? "").trim();
             if (logsTail) {
