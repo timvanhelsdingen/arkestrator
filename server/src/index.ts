@@ -327,7 +327,7 @@ async function main() {
       program: "houdini",
       displayName: "Houdini (hython)",
       executable: "hython",
-      argsTemplate: ["-c", "{{SCRIPT}}"],
+      argsTemplate: ["{{SCRIPT_FILE}}"],
       language: "python",
     });
     logger.info(

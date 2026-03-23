@@ -129,4 +129,43 @@ export class HeadlessProgramsRepo {
     const result = this.deleteStmt.run(id);
     return result.changes > 0;
   }
+
+  /**
+   * Seed default headless programs on first run. Skips any program that already
+   * exists in the database so admin overrides are preserved.
+   */
+  seedDefaults(): void {
+    const defaults: HeadlessProgramCreate[] = [
+      {
+        program: "houdini",
+        displayName: "Houdini (hython)",
+        executable: "hython",
+        argsTemplate: ["{{SCRIPT_FILE}}"],
+        language: "python",
+        enabled: true,
+      },
+      {
+        program: "blender",
+        displayName: "Blender (CLI)",
+        executable: "blender",
+        argsTemplate: ["--background", "--python", "{{SCRIPT_FILE}}"],
+        language: "python",
+        enabled: true,
+      },
+      {
+        program: "godot",
+        displayName: "Godot (headless)",
+        executable: "godot",
+        argsTemplate: ["--headless", "--script", "{{SCRIPT_FILE}}"],
+        language: "gdscript",
+        enabled: true,
+      },
+    ];
+
+    for (const def of defaults) {
+      if (!this.getByProgram(def.program)) {
+        this.create(def);
+      }
+    }
+  }
 }

@@ -1936,10 +1936,12 @@ export function queueCoordinatorTrainingJob(
             (bridge) => String(bridge.program ?? "").trim().toLowerCase() === normalizedProgram,
           );
           const headlessEnabled = headlessProgramsRepo?.getByProgram(normalizedProgram)?.enabled === true;
-          const autoMode: "bridge" | "headless" | "filesystem" = bridgeOnline
-            ? "bridge"
-            : headlessEnabled
+          // Training should prefer headless CLI to avoid interfering with user's live session.
+          // Priority: headless > bridge (live) > filesystem
+          const autoMode: "bridge" | "headless" | "filesystem" = headlessEnabled
             ? "headless"
+            : bridgeOnline
+            ? "bridge"
             : "filesystem";
           // Training level can force filesystem mode (e.g. "low" level skips bridge)
           const analysisMode: "bridge" | "headless" | "filesystem" = levelCfg.forceAnalysisMode ?? autoMode;
@@ -1956,7 +1958,7 @@ export function queueCoordinatorTrainingJob(
               hub,
               jobsRepo,
               created.id,
-              `Agentic source analysis mode: headless (${normalizedProgram} bridge offline, headless CLI enabled).`,
+              `Agentic source analysis mode: headless (${normalizedProgram} CLI preferred for training to avoid interfering with live sessions).`,
             );
           } else {
             appendJobLog(
@@ -1993,6 +1995,9 @@ export function queueCoordinatorTrainingJob(
               coordinationMode: "server",
               files: [],
               contextItems: [],
+              runtimeOptions: analysisMode === "headless"
+                ? { bridgeExecutionMode: "headless" as const }
+                : undefined,
               editorContext: {
                 projectRoot: resolvedSourcePaths[0] ?? coordinatorPlaybooksDir,
                 metadata: analysisMetadata,

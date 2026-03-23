@@ -99,7 +99,7 @@ export function loadConfig(): Config {
       (process.env.DEFAULT_WORKSPACE_MODE as WorkspaceModeConfig) ?? "auto",
     headlessTempDir: process.env.HEADLESS_TEMP_DIR ?? `${dataDir}/headless-tmp`,
     comfyuiUrl: process.env.COMFYUI_URL ?? "http://127.0.0.1:8188",
-    seedExampleHeadlessPrograms: parseBoolean(process.env.SEED_EXAMPLE_HEADLESS_PROGRAMS, false),
+    seedExampleHeadlessPrograms: parseBoolean(process.env.SEED_EXAMPLE_HEADLESS_PROGRAMS, true),
     headlessExecutableHints: parseExecutableHints(process.env.HEADLESS_EXECUTABLE_HINTS_JSON),
     coordinatorScriptsDir: process.env.COORDINATOR_SCRIPTS_DIR ?? `${dataDir}/coordinator-scripts`,
     coordinatorPlaybooksDir: process.env.COORDINATOR_PLAYBOOKS_DIR ?? `${dataDir}/coordinator-playbooks`,
