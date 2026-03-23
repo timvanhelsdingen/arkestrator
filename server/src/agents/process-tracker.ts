@@ -5,6 +5,8 @@ interface TrackedProcess {
   process: Subprocess;
   startTime: number;
   jobId: string;
+  /** Per-job timeout override (if set, takes precedence over the global default). */
+  timeoutMs?: number;
 }
 
 export class ProcessTracker {
@@ -13,11 +15,12 @@ export class ProcessTracker {
 
   constructor(private jobTimeoutMs: number) {}
 
-  register(jobId: string, proc: Subprocess) {
+  register(jobId: string, proc: Subprocess, timeoutMs?: number) {
     this.processes.set(jobId, {
       process: proc,
       startTime: Date.now(),
       jobId,
+      timeoutMs,
     });
     logger.debug("process-tracker", `Registered process for job ${jobId}`);
   }
@@ -52,7 +55,8 @@ export class ProcessTracker {
     this.timeoutChecker = setInterval(() => {
       const now = Date.now();
       for (const [jobId, tracked] of this.processes) {
-        if (now - tracked.startTime > this.jobTimeoutMs) {
+        const effectiveTimeout = tracked.timeoutMs ?? this.jobTimeoutMs;
+        if (now - tracked.startTime > effectiveTimeout) {
           logger.warn(
             "process-tracker",
             `Job ${jobId} timed out after ${Math.floor((now - tracked.startTime) / 1000)}s`,

@@ -69,6 +69,63 @@ const TRAINING_AGENTIC_ANALYSIS_TIMEOUT_MS = 45 * 60_000;
 const TRAINING_AGENTIC_STATUS_POLL_MS = 1_000;
 const TRAINING_CHILD_LOG_TAIL_CHARS = 12_000;
 
+// ── Training Level ──────────────────────────────────────────────────────────
+export type TrainingLevel = "low" | "medium" | "high";
+export const TRAINING_LEVELS: readonly TrainingLevel[] = ["low", "medium", "high"] as const;
+
+/** Per-level tuning knobs applied to discovery, prompts, and timeouts. */
+const TRAINING_LEVEL_CONFIG: Record<TrainingLevel, {
+  /** Override analysis mode? null = auto-detect (bridge > headless > filesystem). */
+  forceAnalysisMode: "filesystem" | null;
+  /** Max directory depth for discoverProjectDirs. */
+  discoveryDepth: number;
+  /** Max projects from discoverProjectDirs. */
+  discoveryMaxProjects: number;
+  /** Summary char limit per project reference. */
+  summaryCharLimit: number;
+  /** Multiplier applied to the agentic analysis timeout. */
+  timeoutMultiplier: number;
+  /** Extra prompt lines injected into the agentic analysis prompt. */
+  promptPrefix: string[];
+}> = {
+  low: {
+    forceAnalysisMode: "filesystem",
+    discoveryDepth: 2,
+    discoveryMaxProjects: 100,
+    summaryCharLimit: 120,
+    timeoutMultiplier: 0.5,
+    promptPrefix: [
+      "Perform a QUICK, filesystem-only scan. Do NOT use bridge tools or execute_command.",
+      "Focus on: file listing, folder structure, file sizes, basic metadata.",
+      "Write a brief 1-paragraph summary per project. Do not inspect internal scene data.",
+      "Speed is more important than depth — keep analysis under 5 minutes.",
+    ],
+  },
+  medium: {
+    forceAnalysisMode: null,
+    discoveryDepth: 3,
+    discoveryMaxProjects: 300,
+    summaryCharLimit: 220,
+    timeoutMultiplier: 1,
+    promptPrefix: [],
+  },
+  high: {
+    forceAnalysisMode: null,
+    discoveryDepth: 5,
+    discoveryMaxProjects: 600,
+    summaryCharLimit: 400,
+    timeoutMultiplier: 2,
+    promptPrefix: [
+      "Perform EXHAUSTIVE deep analysis. Inspect every node, every parameter.",
+      "For Houdini: traverse full node tree recursively, dump all SOP/DOP/SHOP parameters with exact values.",
+      "For Blender: inspect all objects, modifiers, materials, shader nodes, render settings.",
+      "Document exact parameter values suitable for automated recreation.",
+      "Write a comprehensive step-by-step recreation guide with all numeric values.",
+      "Take your time — thoroughness is more important than speed.",
+    ],
+  },
+};
+
 export interface CoordinatorTrainingSchedule {
   enabled: boolean;
   intervalMinutes: number;
@@ -108,6 +165,7 @@ export interface GenerateCoordinatorTrainingOptions {
   apply?: boolean;
   seedSummaries?: CoordinatorTrainingSummary[];
   skipSourceScan?: boolean;
+  trainingLevel?: TrainingLevel;
 }
 
 export interface QueueCoordinatorTrainingJobOptions {
@@ -119,6 +177,7 @@ export interface QueueCoordinatorTrainingJobOptions {
   agentConfigId?: string;
   targetWorkerName?: string;
   submittedBy?: string;
+  trainingLevel?: TrainingLevel;
 }
 
 export interface QueueCoordinatorTrainingJobDeps {
@@ -680,9 +739,19 @@ function buildTrainingAgenticAnalyzePrompt(
   sourcePaths: string[],
   trainingPrompt: string,
   mode: "bridge" | "headless" | "filesystem",
+  level: TrainingLevel = "medium",
 ): string {
+  const levelCfg = TRAINING_LEVEL_CONFIG[level];
   const lines: string[] = [];
-  lines.push(`Analyze coordinator training source paths for ${program} (${mode} mode).`);
+  lines.push(`Analyze coordinator training source paths for ${program} (${mode} mode, training level: ${level}).`);
+
+  // Inject level-specific prompt prefix
+  if (levelCfg.promptPrefix.length > 0) {
+    lines.push("");
+    for (const line of levelCfg.promptPrefix) lines.push(line);
+    lines.push("");
+  }
+
   if (mode === "bridge") {
     lines.push("Use bridge execution for this program when inspecting scene/project internals.");
   } else if (mode === "headless") {
@@ -1491,7 +1560,9 @@ export function generateCoordinatorTraining(
     apply = false,
     seedSummaries = [],
     skipSourceScan = false,
+    trainingLevel = "medium" as TrainingLevel,
   } = options;
+  const levelCfg = TRAINING_LEVEL_CONFIG[trainingLevel];
   const normalizedTrainingPrompt = normalizeTrainingPrompt(trainingPrompt);
 
   const sourcePaths = resolveTrainingSourcePaths(
@@ -1507,7 +1578,7 @@ export function generateCoordinatorTraining(
   for (const seed of seedSummaries) {
     const name = String(seed?.name ?? "").trim();
     const path = String(seed?.path ?? "").trim();
-    const summary = parsePromptSummary(String(seed?.summary ?? ""), 220)
+    const summary = parsePromptSummary(String(seed?.summary ?? ""), levelCfg.summaryCharLimit)
       || "Use this project as a style and architecture reference.";
     if (!name || !path) continue;
     const dedupeKey = `${name}::${path}`;
@@ -1538,7 +1609,7 @@ export function generateCoordinatorTraining(
         continue;
       }
       const projectDirs = st.isDirectory()
-        ? discoverProjectDirs(program, sourcePath, 3, 300)
+        ? discoverProjectDirs(program, sourcePath, levelCfg.discoveryDepth, levelCfg.discoveryMaxProjects)
         : st.isFile()
         ? [resolveProjectDirFromSourceFile(program, sourcePath)].filter((p): p is string => !!p)
         : [];
@@ -1553,7 +1624,7 @@ export function generateCoordinatorTraining(
         const prompt = String(config?.prompt ?? "").trim()
           || summarizeContextsPrompt(config)
           || readDocSnippet(projectDir, 380);
-        const summary = parsePromptSummary(prompt, 220);
+        const summary = parsePromptSummary(prompt, levelCfg.summaryCharLimit);
         summaries.push({
           name: String(config?.projectName ?? basename(projectDir)).trim() || basename(projectDir),
           path: projectDir,
@@ -1754,6 +1825,8 @@ export function queueCoordinatorTrainingJob(
     defaultCoordinatorPlaybookSourcePaths = [],
   } = deps;
   const { program, trigger, sourcePaths, submittedBy } = options;
+  const trainingLevel: TrainingLevel = TRAINING_LEVELS.includes(options.trainingLevel as TrainingLevel)
+    ? (options.trainingLevel as TrainingLevel) : "medium";
   const targetWorkerName = String(options.targetWorkerName ?? "").trim();
   const apply = options.apply !== false;
   const trainingPrompt = normalizeTrainingPrompt(options.trainingPrompt, 2_000);
@@ -1799,6 +1872,7 @@ export function queueCoordinatorTrainingJob(
         coordinator_training_apply: apply,
         coordinator_training_source_paths: resolvedSourcePaths,
         coordinator_training_prompt: trainingPrompt || undefined,
+        coordinator_training_level: trainingLevel,
         coordinator_training_agent_config_id: agentConfigId,
         coordinator_training_target_worker_name: targetWorkerName || undefined,
       },
@@ -1829,6 +1903,7 @@ export function queueCoordinatorTrainingJob(
   if (trainingPrompt) {
     appendJobLog(hub, jobsRepo, created.id, `Training objective: ${parsePromptSummary(trainingPrompt, 300)}`);
   }
+  appendJobLog(hub, jobsRepo, created.id, `Training level: ${trainingLevel}`);
   appendJobLog(hub, jobsRepo, created.id, `Training agent config: ${agentConfigId}`);
 
   setTimeout(() => {
@@ -1855,16 +1930,19 @@ export function queueCoordinatorTrainingJob(
           && resolvedSourcePaths.some((path) => !isLikelyLearningVaultPath(path));
 
         if (shouldRunAgenticAnalysis) {
+          const levelCfg = TRAINING_LEVEL_CONFIG[trainingLevel];
           projectFileBaselines = captureTrainingProjectFileBaselines(normalizedProgram, resolvedSourcePaths);
           const bridgeOnline = hub.getBridges().some(
             (bridge) => String(bridge.program ?? "").trim().toLowerCase() === normalizedProgram,
           );
           const headlessEnabled = headlessProgramsRepo?.getByProgram(normalizedProgram)?.enabled === true;
-          const analysisMode: "bridge" | "headless" | "filesystem" = bridgeOnline
+          const autoMode: "bridge" | "headless" | "filesystem" = bridgeOnline
             ? "bridge"
             : headlessEnabled
             ? "headless"
             : "filesystem";
+          // Training level can force filesystem mode (e.g. "low" level skips bridge)
+          const analysisMode: "bridge" | "headless" | "filesystem" = levelCfg.forceAnalysisMode ?? autoMode;
           analysisModeUsed = analysisMode;
           if (analysisMode === "bridge") {
             appendJobLog(
@@ -1902,13 +1980,14 @@ export function queueCoordinatorTrainingJob(
               coordinator_training_source_paths: resolvedSourcePaths,
               coordinator_training_prompt: trainingPrompt || undefined,
               coordinator_training_analysis_mode: analysisMode,
+              coordinator_training_level: trainingLevel,
               target_bridges: [normalizedProgram],
               bridge_type: normalizedProgram,
             };
 
             const analysisInput: JobSubmit = {
               name: `[Coordinator] Analyze ${normalizedProgram} training sources`,
-              prompt: buildTrainingAgenticAnalyzePrompt(normalizedProgram, resolvedSourcePaths, trainingPrompt, analysisMode),
+              prompt: buildTrainingAgenticAnalyzePrompt(normalizedProgram, resolvedSourcePaths, trainingPrompt, analysisMode, trainingLevel),
               agentConfigId,
               priority: "normal",
               coordinationMode: "server",
@@ -1937,7 +2016,8 @@ export function queueCoordinatorTrainingJob(
               `Queued agentic source analysis job ${analysisJobId} for ${resolvedSourcePaths.length} path(s).`,
             );
             broadcastJobUpdated(hub, jobsRepo, analysisJobId);
-            const terminal = await waitForCoordinatorTrainingJobTerminalState(jobsRepo, analysisJobId);
+            const analysisTimeoutMs = Math.round(TRAINING_AGENTIC_ANALYSIS_TIMEOUT_MS * levelCfg.timeoutMultiplier);
+            const terminal = await waitForCoordinatorTrainingJobTerminalState(jobsRepo, analysisJobId, analysisTimeoutMs);
             analysisStatus = terminal.status;
             if (terminal.status !== "completed") {
               const detail = terminal.error ? ` (${terminal.error})` : "";
@@ -1986,6 +2066,7 @@ export function queueCoordinatorTrainingJob(
           apply,
           seedSummaries: seededFromAgenticAnalysis.summaries,
           skipSourceScan: analysisModeUsed === "bridge",
+          trainingLevel,
         });
         const scannedProjectDetails = collectTrainingProjectDetails(
           normalizedProgram,

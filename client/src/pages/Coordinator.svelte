@@ -121,6 +121,7 @@
   let trainingAgentConfigId = $state("");
   let trainingTargetWorkerName = $state("");
   let trainingPrompt = $state("");
+  let trainingLevel = $state("medium");
   let trainingUploadFiles = $state<File[]>([]);
   let trainingUploadInputResetKey = $state(0);
   let trainingWorkers = $state<TrainingWorkerOption[]>([]);
@@ -886,6 +887,7 @@
   function clearTrainingInputs() {
     trainingInputPath = "";
     trainingPrompt = "";
+    trainingLevel = "medium";
     trainingUploadFiles = [];
     trainingUploadInputResetKey += 1;
   }
@@ -913,6 +915,7 @@
         trainingAgentConfigId.trim(),
         trimmedPrompt,
         trimmedTargetWorkerName,
+        trainingLevel,
       );
       const jobId = String(result?.job?.id ?? "");
       const uploadedCount = Array.isArray(result?.input?.uploadedFiles) ? result.input.uploadedFiles.length : 0;
@@ -1565,6 +1568,19 @@
             </span>
           </label>
         {/if}
+        <label>
+          Training Level
+          <select bind:value={trainingLevel}>
+            <option value="low">Low — Quick filesystem scan (~2-5 min, ~$0.50-$1)</option>
+            <option value="medium">Medium — Standard analysis (~5-15 min, ~$1-$3)</option>
+            <option value="high">High — Deep exhaustive analysis (~15-45 min, ~$3-$8)</option>
+          </select>
+          <span class="help-text">
+            {trainingLevel === "low" ? "Filesystem-only scan. No bridge tools used. Good for bulk scanning many projects."
+              : trainingLevel === "high" ? "Full node tree inspection with all parameters. Extended timeout. Best for detailed recreation guides."
+              : "Standard bridge-based analysis. Inspects top-level nodes and key parameters."}
+          </span>
+        </label>
         <label>
           Training Objective (optional)
           <textarea

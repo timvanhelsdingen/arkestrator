@@ -678,10 +678,12 @@ export const api = {
       agentConfigId = "",
       prompt = "",
       targetWorkerName = "",
+      trainingLevel = "medium",
     ) => {
       const trimmedAgentConfigId = String(agentConfigId ?? "").trim();
       const trimmedPrompt = String(prompt ?? "").trim();
       const trimmedTargetWorkerName = String(targetWorkerName ?? "").trim();
+      const trimmedTrainingLevel = String(trainingLevel ?? "medium").trim();
       const hasFiles = Array.isArray(files) && files.length > 0;
       if (!hasFiles) {
         return request(`/api/settings/coordinator-playbooks/${program}/train-script-job`, {
@@ -692,6 +694,7 @@ export const api = {
             agentConfigId: trimmedAgentConfigId || undefined,
             prompt: trimmedPrompt || undefined,
             targetWorkerName: trimmedTargetWorkerName || undefined,
+            trainingLevel: trimmedTrainingLevel || undefined,
           }),
         });
       }
@@ -701,6 +704,7 @@ export const api = {
       if (trimmedAgentConfigId) form.set("agentConfigId", trimmedAgentConfigId);
       if (trimmedPrompt) form.set("prompt", trimmedPrompt);
       if (trimmedTargetWorkerName) form.set("targetWorkerName", trimmedTargetWorkerName);
+      if (trimmedTrainingLevel) form.set("trainingLevel", trimmedTrainingLevel);
       for (const path of paths) {
         const value = String(path ?? "").trim();
         if (!value) continue;

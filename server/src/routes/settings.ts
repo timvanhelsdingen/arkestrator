@@ -4891,6 +4891,7 @@ export function createSettingsRoutes(
     let requestedAgentConfigId = "";
     let trainingPrompt = "";
     let requestedTargetWorkerName = "";
+    let trainingLevel = "";
     let uploadedFilesSummary: Array<{
       path: string;
       bytes: number;
@@ -4917,6 +4918,7 @@ export function createSettingsRoutes(
       requestedAgentConfigId = String(form.get("agentConfigId") ?? "").trim();
       trainingPrompt = String(form.get("prompt") ?? "").trim();
       requestedTargetWorkerName = String(form.get("targetWorkerName") ?? "").trim();
+      trainingLevel = String(form.get("trainingLevel") ?? "").trim();
       const requestedSourcePaths = normalizeMultipartStringList([
         ...form.getAll("paths"),
         ...form.getAll("sourcePaths"),
@@ -4963,6 +4965,7 @@ export function createSettingsRoutes(
       requestedAgentConfigId = String(body?.agentConfigId ?? "").trim();
       trainingPrompt = String(body?.prompt ?? "").trim();
       requestedTargetWorkerName = String(body?.targetWorkerName ?? "").trim();
+      trainingLevel = String(body?.trainingLevel ?? "").trim();
       inputPaths = Array.isArray(body?.paths)
         ? body.paths.filter((p: unknown) => typeof p === "string").map((p: string) => p.trim()).filter(Boolean)
         : undefined;
@@ -5017,6 +5020,7 @@ export function createSettingsRoutes(
           agentConfigId: requestedAgentConfigId || undefined,
           targetWorkerName: requestedTargetWorkerName || undefined,
           submittedBy: user.id,
+          trainingLevel: (trainingLevel as any) || undefined,
         },
       );
 

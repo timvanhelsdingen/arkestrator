@@ -1110,11 +1110,19 @@ async function runLocalAgenticLoop(
   const startTime = Date.now();
   const modelName = config.model ?? "";
   const perModelMaxTurns = config.modelOverrides?.[modelName]?.maxTurns;
-  const maxTurns = Math.min(
+  let maxTurns = Math.min(
     Math.max(perModelMaxTurns || config.maxTurns || LOCAL_AGENTIC_DEFAULTS.DEFAULT_TURNS, 1),
     LOCAL_AGENTIC_DEFAULTS.MAX_TURNS,
   );
-  const rawTurnTimeout = Math.floor(deps.config.jobTimeoutMs / Math.max(1, maxTurns));
+  // Training level can scale maxTurns: low=0.5x, medium=1x, high=2x
+  const trainingLevel = (job as any).editorContext?.metadata?.coordinator_training_level;
+  if (trainingLevel === "low") maxTurns = Math.max(Math.round(maxTurns * 0.5), 10);
+  else if (trainingLevel === "high") maxTurns = Math.min(maxTurns * 2, LOCAL_AGENTIC_DEFAULTS.MAX_TURNS);
+  // Also scale job timeout for training analysis jobs
+  let effectiveJobTimeoutMs = deps.config.jobTimeoutMs;
+  if (trainingLevel === "high") effectiveJobTimeoutMs = Math.round(effectiveJobTimeoutMs * 2);
+  else if (trainingLevel === "low") effectiveJobTimeoutMs = Math.round(effectiveJobTimeoutMs * 0.5);
+  const rawTurnTimeout = Math.floor(effectiveJobTimeoutMs / Math.max(1, maxTurns));
   const effectiveTurnTimeoutMs = Math.min(
     Math.max(rawTurnTimeout, LOCAL_AGENTIC_DEFAULTS.MIN_TURN_TIMEOUT_MS),
     LOCAL_AGENTIC_DEFAULTS.MAX_TURN_TIMEOUT_MS,
@@ -1183,7 +1191,7 @@ async function runLocalAgenticLoop(
     },
 
     checkTimeout() {
-      if (Date.now() - startTime > deps.config.jobTimeoutMs) {
+      if (Date.now() - startTime > effectiveJobTimeoutMs) {
         return "Local agentic loop timed out";
       }
       return undefined;
@@ -1717,12 +1725,17 @@ export async function spawnAgent(
 
       if (dispatchWorkerName) {
         const perModelMaxTurns = config.modelOverrides?.[resolvedModel]?.maxTurns;
-        const maxTurns = Math.min(
+        let maxTurns = Math.min(
           Math.max(perModelMaxTurns || config.maxTurns || LOCAL_AGENTIC_DEFAULTS.DEFAULT_TURNS, 1),
           LOCAL_AGENTIC_DEFAULTS.MAX_TURNS,
         );
+        // Training level can scale maxTurns for client-dispatched jobs too
+        const cliTrainingLevel = (job as any).editorContext?.metadata?.coordinator_training_level;
+        let cliJobTimeoutMs = deps.config.jobTimeoutMs;
+        if (cliTrainingLevel === "low") { maxTurns = Math.max(Math.round(maxTurns * 0.5), 10); cliJobTimeoutMs = Math.round(cliJobTimeoutMs * 0.5); }
+        else if (cliTrainingLevel === "high") { maxTurns = Math.min(maxTurns * 2, LOCAL_AGENTIC_DEFAULTS.MAX_TURNS); cliJobTimeoutMs = Math.round(cliJobTimeoutMs * 2); }
         const turnTimeoutMs = Math.min(
-          Math.max(Math.floor(deps.config.jobTimeoutMs / Math.max(1, maxTurns)), 15_000),
+          Math.max(Math.floor(cliJobTimeoutMs / Math.max(1, maxTurns)), 15_000),
           LOCAL_AGENTIC_DEFAULTS.DEFAULT_TURN_TIMEOUT_MS,
         );
         const perModelPrompt = config.modelOverrides?.[resolvedModel]?.systemPrompt
@@ -1898,7 +1911,12 @@ export async function spawnAgent(
     return;
   }
 
-  deps.processTracker.register(job.id, proc);
+  // Per-job timeout for training level: high=2x, low=0.5x
+  const procTrainingLevel = (job as any).editorContext?.metadata?.coordinator_training_level;
+  const procTimeoutMs = procTrainingLevel === "high" ? Math.round(deps.config.jobTimeoutMs * 2)
+    : procTrainingLevel === "low" ? Math.round(deps.config.jobTimeoutMs * 0.5)
+    : undefined;
+  deps.processTracker.register(job.id, proc, procTimeoutMs);
 
   if (deps.jobInterventionsRepo && !(config.engine === "local-oss" && workspace.mode === "command")) {
     const pending = deps.jobInterventionsRepo.listPending(job.id);
