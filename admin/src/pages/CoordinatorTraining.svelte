@@ -183,7 +183,7 @@
   async function loadHousekeepingSchedule() {
     housekeepingLoading = true;
     try {
-      const data = await api.getHousekeepingSchedule();
+      const data = await api.coordinatorTraining.getHousekeepingSchedule();
       housekeepingSchedule = {
         enabled: data.enabled ?? false,
         intervalMinutes: data.intervalMinutes ?? 1440,
@@ -199,7 +199,7 @@
   async function saveHousekeepingSchedule() {
     housekeepingSaving = true;
     try {
-      await api.setHousekeepingSchedule({
+      await api.coordinatorTraining.setHousekeepingSchedule({
         enabled: housekeepingSchedule.enabled,
         intervalMinutes: housekeepingSchedule.intervalMinutes,
       });
@@ -214,7 +214,7 @@
   async function runHousekeepingNow() {
     housekeepingRunning = true;
     try {
-      const result = await api.runHousekeeping();
+      const result = await api.coordinatorTraining.runHousekeeping();
       toast.success(`Housekeeping job queued: ${result.jobId}`);
       housekeepingSchedule = { ...housekeepingSchedule, lastRunAt: new Date().toISOString() };
     } catch (err: any) {
