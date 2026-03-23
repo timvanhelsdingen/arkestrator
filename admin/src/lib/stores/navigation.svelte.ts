@@ -6,7 +6,8 @@ export type Page =
   | "bridges"
   | "policies"
   | "knowledge"
-  | "audit-log";
+  | "audit-log"
+  | "system";
 
 class NavigationState {
   current = $state<Page>("users");

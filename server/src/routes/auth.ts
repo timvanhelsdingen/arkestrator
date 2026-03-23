@@ -630,6 +630,30 @@ export function createAuthRoutes(
     return c.json({ ok: true });
   });
 
+  // Verify password (used by client "clear local data" flow)
+  router.post("/verify-password", async (c) => {
+    const user = getAuthenticatedUser(c, usersRepo);
+    if (!user) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+
+    let body: any;
+    try {
+      body = await c.req.json();
+    } catch {
+      return errorResponse(c, 400, "Invalid JSON body", "INVALID_JSON");
+    }
+    const password = readNonEmptyPassword(body?.password);
+    if (!password) {
+      return errorResponse(c, 400, "Password is required", "INVALID_INPUT");
+    }
+
+    const verified = await usersRepo.verifyPassword(user.username, password);
+    if (!verified) {
+      return errorResponse(c, 401, "Invalid password", "AUTH_FAILED");
+    }
+
+    return c.json({ valid: true });
+  });
+
   // Logout
   router.post("/logout", (c) => {
     const token = extractToken(c.req.header("authorization"));

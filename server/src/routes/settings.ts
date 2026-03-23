@@ -7566,5 +7566,83 @@ export function createSettingsRoutes(
     return c.json({ ok: true, program, content: "", action: "removed" });
   });
 
+  // Factory reset — wipe all data except the requesting admin user
+  router.post("/factory-reset", async (c) => {
+    const user = requireAdmin(c, usersRepo);
+    if (!user) return errorResponse(c, 403, "Admin access required", "FORBIDDEN");
+    if (!user.permissions.manageSecurity) {
+      return errorResponse(c, 403, "manageSecurity permission required", "FORBIDDEN");
+    }
+
+    let body: any;
+    try {
+      body = await c.req.json();
+    } catch {
+      return errorResponse(c, 400, "Invalid JSON body", "INVALID_JSON");
+    }
+
+    const password = typeof body?.password === "string" ? body.password.trim() : "";
+    const confirmation = typeof body?.confirmation === "string" ? body.confirmation.trim() : "";
+
+    if (!password) {
+      return errorResponse(c, 400, "Password is required", "INVALID_INPUT");
+    }
+    if (confirmation !== "RESET") {
+      return errorResponse(c, 400, 'You must type "RESET" to confirm', "INVALID_INPUT");
+    }
+
+    const verified = await usersRepo.verifyPassword(user.username, password);
+    if (!verified) {
+      return errorResponse(c, 401, "Invalid password", "AUTH_FAILED");
+    }
+
+    // Log before wiping
+    auditRepo.log({
+      userId: user.id,
+      username: user.username,
+      action: "factory_reset",
+      resource: "system",
+      ipAddress: getClientIp(c),
+    });
+
+    if (!db) {
+      return errorResponse(c, 500, "Database not available", "INTERNAL_ERROR");
+    }
+
+    // Wipe all data tables except the requesting admin user
+    const tablesToClear = [
+      "jobs",
+      "job_dependencies",
+      "job_interventions",
+      "sessions",
+      "api_keys",
+      "policies",
+      "audit_log",
+      "usage_stats",
+      "projects",
+      "workers",
+      "worker_bridges",
+      "server_settings",
+      "agent_configs",
+      "skills",
+      "headless_programs",
+    ];
+
+    db.exec("BEGIN TRANSACTION");
+    try {
+      for (const table of tablesToClear) {
+        db.exec(`DELETE FROM ${table}`);
+      }
+      // Delete all users except the one performing the reset
+      db.prepare("DELETE FROM users WHERE id != ?").run(user.id);
+      db.exec("COMMIT");
+    } catch (err: any) {
+      db.exec("ROLLBACK");
+      return errorResponse(c, 500, `Factory reset failed: ${err?.message ?? err}`, "INTERNAL_ERROR");
+    }
+
+    return c.json({ ok: true });
+  });
+
   return router;
 }

@@ -1076,6 +1076,41 @@
     }
   }
 
+  // Clear local data
+  let showClearDataModal = $state(false);
+  let clearDataPassword = $state("");
+  let clearDataError = $state("");
+  let clearDataBusy = $state(false);
+
+  async function clearAllLocalData() {
+    if (!clearDataPassword) {
+      clearDataError = "Password is required";
+      return;
+    }
+    clearDataError = "";
+    clearDataBusy = true;
+    try {
+      await api.auth.verifyPassword(clearDataPassword);
+    } catch {
+      clearDataError = "Invalid password";
+      clearDataBusy = false;
+      return;
+    }
+
+    // Password verified — wipe all local storage
+    disconnect();
+    const keysToRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key) keysToRemove.push(key);
+    }
+    for (const key of keysToRemove) {
+      localStorage.removeItem(key);
+    }
+    // Reload the app to show Setup page
+    window.location.reload();
+  }
+
   function signOut() {
     disconnect();
     connection.signOut();
@@ -1267,6 +1302,43 @@
         connection.saveSession();
       }}
     />
+
+    <section class="danger-zone">
+      <h3>Danger Zone</h3>
+      <p class="danger-desc">Clear all locally stored data including saved credentials, preferences, chat history, and cached settings. This will sign you out and return to the setup screen.</p>
+      <button class="btn danger" onclick={() => showClearDataModal = true}>Clear All Local Data</button>
+    </section>
+
+    {#if showClearDataModal}
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="modal-overlay" onclick={() => { showClearDataModal = false; clearDataPassword = ""; clearDataError = ""; }}>
+        <div class="modal-dialog" onclick={(e) => e.stopPropagation()}>
+          <h3>Clear All Local Data</h3>
+          <p>This will permanently delete all locally stored data and sign you out. Enter your password to confirm.</p>
+          <div class="form-group">
+            <label>
+              Password
+              <input
+                type="password"
+                bind:value={clearDataPassword}
+                placeholder="Enter your password"
+                onkeydown={(e) => { if (e.key === "Enter") clearAllLocalData(); }}
+              />
+            </label>
+            {#if clearDataError}
+              <span class="result error-text">{clearDataError}</span>
+            {/if}
+          </div>
+          <div class="modal-actions">
+            <button class="btn" onclick={() => { showClearDataModal = false; clearDataPassword = ""; clearDataError = ""; }}>Cancel</button>
+            <button class="btn danger" onclick={clearAllLocalData} disabled={clearDataBusy}>
+              {clearDataBusy ? "Clearing..." : "Clear Data"}
+            </button>
+          </div>
+        </div>
+      </div>
+    {/if}
 
     <section class="prefs-section">
       <h3>Preferences</h3>
@@ -2526,5 +2598,54 @@
   }
   .success-text {
     color: var(--status-completed) !important;
+  }
+  .danger-zone {
+    border: 1px solid var(--status-failed);
+    border-radius: var(--radius-md);
+    padding: 16px;
+    margin-top: 8px;
+  }
+  .danger-zone h3 {
+    color: var(--status-failed);
+  }
+  .danger-desc {
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+    line-height: 1.5;
+  }
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 500;
+  }
+  .modal-dialog {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 20px;
+    min-width: 320px;
+    max-width: 420px;
+  }
+  .modal-dialog h3 {
+    font-size: var(--font-size-base);
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+  .modal-dialog p {
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+    margin-bottom: 16px;
+    line-height: 1.5;
+  }
+  .modal-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 12px;
   }
 </style>

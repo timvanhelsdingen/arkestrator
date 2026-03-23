@@ -220,6 +220,11 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ password, code }),
       }),
+    verifyPassword: (password: string) =>
+      request("/api/auth/verify-password", {
+        method: "POST",
+        body: JSON.stringify({ password }),
+      }),
     me: () => request("/api/auth/me"),
     logout: () => request("/api/auth/logout", { method: "POST" }),
   },

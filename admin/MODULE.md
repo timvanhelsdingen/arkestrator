@@ -78,7 +78,7 @@ Job operations and broader operational tooling are intentionally handled in the 
 
 ## App Structure
 - `App.svelte`: login guard, shell layout, iframe token handoff (`session_token`) with parent-origin/source/token validation, and permission-aware page routing.
-- Active routed pages: `users`, `api-keys`, `agents`, `machines`, `bridges`, `knowledge`, `policies`, `audit-log`.
+- Active routed pages: `users`, `api-keys`, `agents`, `machines`, `bridges`, `knowledge`, `policies`, `audit-log`, `system`.
 - If a logged-in account has no admin-panel capabilities, app shows a `No Admin Access` state.
 - Served by server as SPA at `/admin/*`.
 
@@ -95,23 +95,24 @@ Job operations and broader operational tooling are intentionally handled in the 
 | Policies | Server-side allow/deny filters with type tabs (`file_path`, `tool`, `prompt_filter`, `engine_model`, `command_filter`), per-user/global scope, enable/disable toggles, and create/edit/delete flow. |
 | Training Vault | Global coordinator training explorer that lists one logical `training/` tree with `scripts/`, `playbooks/`, `learning/`, and `imports/`; organized into focused views (`Vault Explorer`, `Repository Controls`, `Snapshots`). In `Vault Explorer`, training job artifacts under `learning/jobs/<program>/<jobId>/...` render as one foldout row per job with nested file rows, while imported references now appear under the dedicated `imports` root. Includes a `Training Job Metadata + Export` panel with checkboxable job rows and scoped zip export by selected job, checked jobs, selected bridge/program, current filters, or full training set. Vault view also supports direct `Import Training Data (.zip)` ingest into server training roots, while job artifact files are read-only with explicit download/export actions (no misleading in-vault save behavior). `Snapshots` now handles full disaster-recovery zip export/import (`Export Entire Server (.zip)` / restore) with optional configured server-file inclusion. |
 | AuditLog | Paginated admin activity log with action filtering and IP/details visibility. |
+| System | System administration page with a "Danger Zone" section containing Factory Reset functionality. Requires password + typing "RESET" to confirm. Calls `POST /api/settings/factory-reset` (admin role + `manageSecurity` permission). Wipes all server data tables while preserving the triggering admin user. |
 
 ## Stores (`src/lib/stores/`)
 | Store | File | State |
 |-------|------|-------|
 | auth | `auth.svelte.ts` | `token`, `user`, 2FA challenge state, plus capability getters (`canManageUsers`, `canManageAgents`, `canManagePolicies`, `canViewAuditLog`, etc.) and `hasAdminAccess`. |
-| navigation | `navigation.svelte.ts` | `current: "users" | "api-keys" | "agents" | "machines" | "bridges" | "knowledge" | "policies" | "audit-log"` |
+| navigation | `navigation.svelte.ts` | `current: "users" | "api-keys" | "agents" | "machines" | "bridges" | "knowledge" | "policies" | "audit-log" | "system"` |
 | toast | `toast.svelte.ts` | Toast queue/messages |
 
 ## Navigation + Layout
 - `lib/components/layout/Sidebar.svelte`
   - Renders the refreshed Arkestrator logo mark beside the `Arkestrator / Admin` lockup
-  - Capability-gated items: `Users`, `API Keys`, `Agents`, `Machines`, `Bridges`, `Skills & Training`, `Filters`, `Audit Log`
-  - Filters items by permission (`manageUsers`, `manageApiKeys`, `manageAgents`, `manageWorkers`, `managePolicies`, `editCoordinator/manageSecurity`, `viewAuditLog`)
+  - Capability-gated items: `Users`, `API Keys`, `Agents`, `Machines`, `Bridges`, `Skills & Training`, `Filters`, `Audit Log`, `System`
+  - Filters items by permission (`manageUsers`, `manageApiKeys`, `manageAgents`, `manageWorkers`, `managePolicies`, `editCoordinator/manageSecurity`, `viewAuditLog`, `manageSecurity` for System)
   - Auto-corrects `nav.current` to the first allowed page
 - `lib/components/layout/Header.svelte`
   - Authenticated page title bar with persistent build badge (`Build <version+sha>`)
-  - Titles for active pages (`users`, `api-keys`, `agents`, `machines`, `bridges`, `knowledge`, `policies`, `audit-log`)
+  - Titles for active pages (`users`, `api-keys`, `agents`, `machines`, `bridges`, `knowledge`, `policies`, `audit-log`, `system`)
 
 ## API Layer (`src/lib/api/client.ts`)
 Active admin UI uses:
@@ -124,6 +125,7 @@ Active admin UI uses:
 - `settings.get`, `settings.setAllowClientCoordination`, `settings.getTrainingRepositoryPolicy`, `settings.updateTrainingRepositoryPolicy`, `settings.getTrainingRepositoryOverrides`, `settings.updateTrainingRepositoryOverrides`, `settings.listTrainingRepositoryRecords`, `settings.getTrainingRepositoryStatus`, `settings.getTrainingRepositoryMetrics`, `settings.reindexTrainingRepository`
 - `policies.*`
 - `coordinatorTraining.*` (`list`, `readFile`, `writeFile`, `createFolder`, `deleteFile`, `deleteFolder`, `updateMetadata`, `listJobs`, `exportJobs`, `exportTrainingDataZip`, `importTrainingDataZip`, `exportSnapshot`, `importSnapshot`, `exportSnapshotZip`, `importSnapshotZip`, `listCoordinatorScripts`, `updateCoordinatorScript`, `deleteCoordinatorScript`)
+- `system.*` (`factoryReset(password, confirmation)`)
 - `audit.*`
 
 ## Removed Legacy Pages

@@ -14,6 +14,7 @@
   import Policies from "./pages/Policies.svelte";
   import AuditLog from "./pages/AuditLog.svelte";
   import Knowledge from "./pages/Knowledge.svelte";
+  import System from "./pages/System.svelte";
 
   let ready = $state(false);
 
@@ -107,6 +108,8 @@
           <Knowledge />
         {:else if nav.current === "audit-log" && auth.canViewAuditLog}
           <AuditLog />
+        {:else if nav.current === "system" && auth.canManageSecurity}
+          <System />
         {:else}
           <div class="no-page">
             Select a section from the sidebar.

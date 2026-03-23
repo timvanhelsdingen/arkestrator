@@ -1286,4 +1286,12 @@ export const api = {
       return request("/api/skills/import", { method: "POST", body: form }) as Promise<any>;
     },
   },
+
+  system: {
+    factoryReset: (password: string, confirmation: string) =>
+      request("/api/settings/factory-reset", {
+        method: "POST",
+        body: JSON.stringify({ password, confirmation }),
+      }),
+  },
 };
