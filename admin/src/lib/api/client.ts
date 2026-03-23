@@ -1180,6 +1180,15 @@ export const api = {
         lastRunByProgram: Record<string, string>;
         nextRunByProgram: Record<string, string | null>;
       }>,
+    runTraining: (programs?: string[]) =>
+      request("/api/settings/coordinator-training/run-now", {
+        method: "POST",
+        body: JSON.stringify(programs ? { programs } : {}),
+      }) as Promise<{
+        ok: boolean;
+        queued: Array<{ program: string; jobId: string }>;
+        failures: Array<{ program: string; error: string }>;
+      }>,
     // Housekeeping
     getHousekeepingSchedule: () =>
       request("/api/settings/housekeeping-schedule") as Promise<{

@@ -166,6 +166,36 @@
       .filter((p) => p && p !== "global"),
   );
 
+  let trainingRunning = $state(false);
+
+  async function runTrainingNow() {
+    const programs = trainingSchedule.programs.length > 0
+      ? trainingSchedule.programs
+      : schedulePrograms;
+    if (programs.length === 0) {
+      toast.error("No programs available to train");
+      return;
+    }
+    trainingRunning = true;
+    try {
+      const result = await api.coordinatorTraining.runTraining(programs);
+      if (result.queued.length > 0) {
+        toast.success(`Training queued for: ${result.queued.map((q) => q.program).join(", ")}`);
+        const nowIso = new Date().toISOString();
+        for (const q of result.queued) {
+          scheduleLastRunByProgram = { ...scheduleLastRunByProgram, [q.program]: nowIso };
+        }
+      }
+      if (result.failures.length > 0) {
+        toast.error(`Failed: ${result.failures.map((f) => `${f.program}: ${f.error}`).join(", ")}`);
+      }
+    } catch (err: any) {
+      toast.error(err.message ?? "Failed to run training");
+    } finally {
+      trainingRunning = false;
+    }
+  }
+
   // Housekeeping Agent
   interface HousekeepingScheduleState {
     enabled: boolean;
@@ -1557,7 +1587,14 @@
         {#if schedulePrograms.length === 0}
           <p class="hint">No bridge programs discovered yet. Programs appear after coordinator scripts are created.</p>
         {/if}
-        <div style="margin-top: 8px;">
+        <div style="margin-top: 8px; display: flex; gap: 8px;">
+          <button
+            class="btn-primary"
+            onclick={runTrainingNow}
+            disabled={trainingRunning || schedulePrograms.length === 0}
+          >
+            {trainingRunning ? "Queuing..." : "Run Training Now"}
+          </button>
           <button
             class="btn-primary"
             onclick={saveTrainingSchedule}
