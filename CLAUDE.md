@@ -62,6 +62,7 @@ Each module has its own documentation file that tracks its current state (files,
 - **Server:** `server/MODULE.md`
 - **Client:** `client/MODULE.md`
 - **Admin:** `admin/MODULE.md`
+- **VSCode Extension:** `extensions/vscode/MODULE.md`
 - **Bridges:** Live in a separate repo: [arkestrator-bridges](https://github.com/timvanhelsdingen/arkestrator-bridges). Do not look for bridge source code in this repo.
 
 Update these docs whenever you add, remove, or rename files, routes, components, message types, schemas, or significant functionality. Keep descriptions concise - these are reference docs, not tutorials.
@@ -76,7 +77,7 @@ Update these docs whenever you add, remove, or rename files, routes, components,
    - Protocol package: `pnpm --filter @arkestrator/protocol build`
    - Client (Tauri): `pnpm --filter @arkestrator/client build` (or `tauri build`)
    - Server restarts automatically when run with `bun --watch`
-   - If you change server code or ship a new server image, refresh the bundled admin build metadata in `client/resources/admin-dist` so the Admin page build number stays in sync with the deployed server revision
+   - If you change server code or ship a new server image, rebuild the admin SPA (`pnpm --filter @arkestrator/admin build`) and copy to `client/resources/admin-dist/` so the Admin page build number stays in sync with the deployed server revision
 
 This is mandatory. Do not skip documentation updates or rebuilds - they are how other agents (and future you) understand what changed, and how users see the changes.
 

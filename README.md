@@ -4,7 +4,7 @@
 
 **AI orchestration for creative tools. One hub connects your DCC apps, your AI engines, and your team.**
 
-Arkestrator is an open-source hub-and-spoke system that lets AI agents work directly inside Godot, Blender, Houdini, Unreal Engine, Unity, and ComfyUI. You manage everything from one desktop client, and the server handles queueing, routing, and execution.
+Arkestrator is an open-source hub-and-spoke system that lets AI agents work directly inside Godot, Blender, Houdini, Unreal Engine, Unity, Fusion/DaVinci Resolve, and ComfyUI. You manage everything from one desktop client, and the server handles queueing, routing, and execution.
 
 Pre-release legal notice: see [DISCLAIMER.md](DISCLAIMER.md).
 
@@ -70,7 +70,7 @@ Arkestrator uses a hub-and-spoke model with three components:
 
 ### Bridges
 
-Bridge plugins connect DCC apps (Godot, Blender, Houdini, Unreal Engine 5, Unity, ComfyUI) to the server via WebSocket. Any program that can open a WebSocket and run scripts can become a bridge.
+Bridge plugins connect DCC apps (Godot, Blender, Houdini, Unreal Engine 5, Unity, Fusion/DaVinci Resolve, ComfyUI) to the server via WebSocket. Any program that can open a WebSocket and run scripts can become a bridge.
 
 See the [arkestrator-bridges](https://github.com/timvanhelsdingen/arkestrator-bridges) repository for installation, supported apps, and context details. See the [Bridge Development Guide](docs/bridge-development.md) for building your own.
 
@@ -93,7 +93,7 @@ Download the latest installer from [GitHub Releases](https://github.com/timvanhe
 
 | Platform | Format |
 |---|---|
-| Windows | `.msi` installer |
+| Windows | `.exe` installer (NSIS) |
 | macOS | `.dmg` disk image |
 | Linux | `.rpm`, `.deb`, `.AppImage` |
 

@@ -14,16 +14,17 @@
 
 - **[Desktop Client](usage-client.md)** — Chat interface, job management, workers, projects, coordinator, settings
 - **[Server & API](usage-server.md)** — REST API reference, WebSocket protocol, MCP integration
-- **[Bridge Usage](usage-bridges.md)** — Installing and using bridges in Godot, Blender, Houdini, Unreal, Unity, and ComfyUI
+- **[Bridge Usage](usage-bridges.md)** — Installing and using bridges in Godot, Blender, Houdini, Unreal, Unity, Fusion/DaVinci Resolve, and ComfyUI
 
 ## Extending
 
 - **[Bridge Development](bridge-development.md)** — Protocol reference for building a bridge for a new tool
-- **[arkestrator-bridges repo](https://github.com/timvanhelsdingen/arkestrator-bridges)** — Source code for all bridge plugins (Godot, Blender, Houdini, Unreal, Unity, ComfyUI)
+- **[arkestrator-bridges repo](https://github.com/timvanhelsdingen/arkestrator-bridges)** — Source code for all bridge plugins (Godot, Blender, Houdini, Unreal, Unity, Fusion/DaVinci Resolve, ComfyUI)
 
 ## Deploying
 
 - **[Production Deployment](deployment-vps-caddy.md)** — Docker + Caddy setup with HTTPS for VPS/remote hosting
+- **[Release/Beta Checklist](release-beta-checklist.md)** — Pre-release build, test, and packaging checklist
 
 ## Contributing
 

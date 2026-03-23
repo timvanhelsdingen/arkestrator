@@ -8,7 +8,7 @@ Download from [GitHub Releases](https://github.com/timvanhelsdingen/arkestrator/
 
 | Platform | Format |
 |---|---|
-| Windows | `.msi` installer |
+| Windows | `.exe` installer (NSIS) |
 | macOS | `.dmg` disk image |
 | Linux | `.rpm`, `.deb`, `.AppImage` |
 
@@ -92,15 +92,13 @@ docker compose exec arkestrator cat /data/bootstrap-admin.txt
 
 ### Production (VPS with HTTPS)
 
-For public-facing deployments with automatic TLS via Caddy:
+For public-facing deployments, run the standard Docker Compose setup behind a reverse proxy (Caddy, nginx, etc.) that terminates TLS:
 
 ```bash
-cp .env.vps.example .env
-# Edit .env: set DOMAIN=your-domain.com
-docker compose --env-file .env -f docker-compose.vps.yml up -d --build
+docker compose up -d --build
 ```
 
-See [Production Deployment](deployment-vps-caddy.md) for DNS, firewall, security, and full setup.
+Set `TRUST_PROXY_HEADERS=true` in your container environment when behind a reverse proxy. See [Production Deployment](deployment-vps-caddy.md) for DNS, firewall, security, and full setup.
 
 ### TrueNAS (Private GHCR Image)
 

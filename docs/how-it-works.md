@@ -47,7 +47,7 @@ The server builds a CLI command for the configured engine and spawns it via `Bun
 
 ```bash
 # Example for Claude Code
-claude --prompt-file /tmp/prompt.json --bridges '[...]' --mcp-config /tmp/.mcp.json
+claude -p "..." --model claude-sonnet-4-6 --mcp-config .mcp.json
 
 # Example for Codex
 codex --prompt "..." --model o4-mini

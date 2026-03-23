@@ -1,8 +1,8 @@
 # Production Deployment (VPS + Caddy HTTPS)
 
 Recommended production setup:
-- Arkestrator server runs privately on a Docker network (`arkestrator:7800`)
-- Caddy terminates TLS on `:443` and reverse-proxies to the server
+- Arkestrator server runs in Docker via `docker-compose.yml`
+- A reverse proxy (Caddy recommended) terminates TLS on `:443` and forwards to the server
 - HTTP (`:80`) handles ACME challenges and redirects to HTTPS
 
 ## Prerequisites
@@ -13,43 +13,37 @@ Recommended production setup:
 
 ## 1. Prepare Environment
 
-```bash
-cp .env.vps.example .env
-```
-
-Set at minimum:
+Create a `.env` file with your configuration:
 
 ```env
 DOMAIN=your-domain.com
-```
-
-Optional bootstrap overrides:
-
-```env
 BOOTSTRAP_ADMIN_USERNAME=admin
 BOOTSTRAP_ADMIN_PASSWORD=replace-with-strong-secret
 ```
 
 If no `BOOTSTRAP_ADMIN_PASSWORD` is set, Arkestrator generates a random one and writes it to `/data/bootstrap-admin.txt` inside the container.
 
+Set `TRUST_PROXY_HEADERS=true` in the container environment (add it to the `environment` section in `docker-compose.yml`) since Caddy sits in front. Never enable this without a trusted reverse proxy.
+
 ## 2. Start the Stack
 
 ```bash
-docker compose --env-file .env -f docker-compose.vps.yml up -d --build
+docker compose up -d --build
 ```
 
-This starts:
-- **arkestrator** — internal only, no host port published
-- **caddy** — public `:80/:443`, automatic HTTPS via Let's Encrypt
+Then run Caddy (or your preferred reverse proxy) separately to terminate TLS and forward to `localhost:7800`. Example `Caddyfile`:
+
+```
+your-domain.com {
+    reverse_proxy localhost:7800
+}
+```
 
 ## 3. Validate
 
 ```bash
 # Check containers are running
-docker compose -f docker-compose.vps.yml ps
-
-# Watch Caddy logs for TLS certificate provisioning
-docker compose -f docker-compose.vps.yml logs -f caddy
+docker compose ps
 
 # Health check
 curl https://your-domain.com/health
@@ -62,7 +56,7 @@ Expected: JSON health payload with HTTP 200.
 Read the generated bootstrap password:
 
 ```bash
-docker compose -f docker-compose.vps.yml exec arkestrator cat /data/bootstrap-admin.txt
+docker compose exec arkestrator cat /data/bootstrap-admin.txt
 ```
 
 Log in via the desktop client:
@@ -80,14 +74,14 @@ The Docker image needs AI CLIs installed to run agents. Either:
 
 **C) Exec into container**: For quick testing (not persistent across rebuilds):
 ```bash
-docker compose -f docker-compose.vps.yml exec arkestrator bun install -g @anthropic-ai/claude-code
+docker compose exec arkestrator bun install -g @anthropic-ai/claude-code
 ```
 
 ## Security Notes
 
-- **`TRUST_PROXY_HEADERS=true`** is set in `docker-compose.vps.yml` because Caddy sits in front. Never enable this without a trusted reverse proxy.
-- **CORS origins** are restricted to:
-  - `https://${DOMAIN}`
+- **`TRUST_PROXY_HEADERS=true`** must be set in the container environment when behind a reverse proxy. Never enable this without a trusted proxy.
+- **CORS origins** should be restricted to your domain and the desktop client origins:
+  - `https://your-domain.com`
   - `tauri://localhost` (desktop client)
   - `http://tauri.localhost` / `https://tauri.localhost`
 - **WebSocket forwarding** (`/ws`) works automatically through Caddy's `reverse_proxy`
@@ -101,7 +95,7 @@ docker compose -f docker-compose.vps.yml exec arkestrator bun install -g @anthro
 git pull
 
 # Rebuild and restart
-docker compose --env-file .env -f docker-compose.vps.yml up -d --build
+docker compose up -d --build
 ```
 
 Database and coordinator data persist in the Docker volume across rebuilds.

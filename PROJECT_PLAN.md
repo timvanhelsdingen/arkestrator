@@ -126,6 +126,7 @@ It also works across machines. You can have Godot running on your workstation, t
 | Blender | Python addon | Beta |
 | Houdini | Python addon | Beta |
 | ComfyUI | Python bridge | Beta |
+| Fusion / DaVinci Resolve | Python bridge | Beta |
 | Unity | C# plugin | Alpha |
 | Unreal | Python plugin | Alpha |
 
@@ -359,16 +360,19 @@ arkestrator/
 â”‚           â”œâ”€â”€ common.ts            # JobStatus, JobPriority, AgentEngine, FileChange, EditorContext
 â”‚           â”œâ”€â”€ agents.ts            # AgentConfig, AgentConfigCreate
 â”‚           â”œâ”€â”€ jobs.ts              # Job, JobSubmit
-â”‚           â”œâ”€â”€ messages.ts          # All 28 WebSocket message types + Message union
+â”‚           â”œâ”€â”€ messages.ts          # All 41 WebSocket message types + Message union
 â”‚           â”œâ”€â”€ workers.ts           # Worker, WorkerStatus
 â”‚           â”œâ”€â”€ projects.ts          # WorkspaceMode, CommandResult, Project
+â”‚           â”œâ”€â”€ interventions.ts     # JobIntervention, JobInterventionCreate, JobInterventionSupport
 â”‚           â”œâ”€â”€ policies.ts          # Policy, PolicyScope, PolicyType, PolicyAction
+â”‚           â”œâ”€â”€ local-agentic.ts     # Local agentic protocol types (prompt builder, parser)
+â”‚           â”œâ”€â”€ local-agentic-loop.ts # Shared runAgenticLoop() for client/server local-oss execution
 â”‚           â””â”€â”€ index.ts             # Re-exports all
 â”‚
 â”œâ”€â”€ server/                          # Bun + Hono server (default port 7800; configurable via PORT)
 â”‚   â””â”€â”€ src/
 â”‚       â”œâ”€â”€ index.ts                 # Entry point - wires everything, Bun.serve() with optional TLS
-â”‚       â”œâ”€â”€ app.ts                   # Hono app factory (mounts all 17 route files + admin SPA)
+â”‚       â”œâ”€â”€ app.ts                   # Hono app factory (mounts all 19 route files + admin SPA)
 â”‚       â”œâ”€â”€ config.ts                # Environment variable config loader (incl. TLS paths)
 â”‚       â”œâ”€â”€ db/
 â”‚       â”‚   â”œâ”€â”€ database.ts          # SQLite open + migration runner
@@ -384,7 +388,9 @@ arkestrator/
 â”‚       â”‚   â”œâ”€â”€ usage.repo.ts        # Token usage stats
 â”‚       â”‚   â”œâ”€â”€ dependencies.repo.ts # Job dependency tracking
 â”‚       â”‚   â”œâ”€â”€ settings.repo.ts     # Key-value server settings (enforce_2fa, etc.)
-â”‚       â”‚   â””â”€â”€ headless-programs.repo.ts # Headless CLI program registry
+â”‚       â”‚   â”œâ”€â”€ headless-programs.repo.ts # Headless CLI program registry
+â”‚       â”‚   â”œâ”€â”€ skills.repo.ts       # Skill CRUD + search + materialization tracking
+â”‚       â”‚   â””â”€â”€ job-interventions.repo.ts # Job intervention/guidance persistence
 â”‚       â”œâ”€â”€ routes/
 â”‚       â”‚   â”œâ”€â”€ health.ts            # Health check
 â”‚       â”‚   â”œâ”€â”€ auth.ts              # Login/logout/me + TOTP 2FA (two-phase login, setup, verify, disable)
@@ -402,7 +408,9 @@ arkestrator/
 â”‚       â”‚   â”œâ”€â”€ projects.ts          # Project CRUD
 â”‚       â”‚   â”œâ”€â”€ chat.ts              # SSE streaming chat (no job created)
 â”‚       â”‚   â”œâ”€â”€ bridge-commands.ts   # Send commands to bridges (with worker-owned headless routing)
-â”‚       â”‚   â””â”€â”€ headless-programs.ts # Headless CLI program config CRUD
+â”‚       â”‚   â”œâ”€â”€ headless-programs.ts # Headless CLI program config CRUD
+â”‚       â”‚   â”œâ”€â”€ skills.ts            # Skill CRUD, registry, install, search
+â”‚       â”‚   â””â”€â”€ agent-cli-auth.ts    # One-click CLI auth for server-runtime agent login
 â”‚       â”œâ”€â”€ ws/
 â”‚       â”‚   â”œâ”€â”€ hub.ts               # WebSocket connection registry + broadcast + bridge context state
 â”‚       â”‚   â”œâ”€â”€ handler.ts           # Message router (validates + dispatches 15+ types)
@@ -424,6 +432,15 @@ arkestrator/
 â”‚       â”‚   â””â”€â”€ sync-manager.ts      # Temp directory lifecycle
 â”‚       â”œâ”€â”€ policies/
 â”‚       â”‚   â””â”€â”€ enforcer.ts          # Policy evaluation (prompt, engine, file path, tool, command)
+â”‚       â”œâ”€â”€ mcp/
+â”‚       â”‚   â”œâ”€â”€ tool-server.ts       # MCP tool server (orchestration tools, bridge commands, job control)
+â”‚       â”‚   â””â”€â”€ routes.ts            # MCP HTTP/SSE transport + session auth
+â”‚       â”œâ”€â”€ skills/
+â”‚       â”‚   â”œâ”€â”€ skill-index.ts       # Skill search index + relevance matching
+â”‚       â”‚   â”œâ”€â”€ skill-materializer.ts # Materialize learned outcomes into reusable skills
+â”‚       â”‚   â”œâ”€â”€ skill-migration.ts   # Migrate legacy coordinator learning to skill system
+â”‚       â”‚   â”œâ”€â”€ skill-registry.ts    # External skill registry (browse, install)
+â”‚       â”‚   â””â”€â”€ skill-templates.ts   # Built-in skill templates
 â”‚       â”œâ”€â”€ middleware/
 â”‚       â”‚   â””â”€â”€ auth.ts              # Shared auth helpers (getAuthenticatedUser, requireAdmin)
 â”‚       â””â”€â”€ utils/
@@ -440,6 +457,7 @@ arkestrator/
 â”‚   â”‚   â”‚   â”œâ”€â”€ Admin.svelte         # Embedded admin panel via iframe + postMessage auto-login
 â”‚   â”‚   â”‚   â”œâ”€â”€ Workers.svelte       # Worker cards with status + bridge sub-list
 â”‚   â”‚   â”‚   â”œâ”€â”€ Projects.svelte      # Project mapping CRUD
+â”‚   â”‚   â”‚   â”œâ”€â”€ Coordinator.svelte   # Coordinator management (server/client config, training)
 â”‚   â”‚   â”‚   â”œâ”€â”€ Settings.svelte      # Server connection, login/logout
 â”‚   â”‚   â”‚   â””â”€â”€ Setup.svelte         # First-time setup flow with TOTP 2FA support
 â”‚   â”‚   â””â”€â”€ lib/
@@ -473,48 +491,20 @@ arkestrator/
 â”‚       â”œâ”€â”€ App.svelte               # Root (login guard + shell + postMessage auto-login)
 â”‚       â”œâ”€â”€ pages/
 â”‚       â”‚   â”œâ”€â”€ Login.svelte         # Two-phase login (password + TOTP 2FA)
-â”‚       â”‚   â”œâ”€â”€ Dashboard.svelte     # Stats overview
-â”‚       â”‚   â”œâ”€â”€ Users.svelte         # User CRUD + role management
-â”‚       â”‚   â”œâ”€â”€ ApiKeys.svelte       # API key creation + revocation
-â”‚       â”‚   â”œâ”€â”€ AgentConfigs.svelte  # Agent config CRUD
-â”‚       â”‚   â”œâ”€â”€ Jobs.svelte          # Job list with actions
-â”‚       â”‚   â”œâ”€â”€ Projects.svelte      # Project mapping CRUD
-â”‚       â”‚   â”œâ”€â”€ Workers.svelte       # Worker list
-â”‚       â”‚   â”œâ”€â”€ Connections.svelte   # Live WS connections + kick
+â”‚       â”‚   â”œâ”€â”€ Users.svelte         # User CRUD + role management + insights
+â”‚       â”‚   â”œâ”€â”€ ApiKeys.svelte       # API key CRUD with grouped permissions
+â”‚       â”‚   â”œâ”€â”€ AgentConfigs.svelte  # Agent config CRUD + CLI auth panel
+â”‚       â”‚   â”œâ”€â”€ Machines.svelte      # Worker/machine inventory + per-machine rules
+â”‚       â”‚   â”œâ”€â”€ Bridges.svelte       # Program-centric bridge management
+â”‚       â”‚   â”œâ”€â”€ CoordinatorTraining.svelte # Training Vault explorer + repository + snapshots
+â”‚       â”‚   â”œâ”€â”€ Skills.svelte        # Skill management + registry browser
+â”‚       â”‚   â”œâ”€â”€ Knowledge.svelte     # Combined Skills & Training tabbed page
 â”‚       â”‚   â”œâ”€â”€ Policies.svelte      # Policy CRUD (5 types)
-â”‚       â”‚   â”œâ”€â”€ Security.svelte      # 2FA setup/disable, admin enforcement toggle
 â”‚       â”‚   â””â”€â”€ AuditLog.svelte      # Paginated audit log
 â”‚       â””â”€â”€ lib/
 â”‚           â”œâ”€â”€ api/client.ts        # REST API client (incl. 2FA + settings endpoints)
 â”‚           â”œâ”€â”€ stores/              # auth (with 2FA state), navigation, toast
 â”‚           â””â”€â”€ components/          # layout (Sidebar, Header), ui (Toast, Modal)
-â”‚
-â”œâ”€â”€ bridges/
-â”‚   â”œâ”€â”€ godot/
-â”‚   â”‚   â”œâ”€â”€ addons/arkestrator_bridge/
-â”‚   â”‚   â”‚   â”œâ”€â”€ plugin.gd            # Main EditorPlugin - dock UI, editor context, SDK public API
-â”‚   â”‚   â”‚   â”œâ”€â”€ ws_client.gd         # WebSocket client with reconnect + message parsing
-â”‚   â”‚   â”‚   â”œâ”€â”€ file_applier.gd      # Apply FileChange arrays to the Godot project
-â”‚   â”‚   â”‚   â”œâ”€â”€ command_executor.gd  # Execute GDScript commands returned in command mode
-â”‚   â”‚   â”‚   â””â”€â”€ context_menu.gd      # Right-click "Add to Arkestrator Context" menus
-â”‚   â”‚   â””â”€â”€ demo/                    # Test project with the plugin enabled
-â”‚   â”œâ”€â”€ blender/
-â”‚   â”‚   â””â”€â”€ arkestrator_bridge/    # Blender addon (Python package)
-â”‚   â”‚       â”œâ”€â”€ __init__.py          # Registration, WS dispatch, SDK public API (get_bridge())
-â”‚   â”‚       â”œâ”€â”€ ws_client.py         # WebSocket client (stdlib only, threaded)
-â”‚   â”‚       â”œâ”€â”€ operators.py         # Connect operator, editor context helpers
-â”‚   â”‚       â”œâ”€â”€ panels.py            # N-panel UI (status, settings, log)
-â”‚   â”‚       â”œâ”€â”€ preferences.py       # AddonPreferences (persistent settings)
-â”‚   â”‚       â”œâ”€â”€ properties.py        # Scene PropertyGroups (runtime state)
-â”‚   â”‚       â”œâ”€â”€ context_menu.py      # Right-click "Add to Arkestrator Context" menus
-â”‚   â”‚       â”œâ”€â”€ file_applier.py      # Apply file changes to disk
-â”‚   â”‚       â””â”€â”€ command_executor.py  # Execute Python commands
-â”‚   â””â”€â”€ houdini/
-â”‚       â””â”€â”€ arkestrator_bridge/    # Houdini package (Python)
-â”‚           â”œâ”€â”€ __init__.py          # Registration, WS dispatch, SDK public API (get_bridge())
-â”‚           â”œâ”€â”€ ws_client.py         # WebSocket client (stdlib only, threaded)
-â”‚           â”œâ”€â”€ file_applier.py      # Apply file changes to disk
-â”‚           â””â”€â”€ command_executor.py  # Execute Python + HScript commands
 â”‚
 â”œâ”€â”€ Dockerfile                       # Multi-stage: build admin SPA â†’ Bun server image
 â”œâ”€â”€ docker-compose.yml               # Single-service deployment
@@ -535,6 +525,8 @@ arkestrator/
 | `projects` | Bridge path â†’ server path mappings | id, name, bridge_path_pattern, source_path, system_prompt |
 | `job_dependencies` | Jobâ†’Job dependency edges | job_id, depends_on_job_id |
 | `headless_programs` | Headless CLI program configs | id, name, program, command, args (template with `{{SCRIPT}}`/`{{SCRIPT_FILE}}`/`{{PROJECT_PATH}}`), enabled |
+| `skills` | Learned/materialized skills | id, slug, program, name, description, content, source_type, source_job_id, tags, enabled, created_at, updated_at |
+| `job_interventions` | Operator guidance notes for jobs | id, job_id, user_id, type, content, status, created_at, delivered_at |
 
 ### Auth & Admin Tables
 
@@ -619,7 +611,7 @@ Deletable statuses: `paused`, `completed`, `failed`, `cancelled`
 
 ## WebSocket Protocol
 
-All messages use `{ type, id, payload }` envelope. The `id` is a UUID for request/response correlation. 28 message types defined in `packages/protocol/src/messages.ts`.
+All messages use `{ type, id, payload }` envelope. The `id` is a UUID for request/response correlation. 41 message types defined in `packages/protocol/src/messages.ts`.
 
 ### Bridge â†’ Server
 | Type | Payload | Description |
@@ -661,11 +653,27 @@ All messages use `{ type, id, payload }` envelope. The `id` is a UUID for reques
 | `job_list` / `job_list_response` | `{ jobs }` | Request/receive job list |
 | `job_cancel` | `{ jobId }` | Cancel a job |
 | `job_reprioritize` | `{ jobId, priority }` | Change priority |
+| `job_intervention_list` / `_response` | `{ jobId, interventions }` | List interventions for a job |
+| `job_intervention_submit` | `{ jobId, intervention }` | Submit guidance/intervention |
 | `agent_config_list` / `_response` | `{ configs }` | List agent configs |
 | `agent_config_create/update/delete` | AgentConfig | Manage configs |
 | `project_list` / `_response` | `{ projects }` | List projects |
-| `bridge_command_send` | `{ program, script, language }` | Send command to bridge (routed by program) |
+| `bridge_command_send` | `{ target, commands, ... }` | Send command to bridge (routed by program or ID) |
+| `worker_headless_result` | `{ correlationId, success, stdout, stderr, ... }` | Client reports headless execution result |
+| `client_job_log` | `{ jobId, text }` | Client streams log line from local agentic loop |
+| `client_job_complete` | `{ jobId, success, error, commands, durationMs }` | Client reports local job completion |
+| `client_tool_request` | `{ jobId, correlationId, tool, args }` | Client requests server-side tool execution |
 | `error` | `{ code, message }` | Error response |
+
+### Server â†’ Client (Dispatch)
+| Type | Payload | Description |
+|------|---------|-------------|
+| `client_job_dispatch` | `{ jobId, job, agentConfig, basePrompt, model, ... }` | Server dispatches local-oss job to client for execution |
+| `client_tool_result` | `{ jobId, correlationId, ok, data, error }` | Server returns tool execution result |
+| `client_job_cancel` | `{ jobId }` | Server tells client to cancel a dispatched job |
+| `worker_headless_command` | `{ senderId, correlationId, program, execution, ... }` | Server routes headless DCC execution to client |
+| `job_intervention_updated` | `{ jobId, intervention, support }` | Intervention state changed |
+| `file_deliver` | `{ files, projectPath, source }` | Cross-machine file delivery to client |
 
 ## Environment Variables
 
@@ -740,11 +748,11 @@ API keys are auto-provisioned on login - users never see or manage them directly
 | Project mappings | Yes | No |
 | Embedded admin panel | Yes (iframe at Admin tab) | N/A |
 | User management | No | Yes |
-| API key management | No | No (not in active admin UI) |
-| Policy management | No | Yes (Filters page, permission-gated) |
-| 2FA management | Login flow only | No (not in active admin UI) |
+| API key management | No | Yes (ApiKeys page, permission-gated) |
+| Policy management | No | Yes (Policies page, permission-gated) |
+| Skills & Training | No | Yes (Knowledge page - Skills + Training Vault) |
+| Bridge management | No | Yes (Bridges page, permission-gated) |
 | Audit log | No | Yes (permission-gated) |
-| Connection management (kick) | No | No (not in active admin UI) |
 | Local server management | Yes (auto-boot) | No |
 | Native desktop | Yes (Tauri) | No (web SPA) |
 
@@ -753,41 +761,67 @@ The client embeds the admin panel via iframe with `postMessage` session token ha
 ## Implementation Status
 
 ### Completed
-- Protocol package with all Zod schemas (28 message types)
-- Server: full REST API (17 route files), WebSocket hub, job queue, agent spawner, workspace resolution
-- Server: user accounts, session auth, API keys, policies, audit logging
+- Protocol package with all Zod schemas (41 message types including client dispatch, headless, file delivery, interventions)
+- Server: full REST API (19 route files), WebSocket hub, job queue, agent spawner, workspace resolution
+- Server: user accounts, session auth, API keys (with fine-grained per-key permissions), policies, audit logging
 - Server: TOTP 2FA (two-phase login, recovery codes, admin enforcement)
 - Server: optional TLS/SSL support
 - Server: persistent workers with program history (worker_bridges), job-to-worker targeting, multi-bridge dispatch
-- Server: headless program execution (blender, godot, houdini CLI fallback)
+- Server: headless program execution routed to desktop client/worker (worker-headless.ts)
 - Server: cross-bridge command system, SSE chat endpoint
 - Server: compiled sidecar binary for Tauri client
-- Client: multi-tab chat interface with SSE streaming, smart auto-split, bridge targeting
+- Server: MCP Tool Server (tool-server.ts + routes.ts) with full orchestration tools, bridge commands, job control, client-API forwarding, per-user MCP gating
+- Server: Skills/Outcome Learning System (skill-index, skill-registry, skill-materializer, skill-migration, skill-templates, skills.repo.ts, skills.ts route)
+- Server: Coordinator system (playbooks, task definitions, training orchestration, source analysis, adaptive guidance matching, outcome learning)
+- Server: Training Vault (analysis, outcome capture, skill materialization, zip export/import, artifact attribution)
+- Server: Agent CLI auth endpoints (agent-cli-auth.ts) for one-click Claude/Codex login in container/server environments
+- Server: Job interventions/guidance system (live operator notes delivered to running jobs, job-interventions.repo.ts)
+- Server: Worker-scoped heavy-resource leases (GPU/VRAM serialization per machine)
+- Server: Dynamic provider model discovery (Claude from runtime artifacts, Codex from models_cache.json)
+- Client: multi-tab chat interface with SSE streaming, smart auto-split, machine-scoped targeting
 - Client: full job management, worker monitoring, project viewing
 - Client: embedded admin panel via iframe with postMessage auto-login
 - Client: auto-boot local server (sidecar in prod, Bun in dev)
 - Client: TOTP 2FA login flow, bridge context display
-- Admin: stripped-down scope (Login + Users + AgentConfigs + Policies + AuditLog), capability-gated navigation
-- Admin: per-user fine-grained capability editing (full matrix including users/agents/projects/policies/security/audit/usage/coordinator) plus per-user settings (`require2fa`, `clientCoordinationEnabled`, token limits)
+- Client: Coordinator page (server/client config, training, script management)
+- Client: Client-dispatch local agentic loop (localAgenticLoop.ts, ollamaClient.ts, clientJobManager.ts) for local-oss job execution via Ollama
+- Client: File Delivery System (file_deliver WS message handler, Tauri fs commands: fs_apply_file_changes, fs_create_directory, fs_write_file, fs_read_file_base64, fs_delete_path, fs_exists)
+- Client: Headless execution routing (worker_headless_command handler, run_worker_headless Tauri command)
+- Client: Bridge Plugin Installer & Distribution (BridgeInstaller.svelte, bridges.rs Rust backend, registry.json, release CI packaging)
+- Client: System tray (close-to-tray, tray menu show/hide/quit) + auto-updater (startup check, download/install/restart)
+- Client: Configurable local server port (Setup/Settings/Admin controls)
+- Client: Local bridge relay for remote server connections
+- Admin: full admin scope (Login, Users, ApiKeys, AgentConfigs, Machines, Bridges, Knowledge/Skills/Training, Policies, AuditLog), capability-gated navigation
+- Admin: per-user fine-grained capability editing (full matrix including users/agents/projects/policies/security/audit/usage/coordinator/mcp/intervene/executeCommands/deliverFiles/submitJobs) plus per-user settings (`require2fa`, `clientCoordinationEnabled`, token limits)
 - Admin: postMessage auto-login from Tauri client iframe
+- Admin: Training Vault explorer with repository controls, snapshots, zip export/import, job metadata table
+- Admin: Skills page with skill management, registry browser, import/export
+- Admin: Bridges page with program-centric management (edit script, kick, remove, add)
+- Admin: API Keys page with grouped permission checkboxes, edit permissions modal
+- Admin: Agent CLI auth panel for one-click Claude/Codex login
 - Godot bridge: context push, file application, command execution, cross-bridge, SDK public API
-- Blender bridge: context push, file application, command execution, cross-bridge, SDK public API
+- Blender bridge: context push, file application, command execution, cross-bridge, SDK public API, runtime context menu discovery
 - Houdini bridge: context push, file application, Python+HScript execution, cross-bridge, SDK public API
+- Fusion / DaVinci Resolve bridge: comp structure, tool settings, flow graph, Loaders/Savers, 3D scene, modifiers, keyframes, Fuse/RunScript sources, macros; Python + Lua execution
+- ComfyUI bridge: standalone Python bridge, workflow execution, image/video artifact collection, system stats
 - Unity bridge: context push, file application, `unity_json` command execution, cross-bridge
-- SDKs: Python SDK (any Python DCC), GDScript SDK (Godot plugins)
-- Version infrastructure: `/health` exports `protocolVersion` + `capabilities`, bridges send `protocolVersion` on WS connect, SDKs have `check_server()` + `has_capability()` for forward-compatible feature gating
-- Docker support
-- Server hardening: JSON parse guards on all POST/PUT routes, invalid regex warning in enforcer, sync max size enforcement
+- Unreal bridge: C++ editor plugin, selected actors/level context, Python/console command execution, file applier
+- Version infrastructure: `/health` exports `protocolVersion` + `capabilities`, bridges send `protocolVersion` on WS connect
+- Docker support (GHCR publish, multi-stage Bun image, pnpm filtered install)
+- Server hardening: JSON parse guards on all POST/PUT routes, invalid regex warning in enforcer, sync max size enforcement, CORS defaults, security audit pass
 - Performance: SQL-based dashboard stats, job list pagination (REST + WS), N+1 query fixes (workers JOIN, job enrichment batch), 5 MB log buffer cap
-- Client UX: error handling + toasts on all Jobs page actions, bridge dropdown click-outside fix, ConfirmDialog for all delete actions (jobs, workers, agent configs), self-service password change, platform-aware title bar
+- Client UX: error handling + toasts on all Jobs page actions, ConfirmDialog for all delete actions, self-service password change, platform-aware title bar
 - Protocol: binary file support in FileChange (`binaryContent` base64 + `encoding` field), `binary_files` capability flag
+- Protocol: shared local agentic loop (local-agentic.ts, local-agentic-loop.ts) for server+client local-oss execution
 - Bridge fixes: path traversal validation (Blender + Godot), Godot context item payload nesting, Godot reconnection countdown, binary file handling in all bridges
 - Structured SDK error codes: all REST error responses include `{ error, code }` with typed ErrorCode enum for programmatic handling
 - Agent config templates: preset configs for Claude Sonnet/Opus, Gemini, Codex, Custom Local with "Add from Template" UI
 - Job submission rate limiting: 10 jobs/minute per API key
+- CI/CD pipeline (GitHub Actions: build protocol, type-check client+admin, run server+protocol tests, release builds for macOS/Windows/Linux)
+- VS Code extension (Chat Participant + standalone webview, auto-discovery, status bar)
 
 ### Pending
-- System tray + auto-update for Tauri client
+(No major pending items -- all planned v0.1.x features have shipped.)
 
 ### Recently Completed
 - Bridge Plugin Installer & Distribution: `bridges/registry.json` + `BridgeInstaller.svelte` + `bridges.rs` Rust backend + release CI bridge packaging + version sync across bridge manifests + release workflow fixes (macOS conditional signing, Linux FUSE workaround).
@@ -910,7 +944,7 @@ Each module below contains enough detail for an agent to understand and work on 
 
 ### Protocol (`packages/protocol/`)
 
-**8 source files, ~15KB total. Single dependency: zod.**
+**11 source files. Single dependency: zod.**
 
 The shared schema package defines ALL types used across server, client, and admin. Every Zod schema serves dual purpose: runtime validation AND TypeScript type inference.
 
@@ -920,7 +954,7 @@ The shared schema package defines ALL types used across server, client, and admi
 - **AgentConfig**: id, name, engine, command, args, model, maxTurns, systemPrompt, priority, timestamps
 - **Job**: 20+ fields - status, priority, name, prompt, editorContext, files, agentConfigId, bridgeId, workerName, targetWorkerName, result (FileChange[]), commands (CommandResult[]), workspaceMode, logs, error, tokenUsage, dependsOn, projectId, submittedBy, bridgeProgram, timestamps
 - **JobSubmit**: prompt, editorContext, files, agentConfigId, priority, preferredMode, dependsOn, targetWorkerName, startPaused, projectId
-- **28 WebSocket message types**: All use `{ type, id, payload }` envelope via `makeMessage()` helper. `Message` is a discriminated union on `type`. Includes bridge context messages (item_add, clear, editor_context, sync), bridge command messages (send, command, result), and project list messages.
+- **41 WebSocket message types**: All use `{ type, id, payload }` envelope via `makeMessage()` helper. `Message` is a discriminated union on `type`. Includes bridge context messages (item_add, clear, editor_context, sync), bridge command messages (send, command, result), project list messages, job intervention messages (list, submit, updated), client-dispatch messages (dispatch, tool_request, tool_result, job_log, job_complete, job_cancel), headless execution messages (worker_headless_command, worker_headless_result), and file_deliver.
 - **Policy**: scope (global/user), type, pattern, action, enabled
 - **Project**: bridgePathPattern, sourceType (local/git), sourcePath, systemPrompt, git options
 - **Worker**: name (unique), status (computed), lastProgram, lastProjectPath, activeBridgeCount, osUser, knownPrograms
@@ -929,13 +963,13 @@ The shared schema package defines ALL types used across server, client, and admi
 
 ### Server (`server/`)
 
-**44 source files in 9 subdirectories. Deps: @arkestrator/protocol, hono, minimatch, otpauth.**
+**60+ source files in 13 subdirectories. Deps: @arkestrator/protocol, hono, minimatch, otpauth.**
 
 The server is the central hub - all state lives here.
 
-**Entry point (`src/index.ts`):** Initializes 13 repos, seeds defaults on first run (bootstrap admin user with strong env password or generated secret persisted to `bootstrap-admin.txt`, admin API key, default Claude Code config, default headless program templates for worker-owned execution), creates WS hub + process tracker + scheduler + sync manager, starts worker loop + timeout checker + cleanup timers, serves HTTP via Hono and WS via `Bun.serve()`. Optional TLS via `TLS_CERT_PATH` + `TLS_KEY_PATH` env vars.
+**Entry point (`src/index.ts`):** Initializes 16 repos (including skills, interventions), seeds defaults on first run (bootstrap admin user with strong env password or generated secret persisted to `bootstrap-admin.txt`, admin API key, default Claude Code config, default headless program templates for worker-owned execution), creates WS hub + process tracker + scheduler + sync manager, starts worker loop + timeout checker + cleanup timers, serves HTTP via Hono and WS via `Bun.serve()`. Optional TLS via `TLS_CERT_PATH` + `TLS_KEY_PATH` env vars.
 
-**Database (`src/db/`):** 14 tables across 14 repo files + migrations. Key patterns:
+**Database (`src/db/`):** 16 tables across 16 repo files + migrations. Key patterns:
 - All repos use prepared statements for performance
 - `pickNext()`: priority-ordered (criticalâ†’low), excludes jobs with incomplete dependencies, FIFO within same priority
 - Startup recovery: stuck `running` â†’ `queued`
@@ -945,7 +979,7 @@ The server is the central hub - all state lives here.
 - `workers.repo.ts`: worker_bridges sub-table tracks per-worker program history
 - `headless-programs.repo.ts`: CLI program configs with template placeholders
 
-**REST API (`src/routes/`):** 17 route files. Auth: `getAuthenticatedUser()` from Bearer token, `requireAdmin()` for admin ops. Two-phase login with TOTP 2FA (10 attempts/IP/15min rate limit). Job creation validates via Zod + checks policies. Jobs enriched with tokenUsage + dependsOn. SSE streaming chat endpoint. Bridge-command API now includes command execution, bridge listing, full bridge context lookup, and worker-owned headless-check execution paths.
+**REST API (`src/routes/`):** 19 route files. Auth: `getAuthenticatedUser()` from Bearer token, `requireAdmin()` for admin ops. Two-phase login with TOTP 2FA (10 attempts/IP/15min rate limit). Job creation validates via Zod + checks policies. Jobs enriched with tokenUsage + dependsOn. SSE streaming chat endpoint. Bridge-command API now includes command execution, bridge listing, full bridge context lookup, and worker-owned headless-check execution paths.
 
 **WebSocket (`src/ws/`):** Hub (connection registry + broadcast + bridge context state), Handler (parse â†’ validate â†’ dispatch 15+ message types, including worker-owned headless result resolution), per-connection WsData (id, role, type, program, programVersion, bridgeVersion, workerName, machineId, projectPath, ip, osUser). Hub maintains `bridgeContexts: Map` for per-bridge context storage, relays context changes to all clients, and now locates desktop clients by worker for headless execution routing. On client connect: sends full bridge context sync + bridge status + worker status.
 
@@ -974,14 +1008,15 @@ The server is the central hub - all state lives here.
 
 **30 source files. Tauri v2 + Svelte 5 runes. PRIMARY user dashboard.**
 
-**Pages (7):**
+**Pages (8):**
 - **Chat** (default page): Multi-tab chat interface with SSE streaming. Machine targeting dropdown (`Auto` or one/many workers) replaces raw bridge selection in normal chat/job submit flow; live bridge/editor context is scoped to the selected workers while the coordinator remains responsible for choosing actual bridge/program steps. Three message roles: user, assistant, system. Collapsible context panel (right sidebar). Unsent tab drafts persist through navigation away from Chat and page remounts.
-- **Jobs**: Resizable split panel. Left: filterable list with status dots, program icons (G/B/H), dependency tree (indented nesting), multi-select checkboxes, bulk delete, "Start Queue". Right: detail panel with all metadata, actions, dependency links, prompt, commands, real-time log stream.
-- **Admin**: Embedded admin panel via iframe at `{serverUrl}/admin`. Auto-passes session token via `postMessage` for seamless login.
+- **Jobs**: Resizable split panel. Left: filterable list with status dots, program icons (G/B/H), dependency tree (indented nesting), multi-select checkboxes, bulk delete, "Start Queue". Right: detail panel with all metadata, actions, dependency links, prompt, commands, real-time log stream, outcome feedback.
+- **Admin**: Embedded admin panel via iframe at `{serverUrl}/admin`. Auto-passes session token via `postMessage` for seamless login. Includes local-server controls for desktop-local sessions.
 - **Workers**: Machine-centric view: expandable worker cards with online/offline status, OS username, nested bridge list with program badges and version info.
 - **Projects**: Project mapping CRUD with per-project system prompt.
-- **Settings**: Server URL, login/logout. No API key field - auto-provisioned.
-- **Setup**: First-time setup with login-first flow. TOTP 2FA support (code input after password). Local server start via compiled sidecar binary (prod) or Bun (dev).
+- **Coordinator**: Dedicated coordinator management with Server Config (global + bridge scripts), Training (queue/schedule/run), and Client Config (local bridge prompt overrides) tabs.
+- **Settings**: Server URL, login/logout, bridge plugin installer, local model management, local server port configuration.
+- **Setup**: First-time setup with login-first flow. TOTP 2FA support (code input after password). Local server start via compiled sidecar binary (prod) or Bun (dev). Configurable local server port.
 
 **Stores (9, Svelte 5 runes):** connection (url, session, serverMode, status - persists to localStorage), jobs (all, selectedId, selectedIds, logBuffer, statusFilter), agents (all), workers (workers + bridges + knownPrograms), chat (tabs, messages, machine selection, draft prompts - debounced persistence that now survives Chat page remounts), bridgeContext (per-bridge editor context + context items), server (local server process management), toast (notifications), navigation (current page).
 
@@ -993,18 +1028,18 @@ The server is the central hub - all state lives here.
 
 **21 source files. Svelte 5 + Vite web SPA. REST-only (no WebSocket).**
 
-**Pages (6):** Login (two-phase with 2FA), Users, AgentConfigs, Machines, Policies, AuditLog. Login guard on mount. **postMessage auto-login**: listens for `{ type: "session_token", token }` from parent window (Tauri client embeds admin via iframe) to skip login.
+**Pages (11):** Login (two-phase with 2FA), Users, ApiKeys, AgentConfigs, Machines, Bridges, CoordinatorTraining, Skills, Knowledge, Policies, AuditLog. Login guard on mount. **postMessage auto-login**: listens for `{ type: "session_token", token }` from parent window (Tauri client embeds admin via iframe) to skip login.
 
 **Has but Client doesn't:** User management, server-side machine controls, policies, audit log.
 **Client has but Admin doesn't:** Real-time WS streaming, chat interface, native desktop, local server management.
 
 **Served by server** at `/admin/*` with SPA fallback to `index.html`.
 
-### Godot Bridge (`bridges/godot/addons/arkestrator_bridge/`)
+### Godot Bridge (separate repo: [arkestrator-bridges](https://github.com/timvanhelsdingen/arkestrator-bridges))
 
 **4 GDScript files + plugin.cfg. Reference implementation for all bridges.**
 
-**Source of truth:** `bridges/godot/addons/arkestrator_bridge/` (NOT the demo copy at `bridges/godot/demo/addons/`).
+Bridge plugins live in the [arkestrator-bridges](https://github.com/timvanhelsdingen/arkestrator-bridges) repository, not in this repo.
 
 **Files:**
 - `plugin.gd` (~810 lines): Main EditorPlugin. Programmatic dock UI (Task + Settings tabs), editor context gathering (scene, nodes, scripts), job submission, WS callbacks, scene reload. 12 editor settings.
