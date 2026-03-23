@@ -701,7 +701,7 @@ async function main() {
               const autoPull = settingsRepo.get("auto_pull_bridge_skills");
               if (autoPull !== "false" && !skillsPulledThisSession.has(ws.data.program)) {
                 skillsPulledThisSession.add(ws.data.program);
-                pullBridgeSkills(ws.data.program, skillsRepo, settingsRepo, true)
+                pullBridgeSkills(ws.data.program, skillsRepo, settingsRepo, false)
                   .then((r) => {
                     if (r.pulled > 0) logger.info("skills", `Auto-pulled ${r.pulled} skills for ${ws.data.program}`);
                   })

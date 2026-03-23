@@ -109,7 +109,16 @@ export async function pullBridgeSkills(
     }
   }
 
-  // 2. Fetch registry.json
+  // 2. Skip network fetch if skills already exist for this program (from a previous pull).
+  //    Only re-fetch if force=true or no bridge-repo skills exist yet.
+  if (!force) {
+    const existingSkills = skillsRepo.listAll({ program: normalized, source: "bridge-repo" });
+    if (existingSkills.length > 0) {
+      return { pulled: 0, errors: [] };
+    }
+  }
+
+  // 3. Fetch registry.json
   const registry = await fetchBridgeRegistry();
   const bridge = registry.bridges?.find((b) => b.program === normalized);
 
