@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Arkestrator",
   "mainBinaryName": "arkestrator",
-  "version": "0.1.64",
+  "version": "0.1.65",
   "identifier": "com.arkestrator.desktop",
   "build": {
     "frontendDist": "../dist",
