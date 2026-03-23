@@ -259,7 +259,7 @@ describe("buildCommand (codex orchestration)", () => {
       };
 
       const spec = buildCommand(config, job, [], workspace, [], [], undefined);
-      expect(spec.cwd).toContain(`/arkestrator-codex/${job.id}`);
+      expect(spec.cwd.replaceAll("\\", "/")).toContain(`/arkestrator-codex/${job.id}`);
 
       const existingDir = join(runDir, "with-existing");
       mkdirSync(existingDir, { recursive: true });
@@ -332,16 +332,16 @@ describe("buildCommand (codex orchestration)", () => {
 
   test("global coordinator prompt is a minimal template with core rules", () => {
     expect(DEFAULT_ORCHESTRATOR_PROMPT).toContain("Global Coordinator");
-    expect(DEFAULT_ORCHESTRATOR_PROMPT).toContain("Plan before executing");
-    expect(DEFAULT_ORCHESTRATOR_PROMPT).toContain("get_skill()");
-    expect(DEFAULT_ORCHESTRATOR_PROMPT).toContain("Verify results after execution");
+    expect(DEFAULT_ORCHESTRATOR_PROMPT).toContain("Output a concise plan");
+    expect(DEFAULT_ORCHESTRATOR_PROMPT).toContain("execute_command");
+    expect(DEFAULT_ORCHESTRATOR_PROMPT).toContain("Verification Policy");
     expect(DEFAULT_ORCHESTRATOR_PROMPT).toContain("Probe `am` before relying on it");
     // Bridge-specific prompts are no longer hardcoded — they come from the bridge repo
   });
 });
 
 describe("buildCommand (claude root compatibility)", () => {
-  test("omits dangerously-skip-permissions when running as root (Claude CLI rejects it)", () => {
+  test("still includes dangerously-skip-permissions when running as root (required for headless mode)", () => {
     const config: AgentConfig = {
       id: "ce111111-1111-4111-8111-111111111111",
       name: "Claude",
@@ -368,9 +368,11 @@ describe("buildCommand (claude root compatibility)", () => {
       usedBridges: [],
     };
 
+    // The runtime decision always allows the flag now (even for root),
+    // because without it Claude CLI cannot function in headless mode.
     withMockedGetuid(0, () => {
       const spec = buildCommand(config, job);
-      expect(spec.args).not.toContain("--dangerously-skip-permissions");
+      expect(spec.args).toContain("--dangerously-skip-permissions");
     });
   });
 

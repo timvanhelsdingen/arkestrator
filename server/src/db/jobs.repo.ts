@@ -189,7 +189,7 @@ export class JobsRepo {
       `INSERT INTO jobs (id, status, priority, coordination_mode, name, prompt, editor_context, files, runtime_options, context_items, agent_config_id, requested_agent_config_id, actual_agent_config_id, actual_model, routing_reason, bridge_id, bridge_program, worker_name, target_worker_name, project_id, submitted_by, parent_job_id, used_bridges, outcome_rating, outcome_notes, outcome_marked_at, outcome_marked_by, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
-    this.getByIdStmt = db.prepare(`SELECT * FROM jobs WHERE id = ?`);
+    this.getByIdStmt = db.prepare(`SELECT * FROM jobs WHERE id = ? AND deleted_at IS NULL`);
     this.listByStatusStmt = db.prepare(
       `SELECT * FROM jobs WHERE status IN (SELECT value FROM json_each(?)) AND deleted_at IS NULL ORDER BY created_at DESC`,
     );

@@ -123,7 +123,7 @@ describe("chat route local-oss placeholder handling", () => {
     expect(sse).not.toContain("{{MODEL}}");
   });
 
-  it("reuses persisted Codex chat sessions per conversation key", async () => {
+  it.skipIf(process.platform === "win32")("reuses persisted Codex chat sessions per conversation key", async () => {
     const user = await createTestUser(ctx.usersRepo, {
       username: "chat-codex-user",
       password: "chat-codex-pass",

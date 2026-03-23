@@ -92,20 +92,21 @@ export function createMcpRoutes(
     const principal = await getAuthPrincipal(c, usersRepo, apiKeysRepo);
     if (!principal) return null;
 
-    // Check useMcp permission uniformly for both users and API keys
-    if (!principalHasPermission(principal, "useMcp")) {
-      // Special case: auto-user API keys inherit from the owning user
-      if (principal.kind === "apiKey") {
-        const autoUserPrefix = "auto:user:";
-        if (principal.apiKey.name.startsWith(autoUserPrefix)) {
-          const userId = principal.apiKey.name.slice(autoUserPrefix.length).trim();
-          if (!userId) return null;
-          const owner = usersRepo.getById(userId);
-          if (!owner || owner.permissions.useMcp !== true) return null;
-          // Owner has useMcp — allow this key
-          return principal;
-        }
+    // Special case: auto-user API keys inherit useMcp from the owning user,
+    // regardless of the key's own default permissions.
+    if (principal.kind === "apiKey") {
+      const autoUserPrefix = "auto:user:";
+      if (principal.apiKey.name.startsWith(autoUserPrefix)) {
+        const userId = principal.apiKey.name.slice(autoUserPrefix.length).trim();
+        if (!userId) return null;
+        const owner = usersRepo.getById(userId);
+        if (!owner || owner.permissions.useMcp !== true) return null;
+        return principal;
       }
+    }
+
+    // Check useMcp permission uniformly for both users and non-auto API keys
+    if (!principalHasPermission(principal, "useMcp")) {
       return null;
     }
     return principal;

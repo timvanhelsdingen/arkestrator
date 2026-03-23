@@ -52,7 +52,7 @@ describe("file snapshot watcher", () => {
     expect(byPath.get("note.txt")?.content).toBe("after");
 
     expect(byPath.get("sample.bin")?.action).toBe("create");
-    expect(byPath.get("sample.bin")?.content).toContain("[binary]");
+    expect(byPath.get("sample.bin")?.content).toContain("[binary:bin]");
 
     expect(byPath.get("remove_me.txt")?.action).toBe("delete");
 

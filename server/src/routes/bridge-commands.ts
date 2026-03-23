@@ -380,6 +380,8 @@ export function createBridgeCommandRoutes(
   async function authenticate(c: any): Promise<AuthPrincipal | null> {
     const principal = await getAuthPrincipal(c, usersRepo, apiKeysRepo);
     if (!principal) return null;
+    // Bridge-role API keys connect via WebSocket, not REST command routes
+    if (principal.kind === "apiKey" && principal.apiKey.role === "bridge") return null;
     return principal;
   }
 

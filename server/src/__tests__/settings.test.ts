@@ -36,6 +36,10 @@ describe("settings routes", () => {
     hub = new WebSocketHub();
 
     coordinatorScriptsDir = mkdtempSync(join(tmpdir(), "am-settings-"));
+    // Seed known programs so normalizeProgramList() accepts them
+    writeFileSync(join(coordinatorScriptsDir, "godot.md"), "# Godot coordinator");
+    writeFileSync(join(coordinatorScriptsDir, "houdini.md"), "# Houdini coordinator");
+    writeFileSync(join(coordinatorScriptsDir, "blender.md"), "# Blender coordinator");
     coordinatorPlaybooksDir = mkdtempSync(join(tmpdir(), "am-playbooks-"));
     coordinatorImportsDir = mkdtempSync(join(tmpdir(), "am-imports-"));
     snapshotsDir = mkdtempSync(join(tmpdir(), "am-snapshots-"));
