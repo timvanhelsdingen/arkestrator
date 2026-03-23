@@ -349,6 +349,62 @@ async function main() {
     logger.info("server", `Updated ${program} headless executable to detected path: ${resolved}`);
   }
 
+  // Auto-discover headless executables on common install paths when the bare
+  // executable name (e.g. "hython") isn't on PATH.
+  {
+    const isWindows = process.platform === "win32";
+    const isMac = process.platform === "darwin";
+
+    // Build candidate paths dynamically by scanning install directories
+    const discoverCandidates: Record<string, string[]> = { houdini: [], blender: [], godot: [] };
+
+    // Houdini: scan Side Effects install dir for all versions, pick latest
+    const sfsBase = isWindows
+      ? "C:/Program Files/Side Effects Software"
+      : isMac
+      ? "/Applications/Houdini"
+      : "/opt/hfs";
+    try {
+      if (existsSync(sfsBase)) {
+        const dirs = readdirSync(sfsBase)
+          .filter((d) => d.startsWith("Houdini ") || d.startsWith("Houdini"))
+          .sort()
+          .reverse(); // newest version first
+        for (const dir of dirs) {
+          const hythonPath = join(sfsBase, dir, "bin", isWindows ? "hython.exe" : "hython");
+          if (existsSync(hythonPath)) {
+            discoverCandidates.houdini.push(hythonPath);
+          }
+        }
+      }
+    } catch { /* ignore scan errors */ }
+
+    // Blender: common install paths
+    if (isWindows) {
+      discoverCandidates.blender.push(
+        "C:/Program Files/Blender Foundation/Blender/blender.exe",
+        "C:/Program Files/Blender Foundation/Blender 4.4/blender.exe",
+        "C:/Program Files/Blender Foundation/Blender 4.3/blender.exe",
+      );
+    } else if (isMac) {
+      discoverCandidates.blender.push("/Applications/Blender.app/Contents/MacOS/Blender");
+    }
+
+    for (const [program, candidates] of Object.entries(discoverCandidates)) {
+      if (candidates.length === 0) continue;
+      const existing = headlessProgramsRepo.getByProgram(program);
+      if (!existing || !existing.enabled) continue;
+      const exe = String(existing.executable || "").trim();
+      // Skip if already has a full path that exists
+      if ((exe.includes("/") || exe.includes("\\")) && existsSync(exe)) continue;
+      const found = candidates.find((c) => existsSync(c));
+      if (found) {
+        headlessProgramsRepo.update(existing.id, { executable: found });
+        logger.info("server", `Auto-discovered ${program} headless executable: ${found}`);
+      }
+    }
+  }
+
   // Seed coordinator scripts directory with per-bridge defaults (on every startup, for new scripts)
   seedCoordinatorScripts(config.coordinatorScriptsDir, skillsRepo);
   logger.info("server", `Coordinator scripts seeded at ${config.coordinatorScriptsDir}`);
