@@ -8,6 +8,9 @@ import {
   inferHeadlessArgsHeavyResources,
 } from "./resource-control.js";
 import { newId } from "../utils/id.js";
+import { existsSync, readdirSync } from "fs";
+import { join } from "path";
+import { logger } from "../utils/logger.js";
 
 export interface WorkerHeadlessResult {
   success: boolean;
@@ -185,7 +188,7 @@ export async function executeWorkerHeadlessCommands(params: {
         timeoutMs: params.timeoutMs,
         execution: {
           mode: "commands",
-          config: serializeHeadlessProgram(headlessProgram),
+          config: serializeHeadlessProgram(headlessProgram, params.hub, params.targetWorkerName),
           commands: params.commands,
         },
       },
@@ -294,7 +297,7 @@ export async function runWorkerHeadlessCheck(params: {
         timeoutMs: params.timeoutMs,
         execution: {
           mode: "raw_args",
-          executable: headlessProgram.executable,
+          executable: resolveHeadlessExecutable(headlessProgram, params.hub, params.targetWorkerName),
           args: params.args,
         },
       },
@@ -314,9 +317,106 @@ export async function runWorkerHeadlessCheck(params: {
   }
 }
 
-function serializeHeadlessProgram(program: HeadlessProgram) {
+/**
+ * Resolve the full executable path for a headless program.
+ * If the stored executable is a bare name (e.g. "hython") and not on PATH,
+ * try to derive the full path from known install conventions:
+ * - Houdini: hython lives in the same bin/ folder as houdini/houdinifx
+ *   (e.g. C:\Program Files\Side Effects Software\Houdini 21.0.512\bin\hython.exe)
+ * - Blender: blender CLI is the same executable as the GUI app
+ *
+ * Uses connected bridge version info when available to target the exact version.
+ */
+function resolveHeadlessExecutable(
+  program: HeadlessProgram,
+  hub: WebSocketHub,
+  targetWorkerName?: string,
+): string {
+  const exe = program.executable.trim();
+  // If it's already a full path that exists, use it
+  if ((exe.includes("/") || exe.includes("\\")) && existsSync(exe)) return exe;
+
+  const isWindows = process.platform === "win32";
+  const isMac = process.platform === "darwin";
+
+  if (program.program === "houdini") {
+    // Try to get version from connected bridge
+    const bridges = hub.getBridges().filter(
+      (b) => String(b.program ?? "").toLowerCase() === "houdini"
+        && (!targetWorkerName || normalizeWorkerKey(b.workerName) === normalizeWorkerKey(targetWorkerName)),
+    );
+    const bridgeVersion = bridges[0]?.programVersion;
+
+    if (isWindows) {
+      const sfsBase = "C:/Program Files/Side Effects Software";
+      // If we know the exact version from the bridge, try that first
+      if (bridgeVersion) {
+        const exactPath = join(sfsBase, `Houdini ${bridgeVersion}`, "bin", "hython.exe");
+        if (existsSync(exactPath)) {
+          logger.info("worker-headless", `Resolved hython from bridge version ${bridgeVersion}: ${exactPath}`);
+          return exactPath;
+        }
+      }
+      // Scan for any installed version (newest first)
+      try {
+        if (existsSync(sfsBase)) {
+          const found = readdirSync(sfsBase)
+            .filter((d) => d.startsWith("Houdini "))
+            .sort().reverse()
+            .map((d) => join(sfsBase, d, "bin", "hython.exe"))
+            .find((p) => existsSync(p));
+          if (found) {
+            logger.info("worker-headless", `Resolved hython from install scan: ${found}`);
+            return found;
+          }
+        }
+      } catch { /* ignore */ }
+    } else if (isMac) {
+      // macOS: /Applications/Houdini/Houdini{version}/Frameworks/Houdini.framework/Versions/Current/Resources/bin/hython
+      // or via hfs: /opt/hfs{version}/bin/hython
+      if (bridgeVersion) {
+        const hfsPath = `/opt/hfs${bridgeVersion}/bin/hython`;
+        if (existsSync(hfsPath)) return hfsPath;
+      }
+      // Scan /opt/hfs*
+      try {
+        const dirs = readdirSync("/opt").filter((d) => d.startsWith("hfs")).sort().reverse();
+        for (const d of dirs) {
+          const p = join("/opt", d, "bin", "hython");
+          if (existsSync(p)) return p;
+        }
+      } catch { /* ignore */ }
+    }
+  }
+
+  if (program.program === "blender") {
+    if (isWindows) {
+      const candidates = [
+        "C:/Program Files/Blender Foundation/Blender/blender.exe",
+        ...(() => {
+          try {
+            return readdirSync("C:/Program Files/Blender Foundation")
+              .filter((d) => d.startsWith("Blender"))
+              .sort().reverse()
+              .map((d) => `C:/Program Files/Blender Foundation/${d}/blender.exe`);
+          } catch { return []; }
+        })(),
+      ];
+      const found = candidates.find((c) => existsSync(c));
+      if (found) return found;
+    } else if (isMac) {
+      const macPath = "/Applications/Blender.app/Contents/MacOS/Blender";
+      if (existsSync(macPath)) return macPath;
+    }
+  }
+
+  // Fallback: return the bare name and hope it's on PATH
+  return exe;
+}
+
+function serializeHeadlessProgram(program: HeadlessProgram, hub: WebSocketHub, targetWorkerName?: string) {
   return {
-    executable: program.executable,
+    executable: resolveHeadlessExecutable(program, hub, targetWorkerName),
     argsTemplate: [...program.argsTemplate],
     language: program.language,
   };
