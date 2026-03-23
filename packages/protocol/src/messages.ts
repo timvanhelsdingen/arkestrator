@@ -263,6 +263,10 @@ export const BridgeCommandResultMessage = makeMessage(
     skipped: z.number().int().nonnegative(),
     /** Error messages */
     errors: z.array(z.string()).default([]),
+    /** Captured stdout from the script execution (print output, return values, etc.) */
+    stdout: z.string().optional(),
+    /** Captured stderr from the script execution */
+    stderr: z.string().optional(),
     /** Optional artifact metadata (e.g. ComfyUI outputs). */
     outputs: z.array(
       z.object({

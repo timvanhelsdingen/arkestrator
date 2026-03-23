@@ -38,7 +38,7 @@ Shared Zod schema definitions that serve as the single source of truth for all T
 - **Bridge→Server**: `job_submit`
 - **Server→Bridge+Clients**: `job_accepted`, `job_started`, `job_log`, `job_complete`, `job_updated`
 - **Client↔Server**: `job_list`/`job_list_response`, `job_cancel`, `job_reprioritize`, `job_intervention_list`/`job_intervention_list_response`, `job_intervention_submit`, `job_intervention_updated`, `agent_config_list`/`_response`, `agent_config_create`/`update`/`delete`, `bridge_status`, `worker_status`, `project_list`/`_response`, `job_dependency_blocked`, `error`
-- **Cross-bridge commands**: `bridge_command_send` (sender→server), `bridge_command` (server→target bridge), `bridge_command_result` (target→server→sender)
+- **Cross-bridge commands**: `bridge_command_send` (sender→server), `bridge_command` (server→target bridge), `bridge_command_result` (target→server→sender, includes optional `stdout`/`stderr` for script output relay)
 - **Worker-owned headless execution**: `worker_headless_command` (server→desktop client), `worker_headless_result` (desktop client→server)
 - **Bridge Context**: `bridge_context_item_add` (bridge→server→client), `bridge_context_clear` (bridge→server→client), `bridge_editor_context` (bridge→server→client), `bridge_context_sync` (server→client)
 - **Client-dispatched local LLM jobs**: `client_job_dispatch` (server→client), `client_tool_request` (client→server), `client_tool_result` (server→client), `client_job_log` (client→server), `client_job_complete` (client→server), `client_job_cancel` (server→client)

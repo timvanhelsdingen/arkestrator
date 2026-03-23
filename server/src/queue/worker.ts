@@ -306,9 +306,13 @@ export class WorkerLoop {
       for (let i = 0; i < availableSlots; i++) {
         let job: Job | null = null;
 
-        // Try worker-aware pick for each connected worker, then fallback to generic
+        // Round-robin across connected workers to ensure fair scheduling.
+        // Without this, the first worker in the list would always get priority,
+        // starving other workers' targeted jobs when all slots are busy.
         if (workerNames.length > 0) {
-          for (const wn of workerNames) {
+          const startIdx = (dispatchedCount + i) % workerNames.length;
+          for (let wi = 0; wi < workerNames.length; wi++) {
+            const wn = workerNames[(startIdx + wi) % workerNames.length];
             job = this.deps.scheduler.pickNextForWorker(wn);
             if (job) break;
           }

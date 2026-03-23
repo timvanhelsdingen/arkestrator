@@ -40,6 +40,8 @@ export interface McpDeps {
   principal?: AuthPrincipal;
   /** Skill index for lazy-loading prompt context via MCP. */
   skillIndex?: import("../skills/skill-index.js").SkillIndex;
+  /** Settings repo for reading server preferences (e.g. prefer_headless_bridges). */
+  settingsRepo?: import("../db/settings.repo.js").SettingsRepo;
 }
 
 const CLIENT_API_ALLOW_PREFIXES = [
@@ -308,6 +310,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
           targetWorkerName: callerJob?.targetWorkerName,
         },
         deps.resourceLeaseManager,
+        deps.settingsRepo,
       );
 
       // Track which bridges were used by this job
@@ -322,14 +325,27 @@ export function createMcpServer(deps: McpDeps): McpServer {
       }
 
       if (result.error) {
+        const parts = [`Error: ${result.error}`];
+        if (result.result?.stdout) parts.push(`stdout:\n${result.result.stdout}`);
+        if (result.result?.stderr) parts.push(`stderr:\n${result.result.stderr}`);
+        if (result.result) parts.push(JSON.stringify(result.result, null, 2));
         return {
-          content: [{ type: "text" as const, text: `Error: ${result.error}\n${result.result ? JSON.stringify(result.result, null, 2) : ""}` }],
+          content: [{ type: "text" as const, text: parts.join("\n") }],
           isError: true,
         };
       }
 
+      // Include stdout prominently in the response so the agent can see script output
+      const parts: string[] = [];
+      if (result.result?.stdout) {
+        parts.push(`stdout:\n${result.result.stdout}`);
+      }
+      if (result.result?.stderr) {
+        parts.push(`stderr:\n${result.result.stderr}`);
+      }
+      parts.push(JSON.stringify(result.result, null, 2));
       return {
-        content: [{ type: "text" as const, text: JSON.stringify(result.result, null, 2) }],
+        content: [{ type: "text" as const, text: parts.join("\n\n") }],
       };
     },
   );
@@ -364,6 +380,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
           targetWorkerName: callerJob?.targetWorkerName,
         },
         deps.resourceLeaseManager,
+        deps.settingsRepo,
       );
 
       // Track which bridges were used by this job
@@ -378,14 +395,21 @@ export function createMcpServer(deps: McpDeps): McpServer {
       }
 
       if (result.error) {
+        const parts = [`Error: ${result.error}`];
+        if (result.result?.stdout) parts.push(`stdout:\n${result.result.stdout}`);
+        if (result.result?.stderr) parts.push(`stderr:\n${result.result.stderr}`);
         return {
-          content: [{ type: "text" as const, text: `Error: ${result.error}` }],
+          content: [{ type: "text" as const, text: parts.join("\n") }],
           isError: true,
         };
       }
 
+      const parts: string[] = [];
+      if (result.result?.stdout) parts.push(`stdout:\n${result.result.stdout}`);
+      if (result.result?.stderr) parts.push(`stderr:\n${result.result.stderr}`);
+      parts.push(JSON.stringify(result.result, null, 2));
       return {
-        content: [{ type: "text" as const, text: JSON.stringify(result.result, null, 2) }],
+        content: [{ type: "text" as const, text: parts.join("\n\n") }],
       };
     },
   );

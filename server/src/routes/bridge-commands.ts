@@ -6,6 +6,7 @@ import type { UsersRepo } from "../db/users.repo.js";
 import type { PoliciesRepo } from "../db/policies.repo.js";
 import type { HeadlessProgramsRepo } from "../db/headless-programs.repo.js";
 import type { JobsRepo } from "../db/jobs.repo.js";
+import type { SettingsRepo } from "../db/settings.repo.js";
 import type { Config } from "../config.js";
 import type { WorkerResourceLeaseManager } from "../agents/resource-control.js";
 import { checkCommandScripts } from "../policies/enforcer.js";
@@ -117,6 +118,7 @@ export async function executeBridgeCommand(
   config: Config,
   params: BridgeCommandParams,
   resourceLeaseManager?: WorkerResourceLeaseManager,
+  settingsRepo?: SettingsRepo,
 ): Promise<BridgeCommandResult> {
   const { target, targetType = "program", commands, projectPath, timeout, executionMode, targetWorkerName } = params;
 
@@ -155,7 +157,12 @@ export async function executeBridgeCommand(
     MAX_TIMEOUT_MS,
   );
 
-  const preferHeadless = executionMode === "headless" && targetType !== "id";
+  // Prefer headless if explicitly requested, or if server-level setting is on (and not targeting by bridge ID)
+  const serverPreferHeadless = settingsRepo?.getBool("prefer_headless_bridges") ?? false;
+  const preferHeadless = targetType !== "id" && (
+    executionMode === "headless" ||
+    (serverPreferHeadless && executionMode !== "live")
+  );
 
   // Find target bridges
   const resolvedTargets = preferHeadless
@@ -366,6 +373,7 @@ export function createBridgeCommandRoutes(
   config: Config,
   jobsRepo?: JobsRepo,
   resourceLeaseManager?: WorkerResourceLeaseManager,
+  settingsRepo?: SettingsRepo,
 ) {
   const app = new Hono();
 
@@ -413,7 +421,7 @@ export function createBridgeCommandRoutes(
       projectPath: body.projectPath ?? body.project_path,
       executionMode,
       targetWorkerName: body.targetWorkerName ?? body.target_worker ?? (inheritCallerWorker ? callerJob?.targetWorkerName : undefined),
-    }, resourceLeaseManager);
+    }, resourceLeaseManager, settingsRepo);
 
     // Track bridge usage regardless of success/failure — the bridge was used either way.
     if (callerJobId && jobsRepo && Array.isArray(result.bridgesUsed) && result.bridgesUsed.length > 0) {

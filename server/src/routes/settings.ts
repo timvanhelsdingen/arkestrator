@@ -3936,6 +3936,34 @@ export function createSettingsRoutes(
     return c.json({ ok: true, allowClientCoordination: enabled });
   });
 
+  // --- Prefer headless bridge execution ---
+  // When enabled, jobs will prefer spawning CLI tools (blender --background, hython, etc.)
+  // instead of sending commands to live bridge sessions. Individual jobs can still override
+  // with bridgeExecutionMode: "live" to use connected bridges.
+  router.get("/prefer-headless-bridges", (c) => {
+    const user = requireAdmin(c, usersRepo);
+    if (!user) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+    return c.json({ preferHeadlessBridges: settingsRepo.getBool("prefer_headless_bridges") });
+  });
+
+  router.put("/prefer-headless-bridges", async (c) => {
+    const user = requireAdmin(c, usersRepo);
+    if (!user) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+    const body = await c.req.json().catch(() => null);
+    if (!body || typeof body.preferHeadlessBridges !== "boolean") {
+      return errorResponse(c, 400, "Missing boolean 'preferHeadlessBridges' field", "VALIDATION");
+    }
+    settingsRepo.setBool("prefer_headless_bridges", body.preferHeadlessBridges);
+    auditRepo.log({
+      userId: user.id,
+      username: user.username,
+      action: body.preferHeadlessBridges ? "prefer_headless_bridges_enabled" : "prefer_headless_bridges_disabled",
+      resource: "settings",
+      ipAddress: getClientIp(c),
+    });
+    return c.json({ ok: true, preferHeadlessBridges: body.preferHeadlessBridges });
+  });
+
   // Get server-side local LLM endpoint configuration.
   router.get("/server-local-llm", (c) => {
     const user = requireSecurityManager(c);

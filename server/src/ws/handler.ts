@@ -603,7 +603,7 @@ function handleBridgeCommandSend(
 
 function handleBridgeCommandResult(
   ws: ServerWebSocket<WsData>,
-  msg: { id: string; payload: { senderId?: string; correlationId?: string; success: boolean; executed: number; failed: number; skipped: number; errors: string[]; outputs?: any[] } },
+  msg: { id: string; payload: { senderId?: string; correlationId?: string; success: boolean; executed: number; failed: number; skipped: number; errors: string[]; stdout?: string; stderr?: string; outputs?: any[] } },
   deps: HandlerDeps,
 ) {
   const resultPayload = {
@@ -615,6 +615,8 @@ function handleBridgeCommandResult(
     failed: msg.payload.failed,
     skipped: msg.payload.skipped,
     errors: msg.payload.errors,
+    stdout: msg.payload.stdout,
+    stderr: msg.payload.stderr,
     outputs: Array.isArray(msg.payload.outputs) ? msg.payload.outputs : undefined,
   };
 

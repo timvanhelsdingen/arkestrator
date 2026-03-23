@@ -340,10 +340,23 @@ export function shouldCompleteCommandModeFromBridgeExecution(
   return job.usedBridges.some((program) => String(program ?? "").trim().length > 0);
 }
 
+/**
+ * Check whether headless/background bridge execution should be preferred.
+ * Returns true if:
+ *  1. The job explicitly requests headless mode via runtimeOptions, OR
+ *  2. The server-level "prefer_headless_bridges" setting is enabled AND
+ *     the job doesn't explicitly request "live" mode.
+ */
 export function preferHeadlessBridgeExecution(
   job: Pick<Job, "runtimeOptions"> | null | undefined,
+  serverPreferHeadless?: boolean,
 ): boolean {
-  return job?.runtimeOptions?.bridgeExecutionMode === "headless";
+  const jobMode = job?.runtimeOptions?.bridgeExecutionMode;
+  // Explicit per-job override always wins
+  if (jobMode === "headless") return true;
+  if (jobMode === "live") return false;
+  // Fall back to server-level preference
+  return serverPreferHeadless === true;
 }
 
 // Constants imported from @arkestrator/protocol via LOCAL_AGENTIC_DEFAULTS
@@ -681,7 +694,8 @@ async function executeBridgeCommandsForLocalLoop(
     300_000,
   );
 
-  const forceHeadless = preferHeadlessBridgeExecution(job);
+  const serverPreferHeadless = deps.settingsRepo?.getBool("prefer_headless_bridges") ?? false;
+  const forceHeadless = preferHeadlessBridgeExecution(job, serverPreferHeadless);
   const resolvedTargets = forceHeadless
     ? { targets: [], workerKeys: [] }
     : resolveBridgeTargets(deps.hub, target, "program", job.targetWorkerName ?? job.workerName, job.workerName);
@@ -2283,7 +2297,8 @@ export async function spawnAgent(
       }
 
       if (commands.length > 0 && job.bridgeProgram) {
-        const headlessRequired = preferHeadlessBridgeExecution(job);
+        const srvPrefHeadless = deps.settingsRepo?.getBool("prefer_headless_bridges") ?? false;
+        const headlessRequired = preferHeadlessBridgeExecution(job, srvPrefHeadless);
         const onlineBridgeCount = headlessRequired
           ? 0
           : deps.hub.getBridgesByProgram(job.bridgeProgram).length;

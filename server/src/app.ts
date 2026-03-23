@@ -169,6 +169,7 @@ export function createApp(deps: AppDeps) {
       deps.config,
       deps.jobsRepo,
       deps.resourceLeaseManager,
+      deps.settingsRepo,
     ),
   );
   app.route("/api/headless-programs", createHeadlessProgramRoutes(deps.headlessProgramsRepo, deps.usersRepo, deps.apiKeysRepo));
@@ -227,6 +228,7 @@ export function createApp(deps: AppDeps) {
     agentsRepo: deps.agentsRepo,
     depsRepo: deps.depsRepo,
     skillIndex,
+    settingsRepo: deps.settingsRepo,
   };
   app.route("/mcp", createMcpRoutes(mcpDeps, deps.apiKeysRepo, deps.usersRepo));
 
