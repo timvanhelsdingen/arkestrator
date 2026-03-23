@@ -4019,6 +4019,131 @@ export function createSettingsRoutes(
     });
   });
 
+  // --- ComfyUI URL configuration ---
+
+  const COMFYUI_URL_SETTINGS_KEY = "comfyui_url";
+  const COMFYUI_PATH_SETTINGS_KEY = "comfyui_path";
+  const COMFYUI_DEFAULT_URL = "http://127.0.0.1:8188";
+
+  function normalizeComfyUiUrl(value: unknown): string | null {
+    const raw = String(value ?? "").trim();
+    if (!raw) return null;
+    const withScheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(raw) ? raw : `http://${raw}`;
+    let parsed: URL;
+    try {
+      parsed = new URL(withScheme);
+    } catch {
+      return null;
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+    parsed.hash = "";
+    parsed.search = "";
+    return parsed.toString().replace(/\/+$/, "");
+  }
+
+  function getComfyUiUrlConfig() {
+    const storedRaw = String(settingsRepo.get(COMFYUI_URL_SETTINGS_KEY) ?? "").trim();
+    const storedNormalized = normalizeComfyUiUrl(storedRaw);
+    const envRaw = String(process.env.COMFYUI_URL ?? "").trim();
+    const envNormalized = normalizeComfyUiUrl(envRaw);
+    const effectiveUrl = storedNormalized ?? envNormalized ?? COMFYUI_DEFAULT_URL;
+    const source = storedNormalized ? "setting" : (envNormalized ? "env" : "default");
+    return { url: storedNormalized, effectiveUrl, source, defaultUrl: COMFYUI_DEFAULT_URL } as const;
+  }
+
+  router.get("/comfyui-url", (c) => {
+    const user = getAuthenticatedUser(c);
+    if (!user) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+    return c.json(getComfyUiUrlConfig());
+  });
+
+  router.put("/comfyui-url", async (c) => {
+    const user = requireSecurityManager(c);
+    if (!user) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+
+    let body: any;
+    try { body = await c.req.json(); } catch {
+      return errorResponse(c, 400, "Invalid JSON body", "INVALID_JSON");
+    }
+
+    const rawInput = body?.url;
+    if (rawInput !== null && rawInput !== undefined && typeof rawInput !== "string") {
+      return errorResponse(c, 400, "url must be a string or null", "INVALID_INPUT");
+    }
+    const normalized = normalizeComfyUiUrl(rawInput);
+    const inputTrimmed = String(rawInput ?? "").trim();
+    if (inputTrimmed && !normalized) {
+      return errorResponse(c, 400, "url must be a valid http(s) URL (example: http://192.168.1.50:8188)", "INVALID_INPUT");
+    }
+
+    settingsRepo.set(COMFYUI_URL_SETTINGS_KEY, normalized ?? "");
+    const next = getComfyUiUrlConfig();
+    auditRepo.log({
+      userId: user.id, username: user.username,
+      action: "comfyui_url_updated", resource: "settings",
+      details: JSON.stringify({ url: next.url, effectiveUrl: next.effectiveUrl, source: next.source }),
+      ipAddress: getClientIp(c),
+    });
+    return c.json({ ok: true, ...next });
+  });
+
+  router.post("/comfyui-url/test", async (c) => {
+    const user = getAuthenticatedUser(c);
+    if (!user) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+
+    const { effectiveUrl } = getComfyUiUrlConfig();
+    const start = Date.now();
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8_000);
+      const res = await fetch(`${effectiveUrl}/system_stats`, { signal: controller.signal });
+      clearTimeout(timeout);
+      const latencyMs = Date.now() - start;
+      if (!res.ok) {
+        return c.json({ reachable: false, latencyMs, error: `HTTP ${res.status}` });
+      }
+      let systemStats: any = null;
+      try { systemStats = await res.json(); } catch { /* ignore */ }
+      return c.json({ reachable: true, latencyMs, systemStats });
+    } catch (err: any) {
+      return c.json({ reachable: false, latencyMs: Date.now() - start, error: err?.message ?? String(err) });
+    }
+  });
+
+  // --- ComfyUI install path ---
+
+  router.get("/comfyui-path", (c) => {
+    const user = getAuthenticatedUser(c);
+    if (!user) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+    const path = settingsRepo.get(COMFYUI_PATH_SETTINGS_KEY) || null;
+    return c.json({ path });
+  });
+
+  router.put("/comfyui-path", async (c) => {
+    const user = requireSecurityManager(c);
+    if (!user) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+
+    let body: any;
+    try { body = await c.req.json(); } catch {
+      return errorResponse(c, 400, "Invalid JSON body", "INVALID_JSON");
+    }
+
+    const rawPath = body?.path;
+    if (rawPath !== null && rawPath !== undefined && typeof rawPath !== "string") {
+      return errorResponse(c, 400, "path must be a string or null", "INVALID_INPUT");
+    }
+    const normalized = typeof rawPath === "string" ? rawPath.trim() : "";
+    settingsRepo.set(COMFYUI_PATH_SETTINGS_KEY, normalized);
+    auditRepo.log({
+      userId: user.id, username: user.username,
+      action: normalized ? "comfyui_path_updated" : "comfyui_path_cleared",
+      resource: "settings",
+      details: normalized || undefined,
+      ipAddress: getClientIp(c),
+    });
+    return c.json({ ok: true, path: normalized || null });
+  });
+
   // Get orchestrator prompt override
   router.get("/orchestrator-prompt", (c) => {
     const user = requireSecurityManager(c);

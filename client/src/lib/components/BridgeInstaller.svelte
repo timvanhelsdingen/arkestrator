@@ -1,6 +1,7 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { open } from "@tauri-apps/plugin-dialog";
+  import { api } from "../api/rest";
 
   const BRIDGE_REPO = "timvanhelsdingen/arkestrator-bridges";
 
@@ -232,6 +233,162 @@
     standalone: "Standalone",
   };
 
+  // ─── ComfyUI setup state ─────────────────────────────────────────────
+
+  interface DetectedComfyPath {
+    path: string;
+    label: string;
+    hasMainPy: boolean;
+  }
+
+  let comfyShowSetup = $state(false);
+  let comfyDetectedPaths = $state<DetectedComfyPath[]>([]);
+  let comfyDetecting = $state(false);
+  let comfySelectedPath = $state("");
+  let comfyCustomPath = $state("");
+  let comfySavedPath = $state<string | null>(null);
+
+  let comfyUrl = $state("");
+  let comfyUrlSource = $state<"setting" | "env" | "default">("default");
+  let comfyUrlEffective = $state("http://127.0.0.1:8188");
+
+  let comfyTesting = $state(false);
+  let comfyTestResult = $state<{ reachable: boolean; latencyMs: number; error?: string } | null>(null);
+
+  let comfyRunning = $state(false);
+  let comfyLaunching = $state(false);
+  let comfyAutoStart = $state(false);
+  let comfySaving = $state(false);
+  let comfyNodesInstalled = $state<boolean | null>(null);
+
+  let comfyError = $state("");
+  let comfySuccess = $state("");
+
+  async function loadComfyConfig() {
+    try {
+      const [urlConfig, pathConfig, autoConfig] = await Promise.all([
+        api.settings.getComfyuiUrl(),
+        api.settings.getComfyuiPath(),
+        invoke<{ autoStart: boolean; comfyuiPath: string }>("get_comfyui_autostart"),
+      ]);
+      comfyUrl = urlConfig.effectiveUrl;
+      comfyUrlSource = urlConfig.source;
+      comfyUrlEffective = urlConfig.effectiveUrl;
+      comfySavedPath = pathConfig.path;
+      comfyAutoStart = autoConfig.autoStart;
+      if (pathConfig.path) {
+        comfySelectedPath = pathConfig.path;
+      }
+      // Check running status
+      comfyRunning = await invoke<boolean>("is_comfyui_running");
+      // Check nodes
+      if (pathConfig.path) {
+        const nodes = await invoke<{ installed: boolean }>("check_comfyui_nodes", { comfyuiPath: pathConfig.path });
+        comfyNodesInstalled = nodes.installed;
+      }
+    } catch (e: any) {
+      console.warn("[comfyui] Failed to load config:", e);
+    }
+  }
+
+  async function comfyDetect() {
+    comfyDetecting = true;
+    comfyDetectedPaths = [];
+    try {
+      comfyDetectedPaths = await invoke<DetectedComfyPath[]>("detect_comfyui_paths");
+      if (comfyDetectedPaths.length > 0 && !comfySelectedPath) {
+        comfySelectedPath = comfyDetectedPaths[0].path;
+      }
+    } catch (e: any) {
+      comfyError = e?.toString() ?? "Detection failed";
+    }
+    comfyDetecting = false;
+  }
+
+  async function comfyBrowse() {
+    const folder = await open({ directory: true, title: "Select ComfyUI directory" });
+    if (folder) {
+      comfyCustomPath = folder as string;
+      comfySelectedPath = "";
+    }
+  }
+
+  async function comfySaveConfig() {
+    comfySaving = true;
+    comfyError = "";
+    comfySuccess = "";
+    try {
+      const path = comfySelectedPath || comfyCustomPath || null;
+      // Save URL
+      const urlToSave = comfyUrl !== comfyUrlEffective || comfyUrlSource === "default" ? comfyUrl : null;
+      await api.settings.setComfyuiUrl(urlToSave === "http://127.0.0.1:8188" ? null : urlToSave);
+      // Save path
+      if (path) {
+        await api.settings.setComfyuiPath(path);
+        comfySavedPath = path;
+        // Check nodes
+        const nodes = await invoke<{ installed: boolean }>("check_comfyui_nodes", { comfyuiPath: path });
+        comfyNodesInstalled = nodes.installed;
+      }
+      // Save auto-start preference
+      await invoke("set_comfyui_autostart", { autoStart: comfyAutoStart, comfyuiPath: path });
+      comfySuccess = "Configuration saved";
+      // Reload config
+      const urlConfig = await api.settings.getComfyuiUrl();
+      comfyUrlSource = urlConfig.source;
+      comfyUrlEffective = urlConfig.effectiveUrl;
+    } catch (e: any) {
+      comfyError = e?.toString() ?? "Save failed";
+    }
+    comfySaving = false;
+  }
+
+  async function comfyTestConnection() {
+    comfyTesting = true;
+    comfyTestResult = null;
+    try {
+      comfyTestResult = await api.settings.testComfyuiUrl();
+    } catch (e: any) {
+      comfyTestResult = { reachable: false, latencyMs: 0, error: e?.toString() ?? "Test failed" };
+    }
+    comfyTesting = false;
+  }
+
+  async function comfyStart() {
+    comfyLaunching = true;
+    comfyError = "";
+    try {
+      const path = comfySavedPath || comfySelectedPath || comfyCustomPath;
+      if (!path) throw new Error("No ComfyUI path configured");
+      const msg = await invoke<string>("launch_comfyui", { comfyuiPath: path, extraArgs: [] as string[] });
+      comfySuccess = msg;
+      comfyRunning = true;
+    } catch (e: any) {
+      comfyError = e?.toString() ?? "Launch failed";
+    }
+    comfyLaunching = false;
+  }
+
+  async function comfyStop() {
+    comfyError = "";
+    try {
+      const msg = await invoke<string>("stop_comfyui");
+      comfySuccess = msg;
+      comfyRunning = false;
+    } catch (e: any) {
+      comfyError = e?.toString() ?? "Stop failed";
+    }
+  }
+
+  async function comfyToggleSetup() {
+    comfyShowSetup = !comfyShowSetup;
+    if (comfyShowSetup) {
+      await loadComfyConfig();
+    }
+  }
+
+  // ─── Init ──────────────────────────────────────────────────────────────
+
   // Only load installed bridges on mount (local, fast).
   // Registry fetch from GitHub is deferred to user clicking "Check for Updates".
   loadInstalled();
@@ -287,6 +444,13 @@
           {:else if isInstalled}
             <span class="installed-label">Installed</span>
             <button class="btn danger" onclick={() => doUninstall(bridge)}>Uninstall</button>
+          {:else if bridge.installType === "standalone" && bridge.program === "comfyui"}
+            <button class="btn" onclick={comfyToggleSetup}>
+              {comfyShowSetup ? "Hide Setup" : "Configure"}
+            </button>
+            {#if comfyRunning}
+              <span class="comfy-status online">Running</span>
+            {/if}
           {:else if bridge.installType === "standalone"}
             <span class="desc">Run standalone — see documentation</span>
           {:else}
@@ -351,6 +515,115 @@
                 Cancel
               </button>
             </div>
+          </div>
+        {/if}
+
+        {#if comfyShowSetup && bridge.program === "comfyui"}
+          <div class="comfy-setup">
+            <!-- Location -->
+            <div class="comfy-section">
+              <div class="comfy-section-header">ComfyUI Location</div>
+              <div class="comfy-row">
+                <button class="btn secondary" onclick={comfyDetect} disabled={comfyDetecting}>
+                  {comfyDetecting ? "Detecting..." : "Detect"}
+                </button>
+                <button class="btn secondary" onclick={comfyBrowse}>Browse...</button>
+                {#if comfyCustomPath}
+                  <span class="path-detail">{comfyCustomPath}</span>
+                {/if}
+              </div>
+              {#if comfyDetectedPaths.length > 0}
+                <div class="detected-list">
+                  {#each comfyDetectedPaths as dp}
+                    <label class="radio-option">
+                      <input type="radio" name="comfy-path" value={dp.path}
+                        bind:group={comfySelectedPath} />
+                      <span class="comfy-path-label">
+                        {dp.label}
+                        {#if dp.hasMainPy}
+                          <span class="badge official">Ready</span>
+                        {/if}
+                      </span>
+                    </label>
+                  {/each}
+                </div>
+              {/if}
+              {#if comfySavedPath}
+                <p class="desc">Current: <code>{comfySavedPath}</code></p>
+              {/if}
+            </div>
+
+            <!-- Server URL -->
+            <div class="comfy-section">
+              <div class="comfy-section-header">
+                Server URL
+                <span class="badge type">{comfyUrlSource}</span>
+              </div>
+              <div class="comfy-row">
+                <input type="text" class="comfy-input" bind:value={comfyUrl}
+                  placeholder="http://127.0.0.1:8188" />
+                <button class="btn secondary" onclick={comfyTestConnection} disabled={comfyTesting}>
+                  {comfyTesting ? "Testing..." : "Test"}
+                </button>
+              </div>
+              {#if comfyTestResult}
+                <div class={comfyTestResult.reachable ? "comfy-test-ok" : "comfy-test-fail"}>
+                  {#if comfyTestResult.reachable}
+                    Connected ({comfyTestResult.latencyMs}ms)
+                  {:else}
+                    Unreachable{comfyTestResult.error ? `: ${comfyTestResult.error}` : ""}
+                  {/if}
+                </div>
+              {/if}
+            </div>
+
+            <!-- Custom Nodes -->
+            {#if comfySavedPath}
+              <div class="comfy-section">
+                <div class="comfy-section-header">Arkestrator Custom Nodes</div>
+                {#if comfyNodesInstalled === true}
+                  <span class="comfy-status online">Installed</span>
+                {:else if comfyNodesInstalled === false}
+                  <span class="desc">Not installed yet. Custom nodes will be available from the bridge registry.</span>
+                {:else}
+                  <span class="desc">Checking...</span>
+                {/if}
+              </div>
+            {/if}
+
+            <!-- Auto-Start & Controls -->
+            <div class="comfy-section">
+              <div class="comfy-section-header">Launch</div>
+              <label class="comfy-toggle">
+                <input type="checkbox" bind:checked={comfyAutoStart} />
+                <span>Start ComfyUI when Arkestrator launches</span>
+              </label>
+              <div class="comfy-row">
+                {#if comfyRunning}
+                  <button class="btn danger" onclick={comfyStop}>Stop</button>
+                  <span class="comfy-status online">Running</span>
+                {:else}
+                  <button class="btn" onclick={comfyStart}
+                    disabled={comfyLaunching || (!comfySavedPath && !comfySelectedPath && !comfyCustomPath)}>
+                    {comfyLaunching ? "Starting..." : "Start ComfyUI"}
+                  </button>
+                {/if}
+              </div>
+            </div>
+
+            <!-- Save -->
+            <div class="comfy-row">
+              <button class="btn" onclick={comfySaveConfig} disabled={comfySaving}>
+                {comfySaving ? "Saving..." : "Save Configuration"}
+              </button>
+            </div>
+
+            {#if comfyError}
+              <div class="error">{comfyError}</div>
+            {/if}
+            {#if comfySuccess}
+              <div class="result">{comfySuccess}</div>
+            {/if}
           </div>
         {/if}
       </div>
@@ -536,5 +809,85 @@
     background: var(--bg-base);
     padding: 1px 4px;
     border-radius: 2px;
+  }
+
+  /* ─── ComfyUI Setup ─── */
+  .comfy-setup {
+    margin-top: 8px;
+    padding: 12px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .comfy-section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .comfy-section-header {
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .comfy-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .comfy-input {
+    flex: 1;
+    min-width: 200px;
+    padding: 5px 8px;
+    font-size: var(--font-size-sm);
+    font-family: var(--font-mono);
+    background: var(--bg-base);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    outline: none;
+  }
+  .comfy-input:focus {
+    border-color: var(--accent);
+  }
+  .comfy-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+  .comfy-toggle input {
+    margin: 0;
+  }
+  .comfy-status {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 1px 8px;
+    border-radius: var(--radius-sm);
+  }
+  .comfy-status.online {
+    background: #16a34a22;
+    color: #16a34a;
+  }
+  .comfy-test-ok {
+    font-size: var(--font-size-sm);
+    color: #16a34a;
+  }
+  .comfy-test-fail {
+    font-size: var(--font-size-sm);
+    color: var(--status-failed);
+  }
+  .comfy-path-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
   }
 </style>
