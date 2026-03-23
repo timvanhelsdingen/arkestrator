@@ -38,15 +38,7 @@ test-results/
 .mcp.json
 server/.mcp.json
 .claude/settings.local.json
-*.agent-manager-codex-prompt-*.txt
 *.arkestrator-codex-prompt-*.txt
 
-# Local permission-recovery backups
-*.root-owned/
-
-# Generated macOS launcher app bundles
-tools/mac/*.app/
-
-# Bridge runtime logs
-bridges/comfyui/logs/
+# Worktrees
 .claude/worktrees/

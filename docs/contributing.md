@@ -20,13 +20,7 @@ arkestrator/
 ├── server/              # Bun + Hono server (hub)
 ├── client/              # Tauri v2 + Svelte 5 desktop app
 ├── admin/               # Web admin SPA (served at /admin)
-├── bridges/
-│   ├── godot/           # GDScript editor plugin
-│   ├── blender/         # Python addon
-│   ├── houdini/         # Python package
-│   ├── comfyui/         # Standalone Python bridge
-│   ├── unity/           # C# editor plugin
-│   └── unreal/          # Python UE5 plugin
+├── extensions/vscode/   # VS Code extension
 ├── docs/                # Documentation
 └── scripts/             # Build and deployment scripts
 ```
@@ -81,12 +75,7 @@ Each module has a `MODULE.md` file that tracks its current state. After making c
 - `server/MODULE.md`
 - `client/MODULE.md`
 - `admin/MODULE.md`
-- `bridges/godot/MODULE.md`
-- `bridges/blender/MODULE.md`
-- `bridges/houdini/MODULE.md`
-- `bridges/comfyui/MODULE.md`
-- `bridges/unity/MODULE.md`
-- `bridges/unreal/MODULE.md`
+- `extensions/vscode/MODULE.md`
 
 ## Pull Request Checklist
 

@@ -20,17 +20,10 @@ importers:
         version: 5.9.3
 
   admin:
-    dependencies:
-      qrcode:
-        specifier: ^1.5.4
-        version: 1.5.4
     devDependencies:
       '@sveltejs/vite-plugin-svelte':
         specifier: ^5.0.0
         version: 5.1.1(svelte@5.53.7)(vite@6.4.1(@types/node@25.2.3))
-      '@types/qrcode':
-        specifier: ^1.5.6
-        version: 1.5.6
       svelte:
         specifier: ^5.53.7
         version: 5.53.7

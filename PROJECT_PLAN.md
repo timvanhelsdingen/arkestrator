@@ -516,12 +516,6 @@ arkestrator/
 â”‚           â”œâ”€â”€ file_applier.py      # Apply file changes to disk
 â”‚           â””â”€â”€ command_executor.py  # Execute Python + HScript commands
 â”‚
-â”œâ”€â”€ sdks/
-â”‚   â”œâ”€â”€ python/
-â”‚   â”‚   â””â”€â”€ agent_manager.py         # Python SDK - submit jobs from any Python DCC plugin
-â”‚   â””â”€â”€ godot/
-â”‚       â””â”€â”€ agent_manager.gd         # GDScript SDK - submit jobs from any Godot plugin
-â”‚
 â”œâ”€â”€ Dockerfile                       # Multi-stage: build admin SPA â†’ Bun server image
 â”œâ”€â”€ docker-compose.yml               # Single-service deployment
 â”œâ”€â”€ CLAUDE.md                        # Instructions for Claude Code agents
