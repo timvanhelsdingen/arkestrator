@@ -66,6 +66,41 @@ Arkestrator uses a hub-and-spoke model with three components:
 
 4. **Results flow back** — File changes are applied directly in your DCC app. Commands (GDScript, Python, HScript) execute inside the editor. You see logs streaming in real-time in the desktop client.
 
+## Key Features
+
+### Orchestration & Execution
+- **Multi-engine support** — Claude Code, Codex, Gemini, Grok, Ollama, or any CLI. Swap engines without changing your workflow.
+- **Auto-routing** — set an agent to "Auto" and the server picks the best engine based on prompt complexity and available resources.
+- **Job queue** with priorities, dependencies, parent/child chains, pause/resume, requeue, and worker targeting.
+- **Multi-machine routing** — your DCC app runs on one workstation, the AI runs on another, files sync automatically.
+- **Workspace modes** — `repo` (direct file access), `command` (in-app execution), or `sync` (file upload/download for remote setups).
+- **Headless execution** — run Blender, Houdini, or Godot CLI operations without a live GUI session, routed to the client that owns the DCC install.
+
+### Bridges & Context
+- **7 bridge plugins** — Godot, Blender, Houdini, Unreal Engine, Unity, Fusion/DaVinci Resolve, ComfyUI. Any app that can open a WebSocket can become a bridge.
+- **Live editor context** — bridges continuously push scene state, selected nodes, open scripts, and project structure to the server. Agents always know what you're working on.
+- **Cross-bridge commands** — one bridge can send commands to another (e.g., a Houdini agent triggers a Blender render).
+- **Context menu integration** in every supported DCC app — right-click to add items to the AI's context.
+- **Bridge installer** built into the desktop client — browse, install, update, and uninstall bridges from a registry without leaving the app.
+
+### Skills & Training
+- **Skills system** — learned patterns from your projects are stored as reusable skills. Agents automatically receive relevant skills based on the target program and task.
+- **Training pipeline** — point Arkestrator at a project folder and it analyzes your work to extract conventions, naming patterns, and tool usage into skills that improve future agent output.
+- **Coordinator scripts** — per-program instruction sets (Godot, Houdini, Blender, etc.) that shape how agents approach tasks in each DCC app.
+- **Playbooks** — reusable task templates with pre-configured prompts, target bridges, and execution settings.
+
+### Client & Chat
+- **Multi-tab chat** with per-tab agent selection, runtime overrides (model, reasoning level, verification), and project context.
+- **Live log streaming** from running agents directly in the client.
+- **Running-job guidance** — send notes, corrections, or new instructions to agents mid-execution via stdin.
+- **Local models** via Ollama with a built-in agentic loop, per-worker GPU gating, and distributed model management across machines.
+
+### Admin & Security
+- **Web admin panel** for user management, agent configs, policies, machine inventory, skills, training, bridges, and audit logging — embedded in the desktop client with automatic session handoff.
+- **MCP endpoint** at `/mcp` — external AI clients can submit jobs, execute bridge commands, and query status through the standard Model Context Protocol.
+- **Fine-grained permissions** — per-user and per-API-key controls for job submission, command execution, MCP access, file delivery, and admin functions.
+- **Multi-user auth** with session tokens, API keys (bridge/client/admin/MCP roles), optional 2FA, and audit logging.
+
 ## Supported Integrations
 
 ### Bridges
@@ -154,25 +189,6 @@ cd client && pnpm tauri build
 3. Log in and go to **Admin > Agents > Add from Template** to create your first agent config (Claude Code, Codex, Ollama, etc.).
 4. Install a bridge plugin in your DCC app. It auto-connects using the shared config written by the desktop client.
 5. Submit your first prompt from the Chat page.
-
-## MCP Support
-
-Arkestrator exposes an MCP endpoint at `/mcp` for external AI clients. Any MCP-compatible tool can submit jobs, execute bridge commands, and query job status through the standard MCP protocol. Authenticate with a Bearer token from the Admin > API Keys page.
-
-## Key Features
-
-- **Multi-tab chat** with per-tab agent selection, runtime overrides (model, reasoning level, verification), and project context
-- **Job queue** with priorities, dependencies, pause/resume, requeue, and worker targeting
-- **Live log streaming** from running agents directly in the client
-- **Running-job guidance** — send notes to running agents mid-execution
-- **Coordinator system** — inject DCC-specific scripts, playbooks, and training data into agent prompts
-- **Workspace modes** — `repo` (direct file access), `command` (in-app execution), or `sync` (file upload/download for remote setups)
-- **Auto-routing** — set agent to "Auto" and the server picks the best engine based on prompt complexity
-- **Local models** via Ollama with an agentic loop, per-worker GPU gating, and distributed model management
-- **Headless execution** — run Blender, Houdini, or Godot CLI operations without a GUI bridge
-- **Cross-bridge commands** — one bridge can send commands to another (e.g., Blender sends GDScript to Godot)
-- **Web admin panel** for user management, agent configs, policies, machine inventory, and audit logging, embedded directly in the desktop client with automatic session handoff and remote-server iframe support
-- **Context menu integration** in every supported DCC app — right-click to add items to the AI's context
 
 ## Documentation
 
