@@ -31,6 +31,9 @@
     defaultContent: string;
   }
 
+  type Stability = "stable" | "beta" | "experimental";
+  let stabilityMap = $state<Record<string, Stability>>({});
+
   interface ProgramInfo {
     program: string;
     activeConnectionCount: number;
@@ -263,8 +266,26 @@
     }
   }
 
+  async function loadRegistry() {
+    try {
+      const res = await fetch(
+        "https://raw.githubusercontent.com/timvanhelsdingen/arkestrator-bridges/main/registry.json"
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      const map: Record<string, Stability> = {};
+      for (const b of data.bridges ?? []) {
+        if (b.program && b.stability) map[b.program] = b.stability;
+      }
+      stabilityMap = map;
+    } catch {
+      // Non-critical — just won't show stability badges
+    }
+  }
+
   onMount(() => {
     load();
+    loadRegistry();
     refreshTimer = setInterval(load, 15_000);
   });
 
@@ -298,7 +319,12 @@
       {:else}
         {#each programs as info}
           <tr>
-            <td class="mono">{info.program}</td>
+            <td class="mono">
+              {info.program}
+              {#if stabilityMap[info.program] && stabilityMap[info.program] !== "stable"}
+                <span class="badge badge-stability-{stabilityMap[info.program]}">{stabilityMap[info.program]}</span>
+              {/if}
+            </td>
             <td>
               {#if info.activeConnectionCount > 0}
                 <span class="badge badge-ok">{info.activeConnectionCount} online</span>
@@ -433,6 +459,8 @@
   .badge-off { color: var(--text-muted); background: var(--bg-elevated); }
   .badge-default { color: var(--text-muted); background: var(--bg-elevated); }
   .badge-custom { color: var(--accent); background: rgba(78, 156, 230, 0.12); }
+  .badge-stability-beta { color: #eab308; background: rgba(133, 77, 14, 0.13); }
+  .badge-stability-experimental { color: #f87171; background: rgba(159, 18, 54, 0.13); }
   .versions-cell { display: flex; flex-direction: column; gap: 2px; }
   .btn-primary { background: var(--accent); color: #fff; padding: 8px 16px; border-radius: var(--radius-sm); font-weight: 500; }
   .btn-primary:hover { background: var(--accent-hover); }

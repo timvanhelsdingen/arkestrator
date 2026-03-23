@@ -11,6 +11,7 @@
     description: string;
     author: string;
     official: boolean;
+    stability?: "stable" | "beta" | "experimental";
     version: string;
     program: string;
     installType: string;
@@ -423,6 +424,9 @@
             {#if bridge.official}
               <span class="badge official">Official</span>
             {/if}
+            {#if bridge.stability && bridge.stability !== "stable"}
+              <span class="badge stability-{bridge.stability}">{bridge.stability}</span>
+            {/if}
             <span class="badge type">{INSTALL_TYPE_LABELS[bridge.installType] ?? bridge.installType}</span>
           </div>
         </div>
@@ -699,6 +703,16 @@
     background: var(--bg-surface);
     color: var(--text-secondary);
     border: 1px solid var(--border);
+  }
+  .badge.stability-beta {
+    background: #854d0e22;
+    color: #eab308;
+    border: 1px solid #854d0e44;
+  }
+  .badge.stability-experimental {
+    background: #9f123622;
+    color: #f87171;
+    border: 1px solid #9f123644;
   }
   .bridge-desc {
     font-size: var(--font-size-sm);
