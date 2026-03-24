@@ -53,6 +53,10 @@ interface JobRow {
   duration_ms: number | null;
   archived_at: string | null;
   deleted_at: string | null;
+  retry_count: number;
+  max_retries: number;
+  retry_after: string | null;
+  expires_at: string | null;
   created_at: string;
   started_at: string | null;
   completed_at: string | null;
@@ -139,6 +143,10 @@ function rowToJob(row: JobRow): Job {
       : undefined,
     archivedAt: row.archived_at ?? undefined,
     deletedAt: row.deleted_at ?? undefined,
+    retryCount: row.retry_count ?? 0,
+    maxRetries: row.max_retries ?? 0,
+    retryAfter: row.retry_after ?? undefined,
+    expiresAt: row.expires_at ?? undefined,
     createdAt: row.created_at,
     startedAt: row.started_at ?? undefined,
     completedAt: row.completed_at ?? undefined,
@@ -224,6 +232,8 @@ export class JobsRepo {
          JOIN jobs j ON j.id = d.depends_on_job_id
          WHERE j.status NOT IN ('completed')
        )
+       AND (retry_after IS NULL OR retry_after <= datetime('now'))
+       AND (expires_at IS NULL OR expires_at > datetime('now'))
        ORDER BY CASE priority
          WHEN 'critical' THEN 0
          WHEN 'high' THEN 1
@@ -239,6 +249,8 @@ export class JobsRepo {
          JOIN jobs j ON j.id = d.depends_on_job_id
          WHERE j.status NOT IN ('completed')
        )
+       AND (retry_after IS NULL OR retry_after <= datetime('now'))
+       AND (expires_at IS NULL OR expires_at > datetime('now'))
        AND (target_worker_name IS NULL OR target_worker_name = '' OR target_worker_name = ?)
        ORDER BY
          CASE WHEN target_worker_name = ? THEN 0 ELSE 1 END,
@@ -655,5 +667,46 @@ export class JobsRepo {
       completedToday: row.completed_today,
       failedToday: row.failed_today,
     };
+  }
+
+  // ── Retry & TTL ──────────────────────────────────────────────────────────
+
+  /**
+   * Requeue a failed job for retry.
+   * Increments retry_count, sets retry_after to a future timestamp,
+   * and resets status to "queued".
+   */
+  requeueForRetry(jobId: string, retryDelayMs: number): boolean {
+    const retryAfter = new Date(Date.now() + retryDelayMs).toISOString();
+    const result = this.db.prepare(
+      `UPDATE jobs SET status = 'queued', started_at = NULL, error = NULL,
+       retry_count = retry_count + 1, retry_after = ?
+       WHERE id = ? AND status = 'failed'`,
+    ).run(retryAfter, jobId);
+    return result.changes > 0;
+  }
+
+  /** Set max retries for a job (call at creation time). */
+  setMaxRetries(jobId: string, maxRetries: number): void {
+    this.db.prepare(`UPDATE jobs SET max_retries = ? WHERE id = ?`).run(maxRetries, jobId);
+  }
+
+  /** Set expiration time for a job (used for worker-targeted TTL). */
+  setExpiry(jobId: string, expiresAt: string): void {
+    this.db.prepare(`UPDATE jobs SET expires_at = ? WHERE id = ?`).run(expiresAt, jobId);
+  }
+
+  /**
+   * Fail all queued jobs that have expired (expires_at < now).
+   * Returns the number of jobs expired.
+   */
+  expireStaleTargetedJobs(): number {
+    const now = new Date().toISOString();
+    const result = this.db.prepare(
+      `UPDATE jobs SET status = 'failed', error = 'Target worker never connected within TTL',
+       completed_at = ?
+       WHERE status = 'queued' AND expires_at IS NOT NULL AND expires_at <= ?`,
+    ).run(now, now);
+    return result.changes;
   }
 }

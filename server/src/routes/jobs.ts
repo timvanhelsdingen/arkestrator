@@ -13,6 +13,7 @@ import type { SettingsRepo } from "../db/settings.repo.js";
 import type { JobInterventionsRepo } from "../db/job-interventions.repo.js";
 import type { WebSocketHub } from "../ws/hub.js";
 import type { ProcessTracker } from "../agents/process-tracker.js";
+import { DEFAULT_MAX_RETRIES, DEFAULT_TARGET_WORKER_TTL_MS } from "../queue/retry-policy.js";
 import {
   apiKeyRoleAllowed,
   getAuthPrincipal,
@@ -919,6 +920,18 @@ export function createJobRoutes(
         return errorResponse(c, 400, `Invalid reference: ${detail}`, "INVALID_INPUT");
       }
       throw err;
+    }
+
+    // Set default retry policy for regular jobs (not training jobs which have their own retry)
+    const isTraining = !!job.editorContext?.metadata?.coordinator_training_job;
+    if (!isTraining && DEFAULT_MAX_RETRIES > 0) {
+      jobsRepo.setMaxRetries(job.id, DEFAULT_MAX_RETRIES);
+    }
+
+    // Set TTL for worker-targeted jobs — prevents jobs from sitting in queue forever
+    if (parsed.data.targetWorkerName) {
+      const expiresAt = new Date(Date.now() + DEFAULT_TARGET_WORKER_TTL_MS).toISOString();
+      jobsRepo.setExpiry(job.id, expiresAt);
     }
 
     // Create dependencies

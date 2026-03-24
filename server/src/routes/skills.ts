@@ -1,11 +1,13 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import type { SkillsRepo } from "../db/skills.repo.js";
+import type { SkillEffectivenessRepo } from "../db/skill-effectiveness.repo.js";
 import type { SkillIndex } from "../skills/skill-index.js";
 import type { UsersRepo } from "../db/users.repo.js";
 import type { ApiKeysRepo } from "../db/apikeys.repo.js";
 import type { SettingsRepo } from "../db/settings.repo.js";
 import type { WorkersRepo } from "../db/workers.repo.js";
+import { validateSkill, previewSkillInjection } from "../skills/skill-validator.js";
 import { getAuthPrincipal, apiKeyRoleAllowed } from "../middleware/auth.js";
 import { errorResponse } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
@@ -137,6 +139,7 @@ export function createSkillsRoutes(
   apiKeysRepo: ApiKeysRepo,
   settingsRepo?: SettingsRepo,
   workersRepo?: WorkersRepo,
+  skillEffectivenessRepo?: SkillEffectivenessRepo,
 ) {
   const router = new Hono();
 
@@ -414,6 +417,98 @@ export function createSkillsRoutes(
     } catch (err: any) {
       return errorResponse(c, 500, err?.message ?? "Failed to pull bridge skills", "INTERNAL_ERROR");
     }
+  });
+
+  // ── Skill versioning ──────────────────────────────────────────────────
+
+  // GET /:slug/versions — list version history
+  router.get("/:slug/versions", async (c) => {
+    const auth = await requireAuth(c);
+    if (!auth) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+
+    const slug = c.req.param("slug");
+    const program = c.req.query("program");
+    const skill = skillIndex.get(slug, program || undefined);
+    if (!skill) return errorResponse(c, 404, `Skill not found: ${slug}`, "NOT_FOUND");
+
+    const versions = skillsRepo.listVersions(skill.id);
+    return c.json({ versions, currentVersion: skill.version });
+  });
+
+  // POST /:slug/rollback — rollback to a previous version
+  router.post("/:slug/rollback", async (c) => {
+    const auth = await requireWriteAccess(c);
+    if (!auth) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+
+    const slug = c.req.param("slug");
+    const program = c.req.query("program");
+    const skill = skillIndex.get(slug, program || undefined);
+    if (!skill) return errorResponse(c, 404, `Skill not found: ${slug}`, "NOT_FOUND");
+
+    let body: any;
+    try { body = await c.req.json(); } catch { return errorResponse(c, 400, "Invalid JSON", "INVALID_INPUT"); }
+    const version = Number(body?.version);
+    if (!Number.isFinite(version) || version < 1) {
+      return errorResponse(c, 400, "Invalid version number", "INVALID_INPUT");
+    }
+
+    const restored = skillsRepo.rollback(skill.id, version);
+    if (!restored) return errorResponse(c, 404, `Version ${version} not found`, "NOT_FOUND");
+
+    skillIndex.refresh();
+    return c.json({ ok: true, skill: restored });
+  });
+
+  // ── Skill validation ──────────────────────────────────────────────────
+
+  // POST /validate — validate a skill definition
+  router.post("/validate", async (c) => {
+    const auth = await requireAuth(c);
+    if (!auth) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+
+    let body: any;
+    try { body = await c.req.json(); } catch { return errorResponse(c, 400, "Invalid JSON", "INVALID_INPUT"); }
+
+    const result = validateSkill(body);
+    return c.json(result);
+  });
+
+  // POST /preview — preview skill injection for a job context
+  router.post("/preview", async (c) => {
+    const auth = await requireAuth(c);
+    if (!auth) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+
+    let body: any;
+    try { body = await c.req.json(); } catch { return errorResponse(c, 400, "Invalid JSON", "INVALID_INPUT"); }
+
+    const slug = String(body?.slug ?? "").trim();
+    const program = String(body?.program ?? "").trim();
+    const skill = slug ? skillIndex.get(slug, program || undefined) : null;
+    if (!skill) return errorResponse(c, 404, "Skill not found", "NOT_FOUND");
+
+    const preview = previewSkillInjection(skill, program);
+    return c.json(preview);
+  });
+
+  // ── Skill effectiveness ─────────────────────────────────────────────
+
+  // GET /:slug/effectiveness — get effectiveness stats
+  router.get("/:slug/effectiveness", async (c) => {
+    const auth = await requireAuth(c);
+    if (!auth) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+
+    const slug = c.req.param("slug");
+    const program = c.req.query("program");
+    const skill = skillIndex.get(slug, program || undefined);
+    if (!skill) return errorResponse(c, 404, `Skill not found: ${slug}`, "NOT_FOUND");
+
+    if (!skillEffectivenessRepo) {
+      return c.json({ stats: { totalUsed: 0, goodOutcomes: 0, averageOutcomes: 0, poorOutcomes: 0, pendingOutcomes: 0, successRate: 0 }, records: [] });
+    }
+
+    const stats = skillEffectivenessRepo.getStats(skill.id);
+    const records = skillEffectivenessRepo.listForSkill(skill.id, 20);
+    return c.json({ stats, records });
   });
 
   // GET /:slug — get skill by slug (from index) — MUST be last (catch-all param route)

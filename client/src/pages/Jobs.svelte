@@ -39,31 +39,50 @@
     return "unrated";
   }
 
-  /** Svelte action: auto-scroll a <pre> element when content changes (live/slow/paused) */
+  /** Svelte action: auto-scroll a <pre> element when content changes (live/slow/paused).
+   *  Uses requestAnimationFrame polling instead of MutationObserver to avoid
+   *  firing synchronous scroll calculations on every DOM character insertion. */
   function autoscroll(node: HTMLElement, mode: LogScrollMode = "live") {
-    function scrollLog() {
+    let rafId: number | null = null;
+    let lastScrollHeight = 0;
+
+    function scrollTick() {
+      rafId = null;
       if (mode === "paused") return;
-      const target = Math.max(0, node.scrollHeight - node.clientHeight);
-      if (mode === "slow") {
-        const remaining = target - node.scrollTop;
-        if (remaining <= 0) return;
-        const step = Math.max(24, Math.ceil(remaining * 0.25));
-        node.scrollTop = Math.min(target, node.scrollTop + step);
+      const sh = node.scrollHeight;
+      // Only scroll if content actually grew (avoids no-op recalcs)
+      if (sh === lastScrollHeight) {
+        scheduleCheck();
         return;
       }
-      node.scrollTop = target;
+      lastScrollHeight = sh;
+      const target = Math.max(0, sh - node.clientHeight);
+      if (mode === "slow") {
+        const remaining = target - node.scrollTop;
+        if (remaining > 0) {
+          const step = Math.max(24, Math.ceil(remaining * 0.25));
+          node.scrollTop = Math.min(target, node.scrollTop + step);
+        }
+      } else {
+        node.scrollTop = target;
+      }
+      scheduleCheck();
     }
 
-    const observer = new MutationObserver(scrollLog);
-    observer.observe(node, { childList: true, characterData: true, subtree: true });
-    scrollLog();
+    function scheduleCheck() {
+      if (rafId == null) {
+        rafId = requestAnimationFrame(scrollTick);
+      }
+    }
+
+    scheduleCheck();
     return {
       update(nextMode: LogScrollMode) {
         mode = nextMode;
-        scrollLog();
+        if (mode !== "paused") scheduleCheck();
       },
       destroy() {
-        observer.disconnect();
+        if (rafId != null) cancelAnimationFrame(rafId);
       },
     };
   }
@@ -296,7 +315,7 @@
   async function refreshJobs() {
     try {
       const data = await api.jobs.list();
-      jobs.all = data.jobs;
+      jobs.replaceAll(data.jobs);
     } catch {
       // Fallback to WS if REST fails
       sendMessage({ type: "job_list", id: crypto.randomUUID(), payload: {} });
@@ -425,7 +444,11 @@
     jobs.selectedIds = next;
   }
 
+  // Filter dropdown options only need rebuilding when jobs are added/removed,
+  // not on every status/token update. Reading listStructureVersion establishes
+  // this coarser-grained dependency.
   let workerOptions = $derived.by(() => {
+    void jobs.listStructureVersion;
     const values = new Map<string, string>();
     for (const job of jobs.all) {
       for (const label of getJobWorkerLabels(job)) {
@@ -449,6 +472,7 @@
   });
 
   let bridgeOptions = $derived.by(() => {
+    void jobs.listStructureVersion;
     const values = new Set<string>();
     for (const job of jobs.all) {
       for (const token of getJobBridgeTokens(job)) values.add(token);
@@ -457,6 +481,7 @@
   });
 
   let userOptions = $derived.by(() => {
+    void jobs.listStructureVersion;
     const values = new Map<string, string>();
     for (const job of jobs.all) {
       const value = getJobUserValue(job);

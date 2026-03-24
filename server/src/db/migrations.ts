@@ -308,6 +308,33 @@ const COLUMN_ADDITIONS = [
   // Soft-delete (trash) and archive timestamps for jobs
   `ALTER TABLE jobs ADD COLUMN archived_at TEXT`,
   `ALTER TABLE jobs ADD COLUMN deleted_at TEXT`,
+  // Job retry support: transient failures can be retried with exponential backoff
+  `ALTER TABLE jobs ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE jobs ADD COLUMN max_retries INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE jobs ADD COLUMN retry_after TEXT`,
+  // TTL for worker-targeted jobs: if the target worker never connects, the job
+  // expires and is failed automatically instead of sitting in the queue forever.
+  `ALTER TABLE jobs ADD COLUMN expires_at TEXT`,
+  // Skill versioning
+  `ALTER TABLE skills ADD COLUMN version INTEGER NOT NULL DEFAULT 1`,
+  // Skill effectiveness tracking
+  `CREATE TABLE IF NOT EXISTS skill_versions (
+    id         TEXT PRIMARY KEY,
+    skill_id   TEXT NOT NULL,
+    version    INTEGER NOT NULL,
+    content    TEXT NOT NULL,
+    keywords   TEXT NOT NULL DEFAULT '[]',
+    description TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    UNIQUE(skill_id, version)
+  )`,
+  `CREATE TABLE IF NOT EXISTS skill_effectiveness (
+    id         TEXT PRIMARY KEY,
+    skill_id   TEXT NOT NULL,
+    job_id     TEXT NOT NULL,
+    job_outcome TEXT,
+    created_at TEXT NOT NULL
+  )`,
 ];
 
 // Reset any jobs stuck in 'running' state (server crashed while they were active)

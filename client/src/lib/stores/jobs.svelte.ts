@@ -8,12 +8,21 @@ class JobsState {
   selectedIds = $state<Set<string>>(new Set());
   statusFilter = $state<string[]>([]);
 
-  // Log streaming: mutable map + version counter for cheap reactivity
+  // Log streaming: mutable map + version counter for cheap reactivity.
+  // Logs are intentionally decoupled from `all` so that log-only updates
+  // (which arrive at high frequency during job execution) do NOT trigger
+  // re-computation of derived stores like filteredJobs, jobTree, etc.
   private logMap = new Map<string, string[]>();
   private logTextCache = new Map<string, string>();
   private interventionMap = new Map<string, JobIntervention[]>();
   logVersion = $state(0);
   interventionVersion = $state(0);
+
+  // Separate version counter for job list structural changes (add/remove)
+  // vs. in-place property updates. Derived stores that only care about
+  // the set of jobs (workerOptions, bridgeOptions, userOptions) can use
+  // this to avoid recalculating on every status/token update.
+  listStructureVersion = $state(0);
 
   get selected(): Job | undefined {
     return this.all.find((j) => j.id === this.selectedId);
@@ -76,11 +85,23 @@ class JobsState {
   upsert(job: Job) {
     const idx = this.all.findIndex((j) => j.id === job.id);
     if (idx >= 0) {
-      this.all[idx] = { ...this.all[idx], ...job };
-      this.all = [...this.all];
+      // In-place update: mutate the existing entry without spreading the
+      // entire array. Svelte 5's fine-grained $state proxy detects the
+      // individual property changes, so downstream derivations that read
+      // specific job properties (status, tokens, etc.) update correctly
+      // without triggering a full list re-render.
+      Object.assign(this.all[idx], job);
     } else {
+      // New job — this is a structural list change.
       this.all = [job, ...this.all];
+      this.listStructureVersion++;
     }
+  }
+
+  /** Bulk-replace the entire job list (e.g. from job_list_response). */
+  replaceAll(jobList: Job[]) {
+    this.all = jobList;
+    this.listStructureVersion++;
   }
 
   setInterventions(jobId: string, items: JobIntervention[]) {

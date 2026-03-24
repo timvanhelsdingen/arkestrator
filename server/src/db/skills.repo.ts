@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { newId } from "../utils/id.js";
 
 /**
  * Skill record as stored in the DB.
@@ -19,8 +20,19 @@ export interface Skill {
   priority: number;
   autoFetch: boolean;
   enabled: boolean;
+  version: number;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface SkillVersion {
+  id: string;
+  skillId: string;
+  version: number;
+  content: string;
+  keywords: string[];
+  description: string;
+  createdAt: string;
 }
 
 /** Row shape coming out of SQLite (keywords as JSON string, booleans as 0/1). */
@@ -39,6 +51,7 @@ interface SkillRow {
   priority: number;
   auto_fetch: number;
   enabled: number;
+  version: number;
   created_at: string;
   updated_at: string;
 }
@@ -95,6 +108,7 @@ function rowToSkill(row: SkillRow): Skill {
     priority: row.priority,
     autoFetch: row.auto_fetch === 1,
     enabled: row.enabled === 1,
+    version: row.version ?? 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -200,7 +214,7 @@ export class SkillsRepo {
     return this.get(input.slug, program)!;
   }
 
-  /** Update a skill by id. Returns updated skill or null. */
+  /** Update a skill by id. Snapshots the current version before updating. Returns updated skill or null. */
   update(slug: string, updates: UpdateSkillInput, program?: string): Skill | null {
     const existing = this.get(slug, program);
     if (!existing) return null;
@@ -219,6 +233,27 @@ export class SkillsRepo {
     if (updates.enabled !== undefined) { sets.push("enabled = ?"); values.push(updates.enabled ? 1 : 0); }
 
     if (sets.length === 0) return existing;
+
+    // Snapshot the current version before updating (for rollback support)
+    const contentChanged = updates.content !== undefined && updates.content !== existing.content;
+    const keywordsChanged = updates.keywords !== undefined;
+    const descriptionChanged = updates.description !== undefined && updates.description !== existing.description;
+    if (contentChanged || keywordsChanged || descriptionChanged) {
+      try {
+        this.db.prepare(
+          `INSERT OR IGNORE INTO skill_versions (id, skill_id, version, content, keywords, description, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        ).run(
+          newId(), existing.id, existing.version, existing.content,
+          JSON.stringify(existing.keywords), existing.description,
+          new Date().toISOString(),
+        );
+        // Increment version
+        sets.push("version = version + 1");
+      } catch {
+        // skill_versions table may not exist on older DBs — proceed without snapshotting
+      }
+    }
 
     sets.push("updated_at = ?");
     values.push(new Date().toISOString());
@@ -291,5 +326,65 @@ export class SkillsRepo {
       return this.db.prepare("DELETE FROM skills WHERE source = ? AND program = ?").run(source, program).changes;
     }
     return this.db.prepare("DELETE FROM skills WHERE source = ?").run(source).changes;
+  }
+
+  // ── Versioning ──────────────────────────────────────────────────────
+
+  /** List version history for a skill (newest first). */
+  listVersions(skillId: string): SkillVersion[] {
+    try {
+      const rows = this.db.prepare(
+        "SELECT * FROM skill_versions WHERE skill_id = ? ORDER BY version DESC",
+      ).all(skillId) as Array<{
+        id: string;
+        skill_id: string;
+        version: number;
+        content: string;
+        keywords: string;
+        description: string;
+        created_at: string;
+      }>;
+      return rows.map((row) => ({
+        id: row.id,
+        skillId: row.skill_id,
+        version: row.version,
+        content: row.content,
+        keywords: (() => { try { return JSON.parse(row.keywords); } catch { return []; } })(),
+        description: row.description,
+        createdAt: row.created_at,
+      }));
+    } catch {
+      return []; // skill_versions table may not exist
+    }
+  }
+
+  /** Rollback a skill to a previous version. Returns the restored skill or null. */
+  rollback(skillId: string, version: number): Skill | null {
+    try {
+      const versionRow = this.db.prepare(
+        "SELECT * FROM skill_versions WHERE skill_id = ? AND version = ?",
+      ).get(skillId, version) as { content: string; keywords: string; description: string } | null;
+      if (!versionRow) return null;
+
+      const now = new Date().toISOString();
+      // Snapshot current state before rollback
+      const current = this.db.prepare("SELECT * FROM skills WHERE id = ?").get(skillId) as SkillRow | null;
+      if (!current) return null;
+
+      this.db.prepare(
+        `INSERT OR IGNORE INTO skill_versions (id, skill_id, version, content, keywords, description, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ).run(newId(), skillId, current.version, current.content, current.keywords, current.description, now);
+
+      // Restore content from the target version
+      this.db.prepare(
+        `UPDATE skills SET content = ?, keywords = ?, description = ?, version = version + 1, updated_at = ? WHERE id = ?`,
+      ).run(versionRow.content, versionRow.keywords, versionRow.description, now, skillId);
+
+      const restored = this.db.prepare("SELECT * FROM skills WHERE id = ?").get(skillId) as SkillRow | null;
+      return restored ? rowToSkill(restored) : null;
+    } catch {
+      return null; // skill_versions table may not exist
+    }
   }
 }

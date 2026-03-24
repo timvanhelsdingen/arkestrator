@@ -130,6 +130,14 @@ export const Job = z.object({
   archivedAt: z.string().datetime().optional(),
   /** Timestamp when the job was soft-deleted (trashed). */
   deletedAt: z.string().datetime().optional(),
+  /** Number of times this job has been retried after transient failures. */
+  retryCount: z.number().int().default(0),
+  /** Maximum number of retries allowed for transient failures. 0 = no retries. */
+  maxRetries: z.number().int().default(0),
+  /** ISO timestamp after which the job is eligible to be picked up again (retry backoff). */
+  retryAfter: z.string().datetime().optional(),
+  /** ISO timestamp after which the job expires (TTL for worker-targeted jobs). */
+  expiresAt: z.string().datetime().optional(),
   /** User feedback on job quality, used for coordinator learning bias. */
   outcomeRating: JobOutcomeRating.optional(),
   /** Optional notes describing what worked/failed. */

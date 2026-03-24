@@ -16,6 +16,8 @@ import {
   queryTrainingRepository,
   scheduleTrainingRepositoryIndexRefresh,
   type TrainingRepositoryHit,
+  buildSemanticVector,
+  semanticSimilarity,
 } from "./training-repository.js";
 
 export interface CoordinatorTask {
@@ -1066,11 +1068,15 @@ function rankTasks(
   const low = prompt.toLowerCase();
   const queryTokens = new Set(tokenize(prompt));
 
+  // Build a semantic vector for the prompt once (48-dim hash vector)
+  const promptVector = buildSemanticVector(prompt);
+
   const ranked: RankedTask[] = tasks.map((task) => {
     const matchId = `task:${task.task.id}:${task.playbookProgramDir}`;
     let score = 0;
     const matchedTerms = new Set<string>();
 
+    // Keyword matching (exact substring in prompt)
     for (const kw of task.task.keywords ?? []) {
       const key = kw.toLowerCase().trim();
       if (!key) continue;
@@ -1080,6 +1086,7 @@ function rankTasks(
       }
     }
 
+    // Token overlap between prompt and task title/description
     const titleTokens = tokenize(`${task.task.title} ${task.task.description ?? ""}`);
     for (const token of titleTokens) {
       if (queryTokens.has(token)) {
@@ -1088,12 +1095,27 @@ function rankTasks(
       }
     }
 
+    // Regex pattern matching
     for (const pattern of task.task.regex ?? []) {
       try {
         if (new RegExp(pattern, "i").test(prompt)) score += 3;
       } catch {
         // ignore malformed regex
       }
+    }
+
+    // Semantic similarity: compare prompt vector against task title+description+keywords vector.
+    // This catches cases where the prompt is semantically related but uses different words.
+    const taskText = [
+      task.task.title,
+      task.task.description ?? "",
+      ...(task.task.keywords ?? []),
+    ].join(" ");
+    const taskVector = buildSemanticVector(taskText);
+    const sim = semanticSimilarity(promptVector, taskVector);
+    // Scale: max ~1.5 points from semantic match (40% weight vs keyword/regex 60%)
+    if (sim > 0.1) {
+      score += sim * 1.5;
     }
 
     score += learningBias(learningEntries[matchId]);

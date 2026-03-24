@@ -381,7 +381,8 @@ function semanticFragments(text: string): string[] {
   return uniqueLimited([...base, ...grams], 220);
 }
 
-function buildSemanticVector(text: string): number[] {
+/** Build a 48-dimensional semantic hash vector from text (exported for playbook matching). */
+export function buildSemanticVector(text: string): number[] {
   const vector = new Array<number>(SEMANTIC_VECTOR_DIM).fill(0);
   const fragments = semanticFragments(text);
   for (const fragment of fragments) {
@@ -395,7 +396,8 @@ function buildSemanticVector(text: string): number[] {
   return vector.map((value) => Math.round((value / norm) * 1000) / 1000);
 }
 
-function semanticSimilarity(a: number[], b: number[]): number {
+/** Cosine similarity between two semantic vectors (exported for playbook matching). */
+export function semanticSimilarity(a: number[], b: number[]): number {
   if (a.length !== b.length || a.length === 0) return 0;
   let dot = 0;
   let magA = 0;

@@ -1,0 +1,92 @@
+import type { Database } from "bun:sqlite";
+import { newId } from "../utils/id.js";
+
+export interface SkillEffectivenessRecord {
+  id: string;
+  skillId: string;
+  jobId: string;
+  jobOutcome: string | null;
+  createdAt: string;
+}
+
+export interface SkillEffectivenessStats {
+  totalUsed: number;
+  goodOutcomes: number;
+  averageOutcomes: number;
+  poorOutcomes: number;
+  pendingOutcomes: number;
+  successRate: number;
+}
+
+export class SkillEffectivenessRepo {
+  constructor(private db: Database) {}
+
+  /** Record that a skill was injected into a job. */
+  recordUsage(skillId: string, jobId: string): void {
+    try {
+      this.db.prepare(
+        `INSERT OR IGNORE INTO skill_effectiveness (id, skill_id, job_id, created_at)
+         VALUES (?, ?, ?, ?)`,
+      ).run(newId(), skillId, jobId, new Date().toISOString());
+    } catch {
+      // Table may not exist yet on older DBs
+    }
+  }
+
+  /** Update the outcome for all skill usages associated with a job. */
+  recordOutcome(jobId: string, outcome: string): void {
+    try {
+      this.db.prepare(
+        `UPDATE skill_effectiveness SET job_outcome = ? WHERE job_id = ?`,
+      ).run(outcome, jobId);
+    } catch {
+      // Table may not exist
+    }
+  }
+
+  /** Get effectiveness stats for a specific skill. */
+  getStats(skillId: string): SkillEffectivenessStats {
+    try {
+      const rows = this.db.prepare(
+        `SELECT job_outcome FROM skill_effectiveness WHERE skill_id = ?`,
+      ).all(skillId) as Array<{ job_outcome: string | null }>;
+
+      const total = rows.length;
+      const good = rows.filter((r) => r.job_outcome === "positive" || r.job_outcome === "good").length;
+      const average = rows.filter((r) => r.job_outcome === "average").length;
+      const poor = rows.filter((r) => r.job_outcome === "negative" || r.job_outcome === "poor").length;
+      const pending = rows.filter((r) => !r.job_outcome).length;
+
+      return {
+        totalUsed: total,
+        goodOutcomes: good,
+        averageOutcomes: average,
+        poorOutcomes: poor,
+        pendingOutcomes: pending,
+        successRate: total > 0 ? good / total : 0,
+      };
+    } catch {
+      return { totalUsed: 0, goodOutcomes: 0, averageOutcomes: 0, poorOutcomes: 0, pendingOutcomes: 0, successRate: 0 };
+    }
+  }
+
+  /** List recent usage records for a skill (newest first). */
+  listForSkill(skillId: string, limit = 20): SkillEffectivenessRecord[] {
+    try {
+      const rows = this.db.prepare(
+        `SELECT * FROM skill_effectiveness WHERE skill_id = ? ORDER BY created_at DESC LIMIT ?`,
+      ).all(skillId, limit) as Array<{
+        id: string; skill_id: string; job_id: string; job_outcome: string | null; created_at: string;
+      }>;
+      return rows.map((r) => ({
+        id: r.id,
+        skillId: r.skill_id,
+        jobId: r.job_id,
+        jobOutcome: r.job_outcome,
+        createdAt: r.created_at,
+      }));
+    } catch {
+      return [];
+    }
+  }
+}

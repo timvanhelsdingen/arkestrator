@@ -396,7 +396,7 @@ async function handleWorkerHeadlessCommand(payload: any) {
 function dispatch(msg: any) {
   switch (msg.type) {
     case "job_list_response":
-      jobs.all = msg.payload.jobs;
+      jobs.replaceAll(msg.payload.jobs);
       break;
     case "job_updated": {
       const job = msg.payload.job;

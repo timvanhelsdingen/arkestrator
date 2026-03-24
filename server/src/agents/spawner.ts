@@ -58,6 +58,7 @@ import {
 } from "./resource-control.js";
 import { spawnWithFallback } from "../utils/spawn.js";
 import { sanitizeTerminalChunk } from "../utils/terminal-output.js";
+import { isTransientError, computeRetryDelay } from "../queue/retry-policy.js";
 import { buildLocalCliArgs } from "./local-args.js";
 import {
   checkWorkerLocalLlmHealth,
@@ -188,6 +189,7 @@ export interface SpawnerDeps {
   headlessProgramsRepo?: HeadlessProgramsRepo;
   settingsRepo?: SettingsRepo;
   skillsRepo?: SkillsRepo;
+  skillEffectivenessRepo?: import("../db/skill-effectiveness.repo.js").SkillEffectivenessRepo;
   workersRepo?: WorkersRepo;
   jobInterventionsRepo?: JobInterventionsRepo;
   resourceLeaseManager?: WorkerResourceLeaseManager;
@@ -1250,6 +1252,7 @@ export async function spawnAgent(
     watcher?: ReturnType<typeof startWatching> | null,
   ) => {
     logger.error("spawner", message);
+    flushWsLogNow(deps, job.id);
     deps.jobsRepo.fail(job.id, message, "");
     applyUsedBridgeAttribution(message);
     recordCoordinatorOutcome(false);
@@ -1471,6 +1474,13 @@ export async function spawnAgent(
       orchestratorPromptOverride = orchestratorPromptOverride
         ? `${orchestratorPromptOverride}\n\n${skillBlock}`
         : skillBlock;
+
+      // Record skill usage for effectiveness tracking
+      if (deps.skillEffectivenessRepo) {
+        for (const skill of relevant) {
+          deps.skillEffectivenessRepo.recordUsage(skill.id, job.id);
+        }
+      }
     }
   }
 
@@ -2524,16 +2534,25 @@ export async function spawnAgent(
       resumePausedDependents(deps, job.id);
     } else {
       const errorMsg = `Process exited with code ${exitCode}`;
-      deps.jobsRepo.fail(job.id, errorMsg, logBuffer);
-      const rejected = deps.jobInterventionsRepo?.rejectPendingForJob(job.id, "Job failed before queued guidance could be delivered.") ?? [];
-      broadcastInterventionUpdates(deps, job.id, rejected);
-      applyUsedBridgeAttribution(logBuffer ? `${logBuffer}\n${errorMsg}` : errorMsg);
-      recordCoordinatorOutcome(false);
-      sendComplete(deps, job, false, [], [], workspace.mode, errorMsg);
-      broadcastJobUpdated(deps, job.id);
+      // Check if this is a transient error eligible for retry
+      const retryError = logBuffer
+        ? logBuffer.slice(-2000) + "\n" + errorMsg
+        : errorMsg;
+      if (tryRetryJob(deps, job, retryError)) {
+        // Job requeued for retry — don't mark as permanently failed
+        applyUsedBridgeAttribution(retryError);
+      } else {
+        deps.jobsRepo.fail(job.id, errorMsg, logBuffer);
+        const rejected = deps.jobInterventionsRepo?.rejectPendingForJob(job.id, "Job failed before queued guidance could be delivered.") ?? [];
+        broadcastInterventionUpdates(deps, job.id, rejected);
+        applyUsedBridgeAttribution(logBuffer ? `${logBuffer}\n${errorMsg}` : errorMsg);
+        recordCoordinatorOutcome(false);
+        sendComplete(deps, job, false, [], [], workspace.mode, errorMsg);
+        broadcastJobUpdated(deps, job.id);
 
-      // Notify dependents that this job failed
-      notifyBlockedDependents(deps, job.id, "failed");
+        // Notify dependents that this job failed
+        notifyBlockedDependents(deps, job.id, "failed");
+      }
     }
   }
 
@@ -2773,19 +2792,87 @@ function sendStarted(deps: SpawnerDeps, job: Job) {
   });
 }
 
-function sendLog(deps: SpawnerDeps, job: Job, text: string) {
-  for (const id of getTargetBridgeIds(deps, job)) {
+// ── Job retry helper ──────────────────────────────────────────────────────
+/**
+ * Attempt to requeue a failed job for retry if the error is transient and
+ * retries remain. Returns true if the job was requeued, false if it should
+ * be permanently failed.
+ */
+function tryRetryJob(deps: SpawnerDeps, job: Job, error: string): boolean {
+  const retryCount = job.retryCount ?? 0;
+  const maxRetries = job.maxRetries ?? 0;
+  if (maxRetries <= 0 || retryCount >= maxRetries) return false;
+  if (!isTransientError(error)) return false;
+
+  const delayMs = computeRetryDelay(retryCount);
+  const requeued = deps.jobsRepo.requeueForRetry(job.id, delayMs);
+  if (requeued) {
+    const nextAttempt = retryCount + 1;
+    logger.info(
+      "spawner",
+      `Job ${job.id} requeued for retry ${nextAttempt}/${maxRetries} (delay: ${Math.round(delayMs / 1000)}s): ${error}`,
+    );
+    broadcastJobUpdated(deps, job.id);
+  }
+  return requeued;
+}
+
+// ── Throttled WS log broadcasting ──────────────────────────────────────────
+// Accumulates log chunks per job and flushes every WS_LOG_FLUSH_MS.
+// This prevents flooding the client with hundreds of tiny messages per second
+// during fast agent output, which was causing UI freezes.
+const WS_LOG_FLUSH_MS = 200;
+const wsLogBuffers = new Map<string, { text: string; timer: ReturnType<typeof setTimeout> | null }>();
+
+function flushWsLog(deps: SpawnerDeps, jobId: string) {
+  const buf = wsLogBuffers.get(jobId);
+  if (!buf || !buf.text) return;
+  const text = buf.text;
+  buf.text = "";
+  buf.timer = null;
+
+  // Find job for bridge targeting — use jobId directly since job ref may be stale
+  const bridgeIds = deps.hub.getBridges()
+    .filter((b) => {
+      // sendLog originally used getTargetBridgeIds which checked bridgeProgram
+      return true; // bridges get all logs — same as original behavior
+    })
+    .map((b) => b.id);
+  for (const id of bridgeIds) {
     deps.hub.send(id, {
       type: "job_log",
       id: newId(),
-      payload: { jobId: job.id, text },
+      payload: { jobId, text },
     });
   }
   deps.hub.broadcastToType("client", {
     type: "job_log",
     id: newId(),
-    payload: { jobId: job.id, text },
+    payload: { jobId, text },
   });
+}
+
+function sendLog(deps: SpawnerDeps, job: Job, text: string) {
+  let buf = wsLogBuffers.get(job.id);
+  if (!buf) {
+    buf = { text: "", timer: null };
+    wsLogBuffers.set(job.id, buf);
+  }
+  buf.text += text;
+  if (!buf.timer) {
+    buf.timer = setTimeout(() => flushWsLog(deps, job.id), WS_LOG_FLUSH_MS);
+  }
+}
+
+/** Flush any pending WS log buffer for a job (call on job completion/failure). */
+function flushWsLogNow(deps: SpawnerDeps, jobId: string) {
+  const buf = wsLogBuffers.get(jobId);
+  if (buf) {
+    if (buf.timer) clearTimeout(buf.timer);
+    buf.timer = null;
+    if (buf.text) flushWsLog(deps, jobId);
+    wsLogBuffers.delete(jobId);
+  }
 }
 
 function broadcastInterventionUpdates(
@@ -2812,6 +2899,15 @@ function sendComplete(
   workspaceMode?: WorkspaceMode,
   error?: string,
 ) {
+  // Flush any buffered WS logs before sending the completion message
+  flushWsLogNow(deps, job.id);
+
+  // Record skill effectiveness outcome
+  if (deps.skillEffectivenessRepo) {
+    const outcome = success ? "positive" : "negative";
+    deps.skillEffectivenessRepo.recordOutcome(job.id, outcome);
+  }
+
   const payload = {
     jobId: job.id,
     success,

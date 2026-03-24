@@ -262,14 +262,26 @@ export class WorkerLoop {
     }, delay);
   }
 
+  private lastExpiryCheck = 0;
+  private readonly EXPIRY_CHECK_INTERVAL = 60_000; // Check TTL every 60s
+
   private tick() {
     let nextPollMs = this.currentPollMs;
     try {
+      // Periodically expire stale worker-targeted jobs
+      const now = Date.now();
+      if (now - this.lastExpiryCheck >= this.EXPIRY_CHECK_INTERVAL) {
+        this.lastExpiryCheck = now;
+        const expired = this.deps.jobsRepo.expireStaleTargetedJobs();
+        if (expired > 0) {
+          logger.info("worker", `Expired ${expired} stale worker-targeted job(s) past TTL`);
+        }
+      }
+
       const running = this.deps.processTracker.count;
       const availableSlots = this.deps.maxConcurrent - running;
 
       // Periodic diagnostic logging (every 10 seconds)
-      const now = Date.now();
       if (now - this.lastDiagTick >= 10_000) {
         this.lastDiagTick = now;
         if (running > 0 || availableSlots === 0) {
