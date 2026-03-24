@@ -42,3 +42,4 @@ server/.mcp.json
 
 # Worktrees
 .claude/worktrees/
+nul
