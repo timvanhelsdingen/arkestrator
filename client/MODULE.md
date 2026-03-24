@@ -3,6 +3,16 @@
 ## Purpose
 Primary user-facing desktop dashboard (Tauri v2 + Svelte 5). Users manage jobs, configure agents, view workers, manage projects. Connects to server via REST + WebSocket.
 
+## Recent Updates (2026-03-24)
+
+### Major Refactor: Client Performance Optimizations
+
+**WS Log Batching (server-side)**: Server now batches WS log broadcasts at 200ms intervals, reducing message volume during high-throughput job streams.
+
+**Job Store Performance**: `jobs.upsert()` now uses in-place `Object.assign` instead of spreading the entire array on every update. New `replaceAll()` method for bulk replacements. New `listStructureVersion` counter enables coarse-grained derivation — `workerOptions`, `bridgeOptions`, and `userOptions` derived stores only recompute when the job list structure actually changes (adds/removes), not on every property update.
+
+**Autoscroll Performance**: Log autoscroll now uses `requestAnimationFrame` polling instead of `MutationObserver`, reducing layout thrashing during rapid log streaming.
+
 ## Recent Updates (2026-03-23)
 - ComfyUI setup and process management (2026-03-23): New `src-tauri/src/comfyui.rs` module provides cross-platform ComfyUI process management with Tauri commands: `detect_comfyui_paths` (auto-detect installations), `launch_comfyui` (start as background process with PID tracking), `stop_comfyui` (stop managed process), `is_comfyui_running` (check process alive), `check_comfyui_nodes` (verify arkestrator custom nodes installed), `get_comfyui_autostart`/`set_comfyui_autostart` (read/write auto-start preference in config.json). `src-tauri/src/lib.rs` calls `comfyui::auto_start_comfyui_if_configured()` in `.setup()` hook and `comfyui::shutdown_comfyui()` on tray quit. `lib/api/rest.ts` adds five new settings methods: `api.settings.getComfyuiUrl()`, `api.settings.setComfyuiUrl(url)`, `api.settings.testComfyuiUrl()`, `api.settings.getComfyuiPath()`, `api.settings.setComfyuiPath(path)`. `lib/components/BridgeInstaller.svelte` ComfyUI bridge card now shows a "Configure" button instead of "Run standalone" text, with a full setup panel including: location detection/browse, server URL config, connection test, custom nodes status, auto-start toggle, and start/stop controls.
 - Headless dispatch fix (2026-03-23): `src/lib/api/ws.ts` `handleWorkerHeadlessCommand()` now passes `correlationId` through to the result payload when sending `worker_headless_result` back to the server. Previously the Tauri command result lacked correlationId, causing the server's `resolvePendingCommand()` to never match, resulting in all headless commands timing out. Fixes hython/blender/godot headless execution and eliminates INVALID_MESSAGE WebSocket errors from missing correlationId.
@@ -150,7 +160,7 @@ Primary user-facing desktop dashboard (Tauri v2 + Svelte 5). Users manage jobs, 
 | Store | File | State |
 |-------|------|-------|
 | connection | `connection.svelte.ts` | `url`, `apiKey`, `serverMode` (`"local"`/`"remote"`/`""`), `status`, `lastError`, `sessionToken`, `username`, `userRole`, `totpEnabled`, `allowClientCoordination`, `clientCoordinationEnabled`, `canEditCoordinator`. Computed: `isAuthenticated` (has token+username), `isConnected`, `hasSavedCredentials`. Persists to localStorage (including `serverMode` for auto-boot). API key is auto-provisioned by login, stored internally, never shown to user. |
-| jobs | `jobs.svelte.ts` | `all: Job[]`, `selectedId`, `selectedIds: Set`, `logBuffer: Map<string, string[]>`, `statusFilter`, plus per-job intervention history state. Computed: `selected`, `filtered`. Methods: `appendLog` (capped at 5000 lines per job), `getLog`, `upsert`, `toggleSelect`, `selectAllFiltered`, `clearSelection`, `setInterventions`, `upsertIntervention`, `getInterventions`. |
+| jobs | `jobs.svelte.ts` | `all: Job[]`, `selectedId`, `selectedIds: Set`, `logBuffer: Map<string, string[]>`, `statusFilter`, `listStructureVersion` (increments on add/remove for coarse-grained derivation), plus per-job intervention history state. Computed: `selected`, `filtered`. Methods: `appendLog` (capped at 5000 lines per job), `getLog`, `upsert` (in-place `Object.assign` instead of array spread), `replaceAll` (bulk replacement), `toggleSelect`, `selectAllFiltered`, `clearSelection`, `setInterventions`, `upsertIntervention`, `getInterventions`. Derived stores `workerOptions`, `bridgeOptions`, `userOptions` recompute only on structural changes via `listStructureVersion`. |
 | toast | `toast.svelte.ts` | `messages: ToastMessage[]`. Methods: `show`, `success`, `error`, `info`. Auto-dismiss with configurable duration. |
 | agents | `agents.svelte.ts` | `all: AgentConfig[]` |
 | workers | `workers.svelte.ts` | `workers: Worker[]`, `bridges: BridgeInfo[]` (includes optional `machineId`, `osUser`). |

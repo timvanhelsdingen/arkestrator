@@ -2,14 +2,23 @@
 
 ## Recent Update (2026-03-24)
 
+- **Major refactor — 7 phases:**
+  - **Phase 1: Client Performance Fix** — Server WS log broadcasts batched at 200ms intervals. Client `jobs.upsert()` uses in-place `Object.assign`. New `replaceAll()` + `listStructureVersion` for coarse-grained derived store updates. `workerOptions`/`bridgeOptions`/`userOptions` only recompute on structural changes. Autoscroll uses RAF polling instead of MutationObserver.
+  - **Phase 2: Settings Route Split** — Split `settings.ts` (7743 lines) into 7 files: `settings-shared.ts`, `settings-general.ts`, `settings-coordinator.ts`, `settings-training.ts`, `settings-snapshots.ts`, `settings-housekeeping.ts`, plus thin aggregator.
+  - **Phase 3: Training Module Split** — Split `coordinator-training.ts` (2526 lines) into 5 files: `training-extraction.ts`, `training-vault.ts`, `training-scheduling.ts`, `training-discovery.ts`, plus reduced orchestrator.
+  - **Phase 4: Job Queue + Retry** — New DB columns (`retry_count`, `max_retries`, `retry_after`, `expires_at`). New `queue/retry-policy.ts`. Worker loop expires stale targeted jobs every 60s. Spawner retries transient failures with exponential backoff (default: maxRetries=2, 30min TTL for targeted).
+  - **Phase 5: Skills Improvements** — Versioning (`skill_versions` table, `listVersions`/`rollback`). Validation (`skill-validator.ts`). Effectiveness tracking (`skill_effectiveness` table, usage/outcome in spawner). New routes: versions, rollback, validate, preview, effectiveness.
+  - **Phase 6: Process Tracker Concurrency Fix** — `suspend`/`resume` methods on ProcessTracker. Suspended jobs don't count toward concurrency slots. Enables training parent to free slot while polling child analysis.
+  - **Phase 7: Admin Build + Semantic Matching** — New `scripts/build-admin.mjs` + `pnpm build:admin`. Semantic similarity added to playbook task ranking (48-dim cosine similarity at 40% weight).
+
 - Training system audit and fix pass:
-  - **Run-now trigger fix**: `coordinator-training/run-now` endpoint now uses `trigger: "manual"` instead of `trigger: "scheduled"`, so it properly reads configured source paths (e.g. user-added project directories) instead of only checking internal vault paths.
-  - **Scheduled training source paths**: Scheduled training now merges configured source paths with vault learning data instead of using vault-only paths. Ensures real project references are always available for training even when the vault is sparse.
-  - **Headless viability check**: Training mode selection now verifies headless dispatch is actually viable (bridge online or explicit targetWorkerName) before choosing headless mode. Falls back to filesystem analysis instead of failing with "No connected bridge" errors.
-  - **Worker identity dedup**: `resolveClientForHeadlessProgram()` now uses `workerName` as canonical bridge identity instead of `flatMap([machineId, workerName])`, preventing false "multiple workers" errors when a single bridge reports both identifiers.
-  - **Training output resilience**: Added `repairTruncatedJson()` for truncated/unfenced JSON recovery, fallback for unclosed json blocks, and synthetic seed construction when agent completes analysis but emits no JSON. Manual trigger now falls back to vault learning paths when no configured source paths exist. Analysis child jobs use server-side working directory instead of user's project dir.
-  - **Skills injection**: All enabled skills matching a job's program (plus global) are now auto-loaded into every job's context under "Learned Skills & Knowledge", so agents receive relevant training without explicit skill loading.
-  - **MCP API key role**: `api_keys` table CHECK constraint now includes `'mcp'` role, with a migration function to update existing databases.
+  - **Run-now trigger fix**: `coordinator-training/run-now` endpoint now uses `trigger: "manual"` instead of `trigger: "scheduled"`.
+  - **Scheduled training source paths**: Scheduled training now merges configured source paths with vault learning data.
+  - **Headless viability check**: Training mode selection verifies headless dispatch viability before choosing headless mode.
+  - **Worker identity dedup**: `resolveClientForHeadlessProgram()` uses `workerName` as canonical bridge identity.
+  - **Training output resilience**: `repairTruncatedJson()`, unclosed json block fallback, synthetic seed construction.
+  - **Skills injection**: All enabled skills auto-loaded into every job's context under "Learned Skills & Knowledge".
+  - **MCP API key role**: `api_keys` table CHECK constraint includes `'mcp'` role.
 
 ## Recent Update (2026-03-23)
 
@@ -820,7 +829,13 @@ The client embeds the admin panel via iframe with `postMessage` session token ha
 - Version infrastructure: `/health` exports `protocolVersion` + `capabilities`, bridges send `protocolVersion` on WS connect
 - Docker support (GHCR publish, multi-stage Bun image, pnpm filtered install)
 - Server hardening: JSON parse guards on all POST/PUT routes, invalid regex warning in enforcer, sync max size enforcement, CORS defaults, security audit pass
-- Performance: SQL-based dashboard stats, job list pagination (REST + WS), N+1 query fixes (workers JOIN, job enrichment batch), 5 MB log buffer cap
+- Performance: SQL-based dashboard stats, job list pagination (REST + WS), N+1 query fixes (workers JOIN, job enrichment batch), 5 MB log buffer cap, WS log broadcast batching (200ms), client job store in-place updates with coarse-grained derivation, RAF-based autoscroll
+- Server: Settings route split (7 sub-modules), Training module split (5 sub-modules)
+- Server: Job queue retry system (retry-policy.ts, transient failure detection, exponential backoff, stale job expiry)
+- Server: Skills versioning (skill_versions table, rollback), validation (skill-validator.ts), effectiveness tracking (skill_effectiveness table)
+- Server: Process tracker suspend/resume for concurrency slot management
+- Server: Semantic similarity in playbook task ranking (48-dim cosine similarity)
+- Build: cross-platform admin build script (scripts/build-admin.mjs, pnpm build:admin)
 - Client UX: error handling + toasts on all Jobs page actions, ConfirmDialog for all delete actions, self-service password change, platform-aware title bar
 - Protocol: binary file support in FileChange (`binaryContent` base64 + `encoding` field), `binary_files` capability flag
 - Protocol: shared local agentic loop (local-agentic.ts, local-agentic-loop.ts) for server+client local-oss execution
