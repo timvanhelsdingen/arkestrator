@@ -1114,6 +1114,113 @@ export function createJobRoutes(
     });
   });
 
+  // ── Re-guide a finished job ────────────────────────────────────────────
+  // Creates a new child job that picks up from where the parent left off,
+  // with the user's guidance as additional context. Works on completed,
+  // failed, or cancelled jobs.
+  router.post("/:id/guide", async (c) => {
+    const principal = await getAuthPrincipal(c, usersRepo, apiKeysRepo);
+    if (!principal) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+
+    const id = c.req.param("id");
+    const parentJob = jobsRepo.getById(id);
+    if (!parentJob) return errorResponse(c, 404, "Job not found", "NOT_FOUND");
+    if (!canMutateJob(principal, parentJob)) {
+      return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+    }
+    if (!["completed", "failed", "cancelled"].includes(parentJob.status)) {
+      return errorResponse(c, 400, "Can only guide finished jobs (completed, failed, or cancelled)", "INVALID_INPUT");
+    }
+
+    let body: any;
+    try { body = await c.req.json(); } catch {
+      return errorResponse(c, 400, "Invalid JSON body", "INVALID_JSON");
+    }
+
+    const guidance = String(body?.text ?? body?.guidance ?? "").trim();
+    if (!guidance) {
+      return errorResponse(c, 400, "guidance text is required", "INVALID_INPUT");
+    }
+    if (guidance.length > 8000) {
+      return errorResponse(c, 400, "guidance must be <= 8000 characters", "INVALID_INPUT");
+    }
+
+    // Build the child job prompt: original context + parent outcome + guidance
+    const parentStatus = parentJob.status === "completed" ? "completed successfully" : `${parentJob.status}`;
+    const parentError = parentJob.error ? `\nError: ${parentJob.error}` : "";
+    const parentLogsTail = parentJob.logs ? parentJob.logs.slice(-3000) : "";
+
+    const childPrompt = [
+      `## Re-guidance of previous job`,
+      ``,
+      `The previous job "${parentJob.name || parentJob.id}" ${parentStatus}.${parentError}`,
+      ``,
+      `### Original task`,
+      parentJob.prompt,
+      ``,
+      parentLogsTail ? `### Previous output (tail)\n${parentLogsTail}\n` : "",
+      `### Guidance from user`,
+      guidance,
+      ``,
+      `Follow the user's guidance above. Pick up from where the previous job left off.`,
+      `Fix any issues mentioned and complete the task as directed.`,
+    ].filter(Boolean).join("\n");
+
+    // Create child job with same config as parent
+    const childInput = {
+      name: `[Guided] ${parentJob.name || parentJob.prompt.slice(0, 60)}`,
+      prompt: childPrompt,
+      agentConfigId: parentJob.agentConfigId,
+      priority: parentJob.priority,
+      coordinationMode: parentJob.coordinationMode,
+      files: parentJob.files ?? [],
+      contextItems: parentJob.contextItems ?? [],
+      editorContext: parentJob.editorContext,
+      runtimeOptions: parentJob.runtimeOptions,
+      projectId: parentJob.projectId,
+    } as any;
+
+    const submittedBy = principal.kind === "user" ? principal.user.id : undefined;
+    const childJob = jobsRepo.create(
+      childInput,
+      parentJob.bridgeId,
+      parentJob.bridgeProgram,
+      parentJob.workerName,
+      parentJob.targetWorkerName,
+      submittedBy,
+      parentJob.id, // parentJobId — links child to parent
+    );
+
+    // Set retry policy
+    if (DEFAULT_MAX_RETRIES > 0) {
+      jobsRepo.setMaxRetries(childJob.id, DEFAULT_MAX_RETRIES);
+    }
+
+    const actor = principalToAuditActor(principal);
+    auditRepo.log({
+      userId: actor.userId,
+      username: actor.username,
+      action: "job_guided",
+      resource: "job",
+      resourceId: id,
+      details: JSON.stringify({
+        childJobId: childJob.id,
+        guidanceLength: guidance.length,
+        parentStatus: parentJob.status,
+      }),
+      ipAddress: getClientIp(c),
+    });
+
+    broadcastJob(childJob.id);
+    logger.info("jobs", `Re-guided job ${id} → child job ${childJob.id} (guidance: ${guidance.length} chars)`);
+
+    return c.json({
+      ok: true,
+      parentJobId: id,
+      childJob: enrichJob(childJob),
+    }, 201);
+  });
+
   // Archive a job (soft-archive)
   router.post("/:id/archive", async (c) => {
     const principal = await getAuthPrincipal(c, usersRepo, apiKeysRepo);
