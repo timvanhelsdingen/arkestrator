@@ -30,7 +30,9 @@ export interface NetworkAccessCheckResult {
 
 const DEFAULT_LOGIN_RATE_MAX = 100;
 const DEFAULT_LOGIN_RATE_WINDOW_MS = 15 * 60 * 1000;
-const DEFAULT_JOB_RATE_MAX = 10;
+// Job submission rate limit — default is generous for single-user/small-team setups.
+// Can be tightened via admin UI (Settings > Network Controls) for shared deployments.
+const DEFAULT_JOB_RATE_MAX = 120;
 const DEFAULT_JOB_RATE_WINDOW_MS = 60 * 1000;
 
 function parseList(raw: string | null): string[] {
