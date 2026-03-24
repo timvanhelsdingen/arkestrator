@@ -54,7 +54,7 @@ const MIGRATIONS = [
     id          TEXT PRIMARY KEY,
     name        TEXT NOT NULL,
     key_hash    TEXT NOT NULL UNIQUE,
-    role        TEXT NOT NULL DEFAULT 'bridge' CHECK(role IN ('bridge','client','admin')),
+    role        TEXT NOT NULL DEFAULT 'bridge' CHECK(role IN ('bridge','client','admin','mcp')),
     created_at  TEXT NOT NULL,
     revoked_at  TEXT
   )`,
@@ -336,6 +336,9 @@ export function runMigrations(db: Database) {
   // Rebuild policies table if CHECK constraint is missing 'command_filter'
   rebuildPoliciesTableIfNeeded(db);
 
+  // Rebuild api_keys table if CHECK constraint is missing 'mcp' role
+  rebuildApiKeysTableIfNeeded(db);
+
   // Normalize existing worker names to lowercase (fixes case-sensitivity duplicates)
   normalizeWorkerNames(db);
 
@@ -349,6 +352,43 @@ export function runMigrations(db: Database) {
 }
 
 /** Rebuild policies table if CHECK constraint is missing 'command_filter'. */
+function rebuildApiKeysTableIfNeeded(db: Database) {
+  const tableInfo = db.prepare(
+    `SELECT sql FROM sqlite_master WHERE type='table' AND name='api_keys'`,
+  ).get() as { sql: string } | null;
+
+  if (!tableInfo || tableInfo.sql.includes("'mcp'")) {
+    return; // Already has mcp role or table doesn't exist
+  }
+
+  logger.info("migrations", "Migrating api_keys table to support 'mcp' role...");
+  db.exec("PRAGMA foreign_keys = OFF");
+  db.exec("BEGIN TRANSACTION");
+  try {
+    db.exec(`CREATE TABLE api_keys_new (
+      id          TEXT PRIMARY KEY,
+      name        TEXT NOT NULL,
+      key_hash    TEXT NOT NULL UNIQUE,
+      role        TEXT NOT NULL DEFAULT 'bridge' CHECK(role IN ('bridge','client','admin','mcp')),
+      created_at  TEXT NOT NULL,
+      revoked_at  TEXT
+    )`);
+    const oldCols = db.prepare(`PRAGMA table_info(api_keys)`).all() as { name: string }[];
+    const colNames = oldCols.map((c) => c.name);
+    const selectCols = colNames.join(", ");
+    db.exec(`INSERT INTO api_keys_new (${selectCols}) SELECT ${selectCols} FROM api_keys`);
+    db.exec(`DROP TABLE api_keys`);
+    db.exec(`ALTER TABLE api_keys_new RENAME TO api_keys`);
+    db.exec("COMMIT");
+    logger.info("migrations", "api_keys table migration complete.");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  } finally {
+    db.exec("PRAGMA foreign_keys = ON");
+  }
+}
+
 function rebuildPoliciesTableIfNeeded(db: Database) {
   const tableInfo = db.prepare(
     `SELECT sql FROM sqlite_master WHERE type='table' AND name='policies'`,

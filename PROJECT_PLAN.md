@@ -7,6 +7,9 @@
   - **Scheduled training source paths**: Scheduled training now merges configured source paths with vault learning data instead of using vault-only paths. Ensures real project references are always available for training even when the vault is sparse.
   - **Headless viability check**: Training mode selection now verifies headless dispatch is actually viable (bridge online or explicit targetWorkerName) before choosing headless mode. Falls back to filesystem analysis instead of failing with "No connected bridge" errors.
   - **Worker identity dedup**: `resolveClientForHeadlessProgram()` now uses `workerName` as canonical bridge identity instead of `flatMap([machineId, workerName])`, preventing false "multiple workers" errors when a single bridge reports both identifiers.
+  - **Training output resilience**: Added `repairTruncatedJson()` for truncated/unfenced JSON recovery, fallback for unclosed json blocks, and synthetic seed construction when agent completes analysis but emits no JSON. Manual trigger now falls back to vault learning paths when no configured source paths exist. Analysis child jobs use server-side working directory instead of user's project dir.
+  - **Skills injection**: All enabled skills matching a job's program (plus global) are now auto-loaded into every job's context under "Learned Skills & Knowledge", so agents receive relevant training without explicit skill loading.
+  - **MCP API key role**: `api_keys` table CHECK constraint now includes `'mcp'` role, with a migration function to update existing databases.
 
 ## Recent Update (2026-03-23)
 

@@ -558,6 +558,7 @@
   .role-client { color: #60a5fa; background: rgba(96, 165, 250, 0.14); }
   .role-admin { color: #34d399; background: rgba(52, 211, 153, 0.14); }
   .role-bridge { color: #fbbf24; background: rgba(251, 191, 36, 0.14); }
+  .role-mcp { color: #c084fc; background: rgba(192, 132, 252, 0.14); }
 
   .access-summary {
     display: flex;

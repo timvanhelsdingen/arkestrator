@@ -1444,6 +1444,36 @@ export async function spawnAgent(
       ? `${orchestratorPromptOverride}\n\n${playbookContext}`
       : playbookContext;
   }
+
+  // Inject relevant skills from the skills DB into the agent's context.
+  // Skills are the primary knowledge source — training, housekeeping, and
+  // bridge-synced guidance all write here and agents need to see them.
+  if (deps.skillsRepo) {
+    const jobProgram = (job.bridgeProgram ?? "").trim().toLowerCase();
+    const allEnabled = deps.skillsRepo.listAll({ enabled: true });
+    const relevant = allEnabled.filter((skill) => {
+      const sp = skill.program.trim().toLowerCase();
+      if (!sp || sp === "global") return true;
+      if (jobProgram && sp === jobProgram) return true;
+      return false;
+    });
+    if (relevant.length > 0) {
+      const skillLines: string[] = ["## Learned Skills & Knowledge"];
+      for (const skill of relevant) {
+        const header = skill.title || skill.name || skill.slug;
+        const tag = skill.program && skill.program !== "global" ? ` [${skill.program}]` : "";
+        skillLines.push(`### ${header}${tag}`);
+        if (skill.description) skillLines.push(skill.description);
+        if (skill.content) skillLines.push(skill.content);
+        skillLines.push("");
+      }
+      const skillBlock = skillLines.join("\n").trim();
+      orchestratorPromptOverride = orchestratorPromptOverride
+        ? `${orchestratorPromptOverride}\n\n${skillBlock}`
+        : skillBlock;
+    }
+  }
+
   const clientPromptOverrideBlock = buildCoordinatorClientPromptOverrideBlock(job);
   if (clientPromptOverrideBlock) {
     orchestratorPromptOverride = orchestratorPromptOverride

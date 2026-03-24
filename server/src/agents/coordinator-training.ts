@@ -763,7 +763,9 @@ function buildTrainingAgenticAnalyzePrompt(
     lines.push("Do NOT skip analysis because bridge tools are unavailable.");
   }
   lines.push("Perform deep analysis but keep outputs in your final response only.");
-  lines.push("Do NOT create or modify files inside source project folders.");
+  lines.push("CRITICAL: Do NOT create, write, or save ANY files inside source project folders.");
+  lines.push("If you must write temporary files, use the current working directory (your projectRoot), NEVER the source paths.");
+  lines.push("All analysis output (logs, params, JSON, markdown) must go in your final response text, never to disk in source folders.");
   lines.push("");
   if (trainingPrompt.trim()) {
     lines.push("Training objective from user:");
@@ -893,6 +895,101 @@ function detectAgenticAnalysisBlocker(
   return null;
 }
 
+/**
+ * Attempt to repair a truncated JSON object string.
+ *
+ * Agent output is frequently cut off by token limits, leaving JSON blocks
+ * missing closing quotes, braces, or brackets.  This function strips any
+ * trailing non-JSON noise (e.g. `[TodoWrite]`, `[done]`), then progressively
+ * trims trailing characters and closes open structures until the string parses.
+ */
+function repairTruncatedJson(raw: string): Record<string, unknown> | null {
+  // Fast path: try stripping non-JSON noise after the last '}'
+  const stripped = raw.replace(/\}[^}]*$/, "}");
+  try {
+    const parsed = JSON.parse(stripped);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
+  } catch { /* continue */ }
+
+  // Strategy: walk character-by-character tracking brace depth.  Collect
+  // every position where the top-level object closes (depth goes to 0) or
+  // where it's still open.  Then try parsing at each candidate cut point.
+  let body = raw;
+  body = body.replace(/\n\[(?:TodoWrite|done|thinking|mcp_)[\s\S]*$/m, "");
+  body = body.trim();
+
+  // 1. Find candidate cut points where depth reaches 0 (complete object)
+  //    or where depth is small and we can close remaining structures.
+  const cutPoints: number[] = [];
+  let depth = 0;
+  let bracketDepth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i];
+    if (escaped) { escaped = false; continue; }
+    if (ch === "\\") { escaped = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) cutPoints.push(i + 1);
+    } else if (ch === "[") bracketDepth++;
+    else if (ch === "]") bracketDepth--;
+  }
+
+  // 2. Try each cut point where depth reached 0 (complete JSON object)
+  for (const cut of cutPoints) {
+    try {
+      const parsed = JSON.parse(body.slice(0, cut));
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        if (parsed.program || parsed.projectName || parsed.projectPath || parsed.prompt) {
+          return parsed as Record<string, unknown>;
+        }
+      }
+    } catch { /* try next cut point */ }
+  }
+
+  // 3. Fallback: object never closed — progressively trim and close.
+  //    Use larger trim range to handle markdown noise appended after JSON.
+  const maxTrim = Math.min(body.length, body.length - 40);
+  for (let trim = 0; trim < maxTrim; trim++) {
+    const candidate = body.slice(0, body.length - trim);
+    let ob = 0;
+    let obrk = 0;
+    let inStr = false;
+    let esc = false;
+    for (let ci = 0; ci < candidate.length; ci++) {
+      const c = candidate[ci];
+      if (esc) { esc = false; continue; }
+      if (c === "\\") { esc = true; continue; }
+      if (c === '"') { inStr = !inStr; continue; }
+      if (inStr) continue;
+      if (c === "{") ob++;
+      else if (c === "}") ob--;
+      else if (c === "[") obrk++;
+      else if (c === "]") obrk--;
+    }
+    if (ob <= 0) continue;
+    let suffix = "";
+    if (inStr) suffix += '"';
+    for (let i = 0; i < obrk; i++) suffix += "]";
+    for (let i = 0; i < ob; i++) suffix += "}";
+    try {
+      const parsed = JSON.parse(candidate + suffix);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        if (parsed.program || parsed.projectName || parsed.projectPath || parsed.prompt) {
+          return parsed as Record<string, unknown>;
+        }
+      }
+    } catch {
+      // continue trimming
+    }
+  }
+  return null;
+}
+
 function extractAgenticTrainingSeed(
   program: string,
   sourcePaths: string[],
@@ -923,6 +1020,19 @@ function extractAgenticTrainingSeed(
     }
   }
 
+  // Fallback: agent output is often truncated at token limits, leaving a
+  // ```json block without its closing fence.  Try to extract from unclosed
+  // blocks when no complete ones were found.
+  if (candidates.length === 0) {
+    const unclosedRegex = /```json\s*(\{[\s\S]*)/gi;
+    let unclosed: RegExpExecArray | null = null;
+    while ((unclosed = unclosedRegex.exec(text)) !== null) {
+      const raw = unclosed[1];
+      const repaired = repairTruncatedJson(raw);
+      if (repaired) candidates.push(repaired);
+    }
+  }
+
   const selected = [...candidates]
     .reverse()
     .find((candidate) => {
@@ -939,6 +1049,37 @@ function extractAgenticTrainingSeed(
     };
   }
   if (!selected) {
+    // Agent completed analysis but didn't emit a JSON config block.
+    // Synthesise a minimal seed from source paths and extract what we can
+    // from the markdown so the training run isn't wasted.
+    if (sourcePaths.length > 0 && text.includes("[done]")) {
+      const syntheticPath = sourcePaths[0];
+      const syntheticName = basename(syntheticPath) || `${program}-training-reference`;
+      const notesExcerpt = extractAgenticNotesExcerpt(text);
+      const syntheticPrompt = parsePromptSummary(
+        notesExcerpt || trainingPrompt || "Use this as a reference for project structure and conventions.",
+        500,
+      );
+      return {
+        summaries: [{
+          name: syntheticName,
+          path: syntheticPath,
+          summary: syntheticPrompt,
+        }],
+        projects: [{
+          projectPath: syntheticPath,
+          sourcePath: syntheticPath,
+          projectName: syntheticName,
+          configPath: join(syntheticPath, PROJECT_CONFIG_FILES[0]),
+          notesPath: join(syntheticPath, PROJECT_NOTES_FILES[0]),
+          notesExcerpt: notesExcerpt || undefined,
+          inventory: { files: [], sceneFiles: [] },
+        }],
+        notes: [
+          "Agent completed analysis in markdown but did not emit JSON config. Synthetic seed constructed from source paths.",
+        ],
+      };
+    }
     return {
       summaries: [],
       projects: [],
@@ -1862,13 +2003,23 @@ export function queueCoordinatorTrainingJob(
     );
     resolvedSourcePaths = [...new Set([...configuredPaths, ...vaultPaths])];
   } else {
-    resolvedSourcePaths = resolveTrainingSourcePaths(
+    // Manual trigger: read configured paths first, then fall back to vault
+    // learning data when no configured paths exist.  Without this fallback the
+    // job immediately fails with "No analyzable project references" when the
+    // user hasn't explicitly set coordinator_playbook_sources.
+    const configuredPaths = resolveTrainingSourcePaths(
       settingsRepo,
       defaultCoordinatorPlaybookSourcePaths,
       coordinatorPlaybooksDir,
       normalizedProgram,
       undefined,
     );
+    if (configuredPaths.length > 0) {
+      resolvedSourcePaths = configuredPaths;
+    } else {
+      const vaultPaths = resolveScheduledVaultSourcePaths(coordinatorPlaybooksDir, normalizedProgram);
+      resolvedSourcePaths = [...new Set([...configuredPaths, ...vaultPaths])];
+    }
   }
 
   const agentConfigId = resolveTrainingAgentId(agentsRepo, settingsRepo, preferredAgentConfigId);
@@ -2001,6 +2152,18 @@ export function queueCoordinatorTrainingJob(
             artifactNotes.push(message);
             appendJobLog(hub, jobsRepo, created.id, message);
           } else {
+            // Create a server-side working directory for the analysis job so
+            // the agent writes any temporary files there instead of polluting
+            // the user's actual project directory.
+            const analysisWorkDir = join(
+              coordinatorPlaybooksDir,
+              "_learning",
+              "analysis-work",
+              normalizedProgram,
+              created.id,
+            );
+            mkdirSync(analysisWorkDir, { recursive: true });
+
             const analysisMetadata: Record<string, unknown> = {
               coordinator_analysis_mode: "ai",
               coordinator_training_analysis_job: true,
@@ -2009,6 +2172,7 @@ export function queueCoordinatorTrainingJob(
               coordinator_training_prompt: trainingPrompt || undefined,
               coordinator_training_analysis_mode: analysisMode,
               coordinator_training_level: trainingLevel,
+              coordinator_training_work_dir: analysisWorkDir,
               target_bridges: [normalizedProgram],
               bridge_type: normalizedProgram,
             };
@@ -2025,7 +2189,7 @@ export function queueCoordinatorTrainingJob(
                 ? { bridgeExecutionMode: "headless" as const }
                 : undefined,
               editorContext: {
-                projectRoot: resolvedSourcePaths[0] ?? coordinatorPlaybooksDir,
+                projectRoot: analysisWorkDir,
                 metadata: analysisMetadata,
               },
             };
