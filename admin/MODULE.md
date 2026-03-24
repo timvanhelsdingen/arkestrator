@@ -95,7 +95,7 @@ Job operations and broader operational tooling are intentionally handled in the 
 | Policies | Server-side allow/deny filters with type tabs (`file_path`, `tool`, `prompt_filter`, `engine_model`, `command_filter`), per-user/global scope, enable/disable toggles, and create/edit/delete flow. |
 | Training Vault | Global coordinator training explorer that lists one logical `training/` tree with `scripts/`, `playbooks/`, `learning/`, and `imports/`; organized into focused views (`Vault Explorer`, `Repository Controls`, `Snapshots`). In `Vault Explorer`, training job artifacts under `learning/jobs/<program>/<jobId>/...` render as one foldout row per job with nested file rows, while imported references now appear under the dedicated `imports` root. Includes a `Training Job Metadata + Export` panel with checkboxable job rows and scoped zip export by selected job, checked jobs, selected bridge/program, current filters, or full training set. Vault view also supports direct `Import Training Data (.zip)` ingest into server training roots, while job artifact files are read-only with explicit download/export actions (no misleading in-vault save behavior). `Snapshots` now handles full disaster-recovery zip export/import (`Export Entire Server (.zip)` / restore) with optional configured server-file inclusion. |
 | AuditLog | Paginated admin activity log with action filtering and IP/details visibility. |
-| System | System administration page with a "Danger Zone" section containing Factory Reset functionality. Requires password + typing "RESET" to confirm. Calls `POST /api/settings/factory-reset` (admin role + `manageSecurity` permission). Wipes all server data tables while preserving the triggering admin user. |
+| System | System administration page with a tab bar: **System Settings** tab (job timeout, max concurrent agents, log level, worker poll interval, default workspace mode) backed by `GET/PUT /api/settings/system-config`, and **Danger Zone** tab containing Factory Reset functionality. Factory Reset requires password + typing "RESET" to confirm. Calls `POST /api/settings/factory-reset` (admin role + `manageSecurity` permission). Wipes all server data tables while preserving the triggering admin user. |
 
 ## Stores (`src/lib/stores/`)
 | Store | File | State |
@@ -125,7 +125,7 @@ Active admin UI uses:
 - `settings.get`, `settings.setAllowClientCoordination`, `settings.getTrainingRepositoryPolicy`, `settings.updateTrainingRepositoryPolicy`, `settings.getTrainingRepositoryOverrides`, `settings.updateTrainingRepositoryOverrides`, `settings.listTrainingRepositoryRecords`, `settings.getTrainingRepositoryStatus`, `settings.getTrainingRepositoryMetrics`, `settings.reindexTrainingRepository`
 - `policies.*`
 - `coordinatorTraining.*` (`list`, `readFile`, `writeFile`, `createFolder`, `deleteFile`, `deleteFolder`, `updateMetadata`, `listJobs`, `exportJobs`, `exportTrainingDataZip`, `importTrainingDataZip`, `exportSnapshot`, `importSnapshot`, `exportSnapshotZip`, `importSnapshotZip`, `listCoordinatorScripts`, `updateCoordinatorScript`, `deleteCoordinatorScript`)
-- `system.*` (`factoryReset(password, confirmation)`)
+- `system.*` (`factoryReset(password, confirmation)`, `getConfig()`, `updateConfig(config)`)
 - `audit.*`
 
 ## Removed Legacy Pages

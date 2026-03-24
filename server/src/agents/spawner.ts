@@ -197,6 +197,16 @@ export interface SpawnerDeps {
   commandFilterPolicies?: Policy[];
 }
 
+/** Resolve the effective job timeout: per-job override (capped by admin max) → DB override → env/config fallback. */
+function getEffectiveJobTimeoutMs(deps: SpawnerDeps, job?: { runtimeOptions?: { timeoutMinutes?: number } }): number {
+  const adminMax = deps.settingsRepo?.getNumber("job_timeout_ms") ?? deps.config.jobTimeoutMs;
+  const perJob = job?.runtimeOptions?.timeoutMinutes;
+  if (perJob != null && Number.isFinite(perJob) && perJob > 0) {
+    return Math.min(perJob * 60_000, adminMax);
+  }
+  return adminMax;
+}
+
 type InjectedMcpConfig = {
   path: string;
   backup: string | null;
@@ -1119,7 +1129,7 @@ async function runLocalAgenticLoop(
   if (trainingLevel === "low") maxTurns = Math.max(Math.round(maxTurns * 0.5), 10);
   else if (trainingLevel === "high") maxTurns = Math.min(maxTurns * 2, LOCAL_AGENTIC_DEFAULTS.MAX_TURNS);
   // Also scale job timeout for training analysis jobs
-  let effectiveJobTimeoutMs = deps.config.jobTimeoutMs;
+  let effectiveJobTimeoutMs = getEffectiveJobTimeoutMs(deps, job);
   if (trainingLevel === "high") effectiveJobTimeoutMs = Math.round(effectiveJobTimeoutMs * 2);
   else if (trainingLevel === "low") effectiveJobTimeoutMs = Math.round(effectiveJobTimeoutMs * 0.5);
   const rawTurnTimeout = Math.floor(effectiveJobTimeoutMs / Math.max(1, maxTurns));
@@ -1734,7 +1744,7 @@ export async function spawnAgent(
         );
         // Training level can scale maxTurns for client-dispatched jobs too
         const cliTrainingLevel = (job as any).editorContext?.metadata?.coordinator_training_level;
-        let cliJobTimeoutMs = deps.config.jobTimeoutMs;
+        let cliJobTimeoutMs = getEffectiveJobTimeoutMs(deps, job);
         if (cliTrainingLevel === "low") { maxTurns = Math.max(Math.round(maxTurns * 0.5), 10); cliJobTimeoutMs = Math.round(cliJobTimeoutMs * 0.5); }
         else if (cliTrainingLevel === "high") { maxTurns = Math.min(maxTurns * 2, LOCAL_AGENTIC_DEFAULTS.MAX_TURNS); cliJobTimeoutMs = Math.round(cliJobTimeoutMs * 2); }
         const turnTimeoutMs = Math.min(
@@ -1935,8 +1945,8 @@ export async function spawnAgent(
 
   // Per-job timeout for training level: high=2x, low=0.5x
   const procTrainingLevel = (job as any).editorContext?.metadata?.coordinator_training_level;
-  const procTimeoutMs = procTrainingLevel === "high" ? Math.round(deps.config.jobTimeoutMs * 2)
-    : procTrainingLevel === "low" ? Math.round(deps.config.jobTimeoutMs * 0.5)
+  const procTimeoutMs = procTrainingLevel === "high" ? Math.round(getEffectiveJobTimeoutMs(deps, job) * 2)
+    : procTrainingLevel === "low" ? Math.round(getEffectiveJobTimeoutMs(deps, job) * 0.5)
     : undefined;
   deps.processTracker.register(job.id, proc, procTimeoutMs);
 
@@ -2354,7 +2364,7 @@ export async function spawnAgent(
             headlessProgramsRepo: deps.headlessProgramsRepo,
             program: job.bridgeProgram,
             commands,
-            timeoutMs: Math.min(deps.config.jobTimeoutMs, 180_000),
+            timeoutMs: Math.min(getEffectiveJobTimeoutMs(deps, job), 180_000),
             projectPath: job.editorContext?.projectRoot,
             targetWorkerName: job.targetWorkerName ?? job.workerName,
           });

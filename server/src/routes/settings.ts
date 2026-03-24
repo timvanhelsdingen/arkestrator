@@ -32,6 +32,7 @@ import {
   type ProgramDiscoveryDeps,
 } from "../agents/engines.js";
 import type { WorkersRepo } from "../db/workers.repo.js";
+import type { Config } from "../config.js";
 import {
   computeCoordinatorTrainingNextRunByProgram,
   generateCoordinatorTraining,
@@ -91,6 +92,7 @@ export function createSettingsRoutes(
   db?: Database,
   workersRepo?: WorkersRepo,
   skillsRepo?: SkillsRepo,
+  config?: Config,
 ) {
   const router = new Hono();
 
@@ -7564,6 +7566,99 @@ export function createSettingsRoutes(
     });
 
     return c.json({ ok: true, program, content: "", action: "removed" });
+  });
+
+  // ── System configuration (runtime overrides stored in server_settings) ──
+
+  /** Keys exposed via the system-config API, with their DB key and config fallback field. */
+  const SYSTEM_CONFIG_KEYS = {
+    jobTimeoutMs:        { dbKey: "job_timeout_ms",        type: "number" as const },
+    maxConcurrentAgents: { dbKey: "max_concurrent_agents", type: "number" as const },
+    logLevel:            { dbKey: "log_level",             type: "string" as const },
+    workerPollMs:        { dbKey: "worker_poll_ms",        type: "number" as const },
+    defaultWorkspaceMode:{ dbKey: "default_workspace_mode",type: "string" as const },
+  } as const;
+
+  const VALID_LOG_LEVELS = ["debug", "info", "warn", "error"];
+  const VALID_WORKSPACE_MODES = ["auto", "command", "repo", "sync"];
+
+  router.get("/system-config", (c) => {
+    const user = requireAdmin(c, usersRepo);
+    if (!user) return errorResponse(c, 403, "Admin access required", "FORBIDDEN");
+
+    const result: Record<string, string | number> = {};
+    for (const [key, meta] of Object.entries(SYSTEM_CONFIG_KEYS)) {
+      if (meta.type === "number") {
+        const dbVal = settingsRepo.getNumber(meta.dbKey);
+        result[key] = dbVal ?? (config as any)?.[key] ?? 0;
+      } else {
+        const dbVal = settingsRepo.get(meta.dbKey);
+        result[key] = dbVal ?? (config as any)?.[key] ?? "";
+      }
+    }
+    return c.json(result);
+  });
+
+  router.put("/system-config", async (c) => {
+    const user = requireAdmin(c, usersRepo);
+    if (!user) return errorResponse(c, 403, "Admin access required", "FORBIDDEN");
+
+    let body: any;
+    try { body = await c.req.json(); } catch {
+      return errorResponse(c, 400, "Invalid JSON body", "INVALID_JSON");
+    }
+    if (!body || typeof body !== "object") {
+      return errorResponse(c, 400, "Expected JSON object", "VALIDATION");
+    }
+
+    const updated: string[] = [];
+    for (const [key, meta] of Object.entries(SYSTEM_CONFIG_KEYS)) {
+      if (!(key in body)) continue;
+      const val = body[key];
+
+      if (meta.type === "number") {
+        const n = Number(val);
+        if (!Number.isFinite(n) || n < 0) {
+          return errorResponse(c, 400, `${key} must be a non-negative number`, "VALIDATION");
+        }
+        settingsRepo.setNumber(meta.dbKey, n);
+        updated.push(key);
+      } else {
+        const s = String(val ?? "").trim();
+        // Validate enums
+        if (key === "logLevel" && !VALID_LOG_LEVELS.includes(s)) {
+          return errorResponse(c, 400, `logLevel must be one of: ${VALID_LOG_LEVELS.join(", ")}`, "VALIDATION");
+        }
+        if (key === "defaultWorkspaceMode" && !VALID_WORKSPACE_MODES.includes(s)) {
+          return errorResponse(c, 400, `defaultWorkspaceMode must be one of: ${VALID_WORKSPACE_MODES.join(", ")}`, "VALIDATION");
+        }
+        settingsRepo.set(meta.dbKey, s);
+        updated.push(key);
+      }
+    }
+
+    if (updated.length > 0) {
+      auditRepo.log({
+        userId: user.id,
+        username: user.username,
+        action: "system_config_updated",
+        resource: `system_config:${updated.join(",")}`,
+        ipAddress: getClientIp(c),
+      });
+    }
+
+    // Re-read all values to return current state
+    const result: Record<string, string | number> = {};
+    for (const [key, meta] of Object.entries(SYSTEM_CONFIG_KEYS)) {
+      if (meta.type === "number") {
+        const dbVal = settingsRepo.getNumber(meta.dbKey);
+        result[key] = dbVal ?? (config as any)?.[key] ?? 0;
+      } else {
+        const dbVal = settingsRepo.get(meta.dbKey);
+        result[key] = dbVal ?? (config as any)?.[key] ?? "";
+      }
+    }
+    return c.json({ ok: true, updated, config: result });
   });
 
   // Factory reset — wipe all data except the requesting admin user

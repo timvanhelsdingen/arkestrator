@@ -27,4 +27,15 @@ export class SettingsRepo {
   setBool(key: string, value: boolean): void {
     this.set(key, value ? "true" : "false");
   }
+
+  getNumber(key: string): number | null {
+    const raw = this.get(key);
+    if (raw === null) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  setNumber(key: string, value: number): void {
+    this.set(key, String(value));
+  }
 }

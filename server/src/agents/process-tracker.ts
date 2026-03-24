@@ -13,7 +13,12 @@ export class ProcessTracker {
   private processes = new Map<string, TrackedProcess>();
   private timeoutChecker: ReturnType<typeof setInterval> | null = null;
 
-  constructor(private jobTimeoutMs: number) {}
+  constructor(private getJobTimeoutMs: number | (() => number)) {}
+
+  /** Resolve the current global job timeout (supports static number or dynamic getter). */
+  private get jobTimeoutMs(): number {
+    return typeof this.getJobTimeoutMs === "function" ? this.getJobTimeoutMs() : this.getJobTimeoutMs;
+  }
 
   register(jobId: string, proc: Subprocess, timeoutMs?: number) {
     this.processes.set(jobId, {

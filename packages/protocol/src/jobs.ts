@@ -55,6 +55,8 @@ export const JobRuntimeOptions = z.object({
   coordinationScripts: CoordinationScripts.optional(),
   /** Enable skills mode: injects matched skills into agent prompts. */
   skillsMode: z.boolean().optional(),
+  /** Per-job timeout override in minutes. Capped by the server's global max. */
+  timeoutMinutes: z.number().min(1).max(1440).optional(),
 });
 export type JobRuntimeOptions = z.infer<typeof JobRuntimeOptions>;
 

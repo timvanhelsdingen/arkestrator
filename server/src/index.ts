@@ -417,7 +417,9 @@ async function main() {
   // 5. Create infrastructure
   const hub = new WebSocketHub();
   const skillsPulledThisSession = new Set<string>(); // tracks which programs had skills pulled this session
-  const processTracker = new ProcessTracker(config.jobTimeoutMs);
+  const processTracker = new ProcessTracker(() =>
+    settingsRepo.getNumber("job_timeout_ms") ?? config.jobTimeoutMs
+  );
   const scheduler = new Scheduler(jobsRepo);
   const resourceLeaseManager = new WorkerResourceLeaseManager();
   const localLlmGate = new LocalLlmGate();

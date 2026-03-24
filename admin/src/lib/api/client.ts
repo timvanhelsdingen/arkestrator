@@ -1302,5 +1302,18 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ password, confirmation }),
       }),
+    getConfig: () =>
+      request("/api/settings/system-config") as Promise<{
+        jobTimeoutMs: number;
+        maxConcurrentAgents: number;
+        logLevel: string;
+        workerPollMs: number;
+        defaultWorkspaceMode: string;
+      }>,
+    updateConfig: (updates: Record<string, string | number>) =>
+      request("/api/settings/system-config", {
+        method: "PUT",
+        body: JSON.stringify(updates),
+      }) as Promise<{ ok: boolean; updated: string[]; config: Record<string, string | number> }>,
   },
 };

@@ -3,6 +3,56 @@
   import { auth } from "../lib/stores/auth.svelte";
   import { toast } from "../lib/stores/toast.svelte";
 
+  type Tab = "settings" | "danger";
+  let activeTab = $state<Tab>("settings");
+
+  // ── System Settings state ──
+  let loading = $state(true);
+  let saving = $state(false);
+  let jobTimeoutMin = $state(30);
+  let maxConcurrentAgents = $state(8);
+  let logLevel = $state("info");
+  let workerPollMs = $state(500);
+  let defaultWorkspaceMode = $state("auto");
+
+  async function loadConfig() {
+    loading = true;
+    try {
+      const cfg = await api.system.getConfig();
+      jobTimeoutMin = Math.round(cfg.jobTimeoutMs / 60_000);
+      maxConcurrentAgents = cfg.maxConcurrentAgents;
+      logLevel = cfg.logLevel;
+      workerPollMs = cfg.workerPollMs;
+      defaultWorkspaceMode = cfg.defaultWorkspaceMode;
+    } catch (err: any) {
+      toast.error(err?.message ?? "Failed to load system config");
+    } finally {
+      loading = false;
+    }
+  }
+
+  async function saveConfig() {
+    saving = true;
+    try {
+      const res = await api.system.updateConfig({
+        jobTimeoutMs: jobTimeoutMin * 60_000,
+        maxConcurrentAgents,
+        logLevel,
+        workerPollMs,
+        defaultWorkspaceMode,
+      });
+      toast.success(`Settings saved (${res.updated.length} updated)`);
+    } catch (err: any) {
+      toast.error(err?.message ?? "Failed to save settings");
+    } finally {
+      saving = false;
+    }
+  }
+
+  // Load on mount
+  $effect(() => { loadConfig(); });
+
+  // ── Danger Zone state ──
   let showResetModal = $state(false);
   let resetPassword = $state("");
   let resetConfirmation = $state("");
@@ -24,7 +74,6 @@
       await api.system.factoryReset(resetPassword, resetConfirmation);
       toast.success("Factory reset complete. Logging out...");
       showResetModal = false;
-      // Log out after a brief delay so the toast is visible
       setTimeout(() => auth.logout(), 1500);
     } catch (err: any) {
       resetError = err?.message ?? "Factory reset failed";
@@ -41,22 +90,93 @@
   }
 </script>
 
-<div class="page">
-  <h2>System</h2>
+<div class="system-page">
+  <div class="tab-bar">
+    <button class="tab" class:active={activeTab === "settings"} onclick={() => (activeTab = "settings")}>
+      System Settings
+    </button>
+    <button class="tab" class:active={activeTab === "danger"} onclick={() => (activeTab = "danger")}>
+      Danger Zone
+    </button>
+  </div>
 
-  <div class="danger-zone">
-    <h3>Danger Zone</h3>
+  <div class="tab-content">
+    {#if activeTab === "settings"}
+      <div class="page">
+        <h2>System Settings</h2>
+        <p class="subtitle">Runtime configuration for the server. Changes take effect immediately for new jobs.</p>
 
-    <div class="danger-card">
-      <div class="danger-info">
-        <h4>Factory Reset</h4>
-        <p>
-          Wipe all server data including jobs, sessions, API keys, agent configs, policies, workers, and audit logs.
-          Your admin account will be preserved. All other users will be deleted.
-        </p>
+        {#if loading}
+          <p class="muted">Loading...</p>
+        {:else}
+          <div class="settings-grid">
+            <div class="setting">
+              <label for="jobTimeout">Job Timeout (minutes)</label>
+              <p class="hint">Maximum time a job can run before being killed. Default: 30 min.</p>
+              <input id="jobTimeout" type="number" min="1" max="1440" bind:value={jobTimeoutMin} />
+            </div>
+
+            <div class="setting">
+              <label for="maxAgents">Max Concurrent Agents</label>
+              <p class="hint">How many jobs can run in parallel. Default: 8.</p>
+              <input id="maxAgents" type="number" min="1" max="64" bind:value={maxConcurrentAgents} />
+            </div>
+
+            <div class="setting">
+              <label for="logLevel">Log Level</label>
+              <p class="hint">Server log verbosity.</p>
+              <select id="logLevel" bind:value={logLevel}>
+                <option value="debug">Debug</option>
+                <option value="info">Info</option>
+                <option value="warn">Warn</option>
+                <option value="error">Error</option>
+              </select>
+            </div>
+
+            <div class="setting">
+              <label for="pollMs">Worker Poll Interval (ms)</label>
+              <p class="hint">How often workers check for queued jobs. Lower = more responsive, higher = less CPU. Default: 500.</p>
+              <input id="pollMs" type="number" min="100" max="10000" step="100" bind:value={workerPollMs} />
+            </div>
+
+            <div class="setting">
+              <label for="wsMode">Default Workspace Mode</label>
+              <p class="hint">How the agent accesses the project filesystem by default.</p>
+              <select id="wsMode" bind:value={defaultWorkspaceMode}>
+                <option value="auto">Auto</option>
+                <option value="command">Command</option>
+                <option value="repo">Repo</option>
+                <option value="sync">Sync</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="actions-row">
+            <button class="btn-primary" onclick={saveConfig} disabled={saving}>
+              {saving ? "Saving..." : "Save Settings"}
+            </button>
+          </div>
+        {/if}
       </div>
-      <button class="btn-danger" onclick={() => showResetModal = true}>Factory Reset</button>
-    </div>
+
+    {:else}
+      <div class="page">
+        <h2>Danger Zone</h2>
+
+        <div class="danger-zone">
+          <div class="danger-card">
+            <div class="danger-info">
+              <h4>Factory Reset</h4>
+              <p>
+                Wipe all server data including jobs, sessions, API keys, agent configs, policies, workers, and audit logs.
+                Your admin account will be preserved. All other users will be deleted.
+              </p>
+            </div>
+            <button class="btn-danger" onclick={() => showResetModal = true}>Factory Reset</button>
+          </div>
+        </div>
+      </div>
+    {/if}
   </div>
 </div>
 
@@ -99,21 +219,101 @@
 {/if}
 
 <style>
-  .page { padding: 24px; }
-  h2 { font-size: var(--font-size-xl); font-weight: 600; margin-bottom: 24px; }
+  .system-page {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
 
+  .tab-bar {
+    display: flex;
+    gap: 0;
+    padding: 0 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-surface);
+    flex-shrink: 0;
+  }
+
+  .tab {
+    padding: 10px 20px;
+    font-size: var(--font-size-base);
+    color: var(--text-muted);
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .tab:hover { color: var(--text-primary); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .tab-content {
+    flex: 1;
+    overflow-y: auto;
+  }
+
+  .page { padding: 24px; }
+  h2 { font-size: var(--font-size-xl); font-weight: 600; margin-bottom: 4px; }
+  .subtitle { font-size: var(--font-size-sm); color: var(--text-secondary); margin-bottom: 24px; }
+  .muted { color: var(--text-muted); font-size: var(--font-size-sm); }
+
+  /* ── Settings form ── */
+  .settings-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    max-width: 480px;
+  }
+
+  .setting label {
+    display: block;
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 2px;
+  }
+  .setting .hint {
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+    margin-bottom: 6px;
+    line-height: 1.4;
+  }
+  .setting input,
+  .setting select {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-base);
+    color: var(--text-primary);
+    font-size: var(--font-size-sm);
+  }
+  .setting select {
+    cursor: pointer;
+  }
+
+  .actions-row {
+    margin-top: 24px;
+    display: flex;
+    gap: 8px;
+  }
+  .btn-primary {
+    padding: 8px 20px;
+    border-radius: var(--radius-sm);
+    background: var(--accent);
+    color: white;
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+  }
+  .btn-primary:hover { opacity: 0.9; }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* ── Danger Zone ── */
   .danger-zone {
     border: 1px solid var(--status-failed);
     border-radius: var(--radius-lg);
     padding: 20px;
   }
-  .danger-zone h3 {
-    color: var(--status-failed);
-    font-size: var(--font-size-lg);
-    font-weight: 600;
-    margin-bottom: 16px;
-  }
-
   .danger-card {
     display: flex;
     align-items: center;
@@ -135,7 +335,6 @@
     line-height: 1.5;
     max-width: 540px;
   }
-
   .btn-danger {
     padding: 8px 16px;
     border-radius: var(--radius-sm);
@@ -149,6 +348,7 @@
   .btn-danger:hover { opacity: 0.9; }
   .btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
 
+  /* ── Modal ── */
   .overlay {
     position: fixed;
     inset: 0;
@@ -177,7 +377,6 @@
     margin-bottom: 16px;
     line-height: 1.5;
   }
-
   .form-group {
     display: flex;
     flex-direction: column;
@@ -198,12 +397,10 @@
     color: var(--text-primary);
     font-size: var(--font-size-sm);
   }
-
   .error {
     font-size: var(--font-size-sm);
     color: var(--status-failed);
   }
-
   .actions {
     display: flex;
     gap: 8px;

@@ -492,6 +492,20 @@ class ChatState {
     this.tabs = [...this.tabs];
     this.persist();
   }
+
+  setRuntimeTimeout(minutes: number | undefined) {
+    const tab = this.activeTab;
+    if (!tab) return;
+    const next: JobRuntimeOptions = { ...(tab.runtimeOptions ?? {}) };
+    if (minutes != null && minutes > 0) {
+      next.timeoutMinutes = minutes;
+    } else {
+      delete next.timeoutMinutes;
+    }
+    tab.runtimeOptions = Object.keys(next).length > 0 ? next : undefined;
+    this.tabs = [...this.tabs];
+    this.persist();
+  }
 }
 
 export const chatStore = new ChatState();

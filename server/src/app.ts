@@ -205,6 +205,7 @@ export function createApp(deps: AppDeps) {
       deps.db,
       deps.workersRepo,
       deps.skillsRepo,
+      deps.config,
     ),
   );
 

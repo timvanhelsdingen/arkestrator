@@ -392,6 +392,23 @@
       </button>
     </div>
 
+    <!-- Timeout -->
+    <div class="config-row">
+      <label for="jc-timeout">Timeout (min)</label>
+      <input
+        id="jc-timeout"
+        type="number"
+        min="1"
+        max="1440"
+        placeholder="Default"
+        value={chatStore.activeTab?.runtimeOptions?.timeoutMinutes ?? ""}
+        oninput={(e) => {
+          const v = (e.target as HTMLInputElement).value;
+          chatStore.setRuntimeTimeout(v ? Number(v) : undefined);
+        }}
+      />
+    </div>
+
     <!-- Name -->
     <div class="config-row">
       <label for="jc-job-name">Name</label>
