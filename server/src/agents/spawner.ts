@@ -2822,7 +2822,7 @@ function tryRetryJob(deps: SpawnerDeps, job: Job, error: string): boolean {
 // This prevents flooding the client with hundreds of tiny messages per second
 // during fast agent output, which was causing UI freezes.
 const WS_LOG_FLUSH_MS = 200;
-const wsLogBuffers = new Map<string, { text: string; timer: ReturnType<typeof setTimeout> | null }>();
+const wsLogBuffers = new Map<string, { text: string; timer: ReturnType<typeof setTimeout> | null; job: Job }>();
 
 function flushWsLog(deps: SpawnerDeps, jobId: string) {
   const buf = wsLogBuffers.get(jobId);
@@ -2831,14 +2831,8 @@ function flushWsLog(deps: SpawnerDeps, jobId: string) {
   buf.text = "";
   buf.timer = null;
 
-  // Find job for bridge targeting — use jobId directly since job ref may be stale
-  const bridgeIds = deps.hub.getBridges()
-    .filter((b) => {
-      // sendLog originally used getTargetBridgeIds which checked bridgeProgram
-      return true; // bridges get all logs — same as original behavior
-    })
-    .map((b) => b.id);
-  for (const id of bridgeIds) {
+  // Use the stored job reference for proper bridge targeting
+  for (const id of getTargetBridgeIds(deps, buf.job)) {
     deps.hub.send(id, {
       type: "job_log",
       id: newId(),
@@ -2855,7 +2849,7 @@ function flushWsLog(deps: SpawnerDeps, jobId: string) {
 function sendLog(deps: SpawnerDeps, job: Job, text: string) {
   let buf = wsLogBuffers.get(job.id);
   if (!buf) {
-    buf = { text: "", timer: null };
+    buf = { text: "", timer: null, job };
     wsLogBuffers.set(job.id, buf);
   }
   buf.text += text;

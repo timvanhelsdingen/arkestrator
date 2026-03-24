@@ -38,6 +38,7 @@ export interface WorkerDeps {
   headlessProgramsRepo: HeadlessProgramsRepo;
   settingsRepo?: SettingsRepo;
   skillsRepo?: SkillsRepo;
+  skillEffectivenessRepo?: import("../db/skill-effectiveness.repo.js").SkillEffectivenessRepo;
   resourceLeaseManager: WorkerResourceLeaseManager;
   localLlmGate: LocalLlmGate;
   hub: WebSocketHub;
@@ -242,6 +243,7 @@ export class WorkerLoop {
       headlessProgramsRepo: this.deps.headlessProgramsRepo,
       settingsRepo: this.deps.settingsRepo,
       skillsRepo: this.deps.skillsRepo,
+      skillEffectivenessRepo: this.deps.skillEffectivenessRepo,
       workersRepo: this.deps.workersRepo,
       resourceLeaseManager: this.deps.resourceLeaseManager,
       localLlmGate: this.deps.localLlmGate,

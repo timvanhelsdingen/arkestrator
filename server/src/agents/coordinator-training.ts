@@ -201,6 +201,8 @@ export interface QueueCoordinatorTrainingJobDeps {
   coordinatorScriptsDir: string;
   coordinatorPlaybooksDir: string;
   defaultCoordinatorPlaybookSourcePaths?: string[];
+  /** Process tracker for suspend/resume during child analysis polling. */
+  processTracker?: import("./process-tracker.js").ProcessTracker;
 }
 
 interface CoordinatorTrainingJobTerminalState {
@@ -858,7 +860,17 @@ export function queueCoordinatorTrainingJob(
             );
             broadcastJobUpdated(hub, jobsRepo, analysisJobId);
             const analysisTimeoutMs = Math.round(TRAINING_AGENTIC_ANALYSIS_TIMEOUT_MS * levelCfg.timeoutMultiplier);
+            // Suspend our process tracker slot so the child analysis job can
+            // be dispatched even when maxConcurrent=1.
+            if (deps.processTracker) {
+              deps.processTracker.suspend(created.id);
+              appendJobLog(hub, jobsRepo, created.id, `Suspended concurrency slot for child analysis dispatch.`);
+            }
             const terminal = await waitForCoordinatorTrainingJobTerminalState(jobsRepo, analysisJobId, analysisTimeoutMs);
+            // Re-acquire our slot after the child completes.
+            if (deps.processTracker) {
+              deps.processTracker.resume(created.id);
+            }
             analysisStatus = terminal.status;
             // If the child job "failed" but the agent actually completed (logs contain [done]),
             // still try to extract training data. Bridge timeouts can mark a job as failed even

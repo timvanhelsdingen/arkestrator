@@ -217,6 +217,8 @@ async function main() {
   const headlessProgramsRepo = new HeadlessProgramsRepo(db);
   const settingsRepo = new SettingsRepo(db);
   const skillsRepo = new SkillsRepo(db);
+  const { SkillEffectivenessRepo } = await import("./db/skill-effectiveness.repo.js");
+  const skillEffectivenessRepo = new SkillEffectivenessRepo(db);
   const jobInterventionsRepo = new JobInterventionsRepo(db);
   const syncManager = new SyncManager(config);
 
@@ -467,6 +469,7 @@ async function main() {
     headlessProgramsRepo,
     settingsRepo,
     skillsRepo,
+    skillEffectivenessRepo,
     syncManager,
     config,
     hub,
@@ -477,7 +480,7 @@ async function main() {
   });
 
   // 9. Create Hono app
-  const app = createApp({ db, jobsRepo, agentsRepo, apiKeysRepo, usersRepo, policiesRepo, auditRepo, projectsRepo, workersRepo, usageRepo, depsRepo, syncManager, hub, headlessProgramsRepo, settingsRepo, skillsRepo, jobInterventionsRepo, config, resourceLeaseManager, processTracker, dispatchJob: (id) => worker.dispatchById(id) });
+  const app = createApp({ db, jobsRepo, agentsRepo, apiKeysRepo, usersRepo, policiesRepo, auditRepo, projectsRepo, workersRepo, usageRepo, depsRepo, syncManager, hub, headlessProgramsRepo, settingsRepo, skillsRepo, skillEffectivenessRepo, jobInterventionsRepo, config, resourceLeaseManager, processTracker, dispatchJob: (id) => worker.dispatchById(id) });
 
   // Handler deps for WebSocket messages
   const handlerDeps = {
@@ -803,6 +806,7 @@ async function main() {
         coordinatorScriptsDir: config.coordinatorScriptsDir,
         coordinatorPlaybooksDir: config.coordinatorPlaybooksDir,
         defaultCoordinatorPlaybookSourcePaths: config.coordinatorPlaybookSourcePaths,
+        processTracker,
       });
       if (queued.length > 0) {
         logger.info(

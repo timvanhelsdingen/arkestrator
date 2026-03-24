@@ -17,6 +17,7 @@ import type { WebSocketHub } from "../ws/hub.js";
 import type { WorkersRepo } from "../db/workers.repo.js";
 import type { Config } from "../config.js";
 import type { ProgramDiscoveryDeps } from "../agents/engines.js";
+import type { ProcessTracker } from "../agents/process-tracker.js";
 
 /**
  * All dependencies that `createSettingsRoutes` currently receives as params,
@@ -42,4 +43,6 @@ export interface SettingsRouteDeps {
   config?: Config;
   /** Pre-built ProgramDiscoveryDeps derived from the raw params. */
   programDiscoveryDeps: ProgramDiscoveryDeps;
+  /** Process tracker for suspend/resume during training child analysis. */
+  processTracker?: ProcessTracker;
 }

@@ -10,6 +10,7 @@ import type { HeadlessProgramsRepo } from "../db/headless-programs.repo.js";
 import type { WebSocketHub } from "../ws/hub.js";
 import type { WorkersRepo } from "../db/workers.repo.js";
 import type { Config } from "../config.js";
+import type { ProcessTracker } from "../agents/process-tracker.js";
 import { requirePermission } from "../middleware/auth.js";
 import { errorResponse } from "../utils/errors.js";
 import {
@@ -59,6 +60,7 @@ export function createSettingsRoutes(
   workersRepo?: WorkersRepo,
   skillsRepo?: SkillsRepo,
   config?: Config,
+  processTracker?: ProcessTracker,
 ) {
   const router = new Hono();
 
@@ -89,6 +91,7 @@ export function createSettingsRoutes(
     skillsRepo,
     config,
     programDiscoveryDeps,
+    processTracker,
   };
 
   // ── Helper for the overview route ──

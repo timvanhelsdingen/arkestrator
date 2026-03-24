@@ -82,7 +82,7 @@ export function createSettingsTrainingRoutes(deps: SettingsRouteDeps) {
     headlessProgramsRepo, hub, coordinatorScriptsDir, coordinatorPlaybooksDir,
     coordinatorImportsDir, snapshotsDir, defaultCoordinatorReferencePaths,
     defaultCoordinatorPlaybookSourcePaths, db, workersRepo, skillsRepo, config,
-    programDiscoveryDeps,
+    programDiscoveryDeps, processTracker,
   } = deps;
 
   const router = new Hono();
@@ -3498,6 +3498,7 @@ export function createSettingsTrainingRoutes(deps: SettingsRouteDeps) {
             coordinatorScriptsDir,
             coordinatorPlaybooksDir,
             defaultCoordinatorPlaybookSourcePaths,
+            processTracker,
           },
           {
             program,

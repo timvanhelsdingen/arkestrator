@@ -71,6 +71,7 @@ export interface AppDeps {
   headlessProgramsRepo: HeadlessProgramsRepo;
   settingsRepo: SettingsRepo;
   skillsRepo: SkillsRepo;
+  skillEffectivenessRepo?: import("./db/skill-effectiveness.repo.js").SkillEffectivenessRepo;
   jobInterventionsRepo: JobInterventionsRepo;
   config: Config;
   resourceLeaseManager: WorkerResourceLeaseManager;
@@ -206,6 +207,7 @@ export function createApp(deps: AppDeps) {
       deps.workersRepo,
       deps.skillsRepo,
       deps.config,
+      deps.processTracker,
     ),
   );
 
@@ -213,7 +215,7 @@ export function createApp(deps: AppDeps) {
   const skillIndex = new SkillIndex(() =>
     materializeSkills({ skillsRepo: deps.skillsRepo }),
   );
-  app.route("/api/skills", createSkillsRoutes(deps.skillsRepo, skillIndex, deps.usersRepo, deps.apiKeysRepo, deps.settingsRepo, deps.workersRepo));
+  app.route("/api/skills", createSkillsRoutes(deps.skillsRepo, skillIndex, deps.usersRepo, deps.apiKeysRepo, deps.settingsRepo, deps.workersRepo, deps.skillEffectivenessRepo));
 
   // MCP tool server for AI agent bridge interaction and job orchestration
   const mcpDeps = {
