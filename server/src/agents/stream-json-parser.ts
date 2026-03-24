@@ -101,7 +101,14 @@ function parseEvent(state: StreamJsonState, event: any): ParsedLogLine | null {
       }
       const parts: string[] = [];
       for (const block of msg.content) {
-        if (block.type === "text" && block.text) {
+        if (block.type === "thinking" && block.thinking) {
+          // Extended thinking / reasoning block — show a preview so logs
+          // surface the model's reasoning chain.
+          const preview = block.thinking.length > 800
+            ? block.thinking.slice(0, 800) + "..."
+            : block.thinking;
+          parts.push(`[thinking] ${preview}`);
+        } else if (block.type === "text" && block.text) {
           state.plainText += block.text;
           // Show a generous preview of assistant text (500 chars)
           const preview = block.text.length > 500

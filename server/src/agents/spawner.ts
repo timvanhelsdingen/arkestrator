@@ -1496,6 +1496,9 @@ export async function spawnAgent(
       delete cleanEnv[key];
     }
   }
+  // Restore CLAUDE_CODE_MAX_OUTPUT_TOKENS with a generous default so jobs
+  // don't hit the 32k ceiling on long responses.
+  cleanEnv.CLAUDE_CODE_MAX_OUTPUT_TOKENS = process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS ?? "128000";
   if (config.engine === "codex") {
     // Prevent inherited Codex sandbox/session flags from disabling localhost
     // bridge calls (am/curl) inside spawned Codex jobs.
