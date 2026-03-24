@@ -86,6 +86,7 @@ describe("coordinator training queue", () => {
         trigger: "manual",
         apply: false,
         sourcePaths: [sourceRoot],
+        targetWorkerName: "test-worker",
       },
     );
 
