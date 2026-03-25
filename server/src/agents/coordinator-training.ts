@@ -324,8 +324,19 @@ export function buildTrainingAgenticAnalyzePrompt(
   level: TrainingLevel = "medium",
 ): string {
   const levelCfg = TRAINING_LEVEL_CONFIG[level];
+  const isGlobal = program === "global";
   const lines: string[] = [];
-  lines.push(`Analyze coordinator training source paths for ${program} (${mode} mode, training level: ${level}).`);
+
+  if (isGlobal) {
+    lines.push(`Analyze the content at the given source paths (training level: ${level}).`);
+    lines.push("");
+    lines.push("FIRST: Determine what type of content this is. Look at the files, folder structure, and content.");
+    lines.push("Identify which DCC programs/bridges are relevant (e.g. houdini, blender, godot, comfyui, unreal, unity).");
+    lines.push("Content may be relevant to MULTIPLE programs, ONE specific program, or NONE (general/global assets).");
+    lines.push("For image files (textures, renders, references), READ and visually inspect representative samples.");
+  } else {
+    lines.push(`Analyze coordinator training source paths for ${program} (${mode} mode, training level: ${level}).`);
+  }
 
   // Inject level-specific prompt prefix
   if (levelCfg.promptPrefix.length > 0) {
@@ -334,7 +345,10 @@ export function buildTrainingAgenticAnalyzePrompt(
     lines.push("");
   }
 
-  if (mode === "bridge") {
+  if (isGlobal) {
+    lines.push("Perform deep filesystem analysis. Read files, inspect images, analyze folder structure.");
+    lines.push("Do NOT skip analysis because bridge tools are unavailable — work with what's on disk.");
+  } else if (mode === "bridge") {
     lines.push("Use bridge execution for this program when inspecting scene/project internals.");
   } else if (mode === "headless") {
     lines.push(`No live GUI bridge is available for ${program}. A headless CLI is configured — use execute_command to run ${program}-specific commands for deeper inspection.`);
@@ -360,7 +374,7 @@ export function buildTrainingAgenticAnalyzePrompt(
     lines.push(`- ${sourcePath}`);
   }
   lines.push("");
-  lines.push("For each discovered project:");
+  lines.push("For each discovered project or content group:");
   lines.push("1) Include concrete findings: pipeline decisions, key nodes/components, validation checks, caveats.");
   lines.push("2) Do not write generic boilerplate; base conclusions on inspected files/scene data.");
   lines.push("3) Include explicit file references (relative paths) backing each major conclusion.");
@@ -368,7 +382,8 @@ export function buildTrainingAgenticAnalyzePrompt(
   lines.push("");
   lines.push("JSON config requirements:");
   lines.push("- version: 1");
-  lines.push(`- program: \"${program}\"`);
+  lines.push(`- program: the detected program(s) — use "${program}" if specific, or the program you determined from analysis (e.g. "houdini", "blender", "comfyui", "global"). Use "global" for content that applies across multiple programs or has no specific DCC association.`);
+  lines.push("- programs: array of ALL relevant programs (e.g. [\"houdini\", \"comfyui\"] if content applies to multiple bridges)");
   lines.push("- projectName");
   lines.push("- projectPath");
   lines.push("- prompt (detailed workflow guidance)");
@@ -377,7 +392,7 @@ export function buildTrainingAgenticAnalyzePrompt(
   lines.push("");
   lines.push("Notes markdown requirements:");
   lines.push("- Purpose summary");
-  lines.push("- Detailed findings");
+  lines.push("- Detailed findings (include which programs/bridges this content is relevant to)");
   lines.push("- Practical reuse instructions");
   lines.push("- Risks / when not to reuse");
   lines.push("");
@@ -716,49 +731,49 @@ export function queueTrainingOrchestrator(
   setTimeout(() => {
     void (async () => {
       try {
-        // Detect programs
-        const programDeps: ProgramDiscoveryDeps = {
-          coordinatorScriptsDir: deps.coordinatorScriptsDir,
-          hub: deps.hub,
-          headlessProgramsRepo: deps.headlessProgramsRepo,
-        };
+        // Resolve source paths
+        const sourcePaths = Array.isArray(options.sourcePaths) && options.sourcePaths.length > 0
+          ? options.sourcePaths
+          : resolveTrainingSourcePaths(
+              deps.settingsRepo,
+              deps.defaultCoordinatorPlaybookSourcePaths ?? [],
+              deps.coordinatorPlaybooksDir,
+              "global",
+              undefined,
+            );
+        appendJobLog(deps.hub, deps.jobsRepo, created.id, `Source paths (${sourcePaths.length}): ${sourcePaths.join(", ")}`);
+
+        // Determine programs: user-specified or auto-detect from content.
+        // Auto-detect uses a quick file scan as a hint, but the training
+        // agent itself will determine the real programs during analysis.
         let programs: string[];
         if (Array.isArray(options.programs) && options.programs.length > 0) {
+          const programDeps: ProgramDiscoveryDeps = {
+            coordinatorScriptsDir: deps.coordinatorScriptsDir,
+            hub: deps.hub,
+            headlessProgramsRepo: deps.headlessProgramsRepo,
+          };
           const known = new Set(getCoordinatorScriptPrograms(programDeps).map((p) => p.toLowerCase()));
           programs = [...new Set(options.programs.map((p) => p.trim().toLowerCase()).filter(Boolean))].filter((p) => known.has(p));
+          if (programs.length === 0) programs = ["global"];
+          appendJobLog(deps.hub, deps.jobsRepo, created.id, `User-specified programs: ${programs.join(", ")}`);
         } else {
-          const sourcePaths = Array.isArray(options.sourcePaths) && options.sourcePaths.length > 0
-            ? options.sourcePaths
-            : resolveTrainingSourcePaths(
-                deps.settingsRepo,
-                deps.defaultCoordinatorPlaybookSourcePaths ?? [],
-                deps.coordinatorPlaybooksDir,
-                "global",
-                undefined,
-              );
-          const known = getCoordinatorScriptPrograms(programDeps).map((p) => p.toLowerCase());
-          appendJobLog(deps.hub, deps.jobsRepo, created.id, `Source paths (${sourcePaths.length}): ${sourcePaths.join(", ")}`);
-          appendJobLog(deps.hub, deps.jobsRepo, created.id, `Known programs: ${known.join(", ")}`);
-          programs = detectProgramsInPaths(sourcePaths, known);
-        }
-
-        // When no program-specific files are found (e.g. PBR textures, docs,
-        // generic assets), train under "global" with filesystem-only analysis.
-        // The agent will analyze whatever content is in the source paths.
-        if (programs.length === 0) {
+          // Don't try to pre-determine the program from file signatures.
+          // Train as "global" and let the agent analyze the actual content
+          // to determine what programs/bridges are relevant. The agent will
+          // tag the resulting skills with the correct program(s).
           programs = ["global"];
-          appendJobLog(deps.hub, deps.jobsRepo, created.id, `No program-specific files detected — training as global (filesystem analysis)`);
-        } else {
-          appendJobLog(deps.hub, deps.jobsRepo, created.id, `Detected programs: ${programs.join(", ")}`);
+          appendJobLog(deps.hub, deps.jobsRepo, created.id, `Auto-detect mode: training as global — agent will determine relevant programs from content`);
         }
 
-        // Queue per-program training children
+        // Queue per-program training children (passes sourcePaths through)
         const children: Array<{ program: string; jobId: string }> = [];
         const failures: Array<{ program: string; error: string }> = [];
         for (const program of programs) {
           try {
             const child = queueCoordinatorTrainingJob(deps, {
               ...options,
+              sourcePaths,
               program,
               parentJobId: created.id,
             });
