@@ -1332,6 +1332,10 @@ export function queueCoordinatorTrainingJob(
         // Create per-project skills with actual analysis content.
         // Merge projectDetails with training summaries so skills always have
         // content even when the agentic analysis produced minimal output.
+        // Also include the analysis agent's output as rich skill content.
+        const analysisContent = analysisJobId
+          ? String(jobsRepo.getById(analysisJobId)?.logs ?? "").trim()
+          : "";
         const skillSources = projectDetails.length > 0
           ? projectDetails
           : result.summaries.map((s) => ({
@@ -1385,6 +1389,31 @@ export function queueCoordinatorTrainingJob(
               contentParts.push(`## Scene Files`);
               for (const f of project.inventory.sceneFiles.slice(0, 20)) {
                 contentParts.push(`- ${f}`);
+              }
+            }
+            // Include the analysis agent's output — this is the actual
+            // knowledge the agent extracted about the project
+            if (analysisContent && si === 0) {
+              // Extract useful sections from the agent's log output
+              // (skip init/tool noise, keep analysis text)
+              const usefulLines = analysisContent
+                .split("\n")
+                .filter((line) => {
+                  const t = line.trim();
+                  // Skip tool call noise and init lines
+                  if (t.startsWith("[init]") || t.startsWith("[TodoWrite]") || t.startsWith("[ToolSearch]")) return false;
+                  if (t.startsWith("[Bash]") || t.startsWith("[Read]") || t.startsWith("[Grep]")) return false;
+                  if (t.startsWith("[thinking]")) return false;
+                  if (!t) return false;
+                  return true;
+                })
+                .slice(-80) // last 80 meaningful lines
+                .join("\n")
+                .trim();
+              if (usefulLines.length > 100) {
+                contentParts.push("");
+                contentParts.push("## Agent Analysis Output");
+                contentParts.push(usefulLines.slice(0, 6000));
               }
             }
             const content = contentParts.join("\n");
