@@ -38,6 +38,7 @@ import {
   generateCoordinatorTraining,
   getCoordinatorTrainingLastRunByProgram,
   getCoordinatorTrainingSchedule,
+  fanOutTrainingByProgram,
   queueCoordinatorTrainingJob,
   setCoordinatorTrainingLastRunByProgram,
   setCoordinatorTrainingSchedule,
@@ -3475,42 +3476,37 @@ export function createSettingsTrainingRoutes(deps: SettingsRouteDeps) {
     const schedule = getCoordinatorTrainingSchedule(settingsRepo, programDiscoveryDeps);
     const requestedPrograms = Array.isArray(body?.programs)
       ? body.programs.map((p: unknown) => String(p ?? "").trim().toLowerCase()).filter(Boolean)
-      : schedule.programs;
-    const knownPrograms = new Set(getCoordinatorScriptPrograms(programDiscoveryDeps).map((p) => p.toLowerCase()));
-    const programs = ([...new Set(requestedPrograms)] as string[]).filter((p) => knownPrograms.has(p));
-    if (programs.length === 0) {
-      return errorResponse(c, 400, "No valid programs provided", "INVALID_INPUT");
-    }
+      : [];
+    const requestedSourcePaths = Array.isArray(body?.sourcePaths)
+      ? body.sourcePaths.map((p: unknown) => String(p ?? "").trim()).filter(Boolean)
+      : [];
     const apply = body?.apply == null ? schedule.apply : body.apply !== false;
 
-    const queued: any[] = [];
-    const failures: Array<{ program: string; error: string }> = [];
-    for (const program of programs) {
-      try {
-        const job = queueCoordinatorTrainingJob(
-          {
-            jobsRepo,
-            agentsRepo,
-            settingsRepo,
-            skillsRepo,
-            headlessProgramsRepo,
-            hub,
-            coordinatorScriptsDir,
-            coordinatorPlaybooksDir,
-            defaultCoordinatorPlaybookSourcePaths,
-            processTracker,
-          },
-          {
-            program,
-            trigger: "manual",
-            apply,
-            submittedBy: user.id,
-          },
-        );
-        queued.push({ program, jobId: job.id, job });
-      } catch (err: any) {
-        failures.push({ program, error: String(err?.message ?? err) });
-      }
+    // Use fanOutTrainingByProgram — auto-detects programs when none provided
+    const { queued, failures } = fanOutTrainingByProgram(
+      {
+        jobsRepo,
+        agentsRepo,
+        settingsRepo,
+        skillsRepo,
+        headlessProgramsRepo,
+        hub,
+        coordinatorScriptsDir,
+        coordinatorPlaybooksDir,
+        defaultCoordinatorPlaybookSourcePaths,
+        processTracker,
+      },
+      {
+        programs: requestedPrograms.length > 0 ? requestedPrograms : undefined,
+        trigger: "manual",
+        apply,
+        sourcePaths: requestedSourcePaths.length > 0 ? requestedSourcePaths : undefined,
+        submittedBy: user.id,
+      },
+    );
+
+    if (queued.length === 0 && failures.length === 0) {
+      return errorResponse(c, 400, "No programs detected in source paths. Configure source paths or specify programs explicitly.", "INVALID_INPUT");
     }
 
     if (queued.length > 0) {
@@ -3526,7 +3522,8 @@ export function createSettingsTrainingRoutes(deps: SettingsRouteDeps) {
       action: "coordinator_training_run_now",
       resource: "settings",
       details: JSON.stringify({
-        programs,
+        programs: queued.map((q) => q.program),
+        autoDetected: requestedPrograms.length === 0,
         apply,
         queued: queued.map((q) => ({ program: q.program, jobId: q.jobId })),
         failures,

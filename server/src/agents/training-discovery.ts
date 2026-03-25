@@ -8,6 +8,7 @@ import { basename, dirname, isAbsolute, join, relative } from "path";
 import type { SettingsRepo } from "../db/settings.repo.js";
 import {
   filterCoordinatorSourcePathsByProgram,
+  inferCoordinatorSourceProgramsFromPath,
   parseCoordinatorReferencePaths,
   parseCoordinatorSourcePrograms,
 } from "./coordinator-playbooks.js";
@@ -219,6 +220,72 @@ export function looksLikeProjectDir(program: string, entries: string[]): boolean
   if (program === "houdini") return hasFileWithExt(/\.hip(?:lc|nc)?$/i);
   if (program === "comfyui") return lower.has("workflow_api.json") || (hasDoc && hasFileWithExt(/\.json$/i));
   return hasDoc;
+}
+
+/**
+ * Auto-detect which programs (houdini, blender, godot, etc.) are present
+ * in the given source paths. Performs a shallow BFS (default depth 2) using
+ * `looksLikeProjectDir` file-signature matching, with a path-string heuristic
+ * fallback. Stops checking a program once one match is found for speed.
+ */
+export function detectProgramsInPaths(
+  sourcePaths: string[],
+  knownPrograms: string[],
+  maxDepth = 2,
+): string[] {
+  const detected = new Set<string>();
+  const programs = knownPrograms
+    .map((p) => p.trim().toLowerCase())
+    .filter((p) => p && p !== "global");
+
+  for (const sourcePath of sourcePaths) {
+    // Fast heuristic: infer from path string ("/houdini/" in path → houdini)
+    for (const inferred of inferCoordinatorSourceProgramsFromPath(sourcePath)) {
+      if (inferred !== "global" && programs.includes(inferred)) {
+        detected.add(inferred);
+      }
+    }
+
+    // BFS scan: check directory contents against file signatures
+    const queue: Array<{ path: string; depth: number }> = [{ path: sourcePath, depth: 0 }];
+    while (queue.length > 0) {
+      const { path, depth } = queue.shift()!;
+      let entries: string[];
+      try {
+        entries = readdirSync(path);
+      } catch {
+        continue;
+      }
+
+      // Check each program's file signature against this directory
+      for (const program of programs) {
+        if (detected.has(program)) continue; // already found
+        if (looksLikeProjectDir(program, entries)) {
+          detected.add(program);
+        }
+      }
+
+      // All programs found? Stop early
+      if (detected.size >= programs.length) break;
+
+      // Descend into subdirectories
+      if (depth < maxDepth) {
+        for (const name of entries) {
+          if (SKIP_SCAN_DIRS.has(name)) continue;
+          const full = join(path, name);
+          try {
+            if (statSync(full).isDirectory()) {
+              queue.push({ path: full, depth: depth + 1 });
+            }
+          } catch {
+            // skip unreadable
+          }
+        }
+      }
+    }
+  }
+
+  return [...detected].sort();
 }
 
 // ── Directory / project discovery ────────────────────────────────────────────

@@ -1180,10 +1180,10 @@ export const api = {
         lastRunByProgram: Record<string, string>;
         nextRunByProgram: Record<string, string | null>;
       }>,
-    runTraining: (programs?: string[]) =>
+    runTraining: (options?: { programs?: string[]; sourcePaths?: string[] }) =>
       request("/api/settings/coordinator-training/run-now", {
         method: "POST",
-        body: JSON.stringify(programs ? { programs } : {}),
+        body: JSON.stringify(options ?? {}),
       }) as Promise<{
         ok: boolean;
         queued: Array<{ program: string; jobId: string }>;

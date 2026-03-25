@@ -171,14 +171,10 @@
   async function runTrainingNow() {
     const programs = trainingSchedule.programs.length > 0
       ? trainingSchedule.programs
-      : schedulePrograms;
-    if (programs.length === 0) {
-      toast.error("No programs available to train");
-      return;
-    }
+      : undefined;
     trainingRunning = true;
     try {
-      const result = await api.coordinatorTraining.runTraining(programs);
+      const result = await api.coordinatorTraining.runTraining(programs ? { programs } : undefined);
       if (result.queued.length > 0) {
         toast.success(`Training queued for: ${result.queued.map((q) => q.program).join(", ")}`);
         const nowIso = new Date().toISOString();
@@ -1591,9 +1587,9 @@
           <button
             class="btn-primary"
             onclick={runTrainingNow}
-            disabled={trainingRunning || schedulePrograms.length === 0}
+            disabled={trainingRunning}
           >
-            {trainingRunning ? "Queuing..." : "Run Training Now"}
+            {trainingRunning ? "Queuing..." : trainingSchedule.programs.length > 0 ? `Run Training Now (${trainingSchedule.programs.join(", ")})` : "Run Training Now (auto-detect)"}
           </button>
           <button
             class="btn-primary"

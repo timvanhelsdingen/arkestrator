@@ -50,6 +50,7 @@ import {
 import {
   captureTrainingProjectFileBaselines,
   collectTrainingProjectDetails,
+  detectProgramsInPaths,
   discoverProjectDirs,
   PROJECT_CONFIG_FILES,
   resolveProjectConfigPath,
@@ -615,6 +616,63 @@ export function generateCoordinatorTraining(
   };
 }
 
+/**
+ * Auto-detect programs from source paths and fan out one training job per
+ * detected program. If explicit `programs` are provided, uses those instead.
+ * Returns the list of queued jobs and any per-program failures.
+ */
+export function fanOutTrainingByProgram(
+  deps: QueueCoordinatorTrainingJobDeps,
+  options: Omit<QueueCoordinatorTrainingJobOptions, "program"> & { programs?: string[] },
+): { queued: Array<{ program: string; jobId: string; job: Job }>; failures: Array<{ program: string; error: string }> } {
+  const programDeps: ProgramDiscoveryDeps = {
+    coordinatorScriptsDir: deps.coordinatorScriptsDir,
+    hub: deps.hub,
+    headlessProgramsRepo: deps.headlessProgramsRepo,
+  };
+
+  let programs: string[];
+  if (Array.isArray(options.programs) && options.programs.length > 0) {
+    // Explicit override: validate and use provided programs
+    const knownPrograms = new Set(getCoordinatorScriptPrograms(programDeps).map((p) => p.toLowerCase()));
+    programs = [...new Set(options.programs.map((p) => String(p ?? "").trim().toLowerCase()).filter(Boolean))]
+      .filter((p) => knownPrograms.has(p));
+  } else {
+    // Auto-detect: resolve source paths, scan for program file signatures
+    const sourcePaths = Array.isArray(options.sourcePaths) && options.sourcePaths.length > 0
+      ? options.sourcePaths
+      : resolveTrainingSourcePaths(
+          deps.settingsRepo,
+          deps.defaultCoordinatorPlaybookSourcePaths ?? [],
+          deps.coordinatorPlaybooksDir,
+          "global", // resolve without program filter to get all paths
+          undefined,
+        );
+    const knownPrograms = getCoordinatorScriptPrograms(programDeps).map((p) => p.toLowerCase());
+    programs = detectProgramsInPaths(sourcePaths, knownPrograms);
+    if (programs.length > 0) {
+      logger.info(
+        "coordinator-training",
+        `Auto-detected programs from source paths: ${programs.join(", ")}`,
+      );
+    }
+  }
+
+  const queued: Array<{ program: string; jobId: string; job: Job }> = [];
+  const failures: Array<{ program: string; error: string }> = [];
+
+  for (const program of programs) {
+    try {
+      const job = queueCoordinatorTrainingJob(deps, { ...options, program });
+      queued.push({ program, jobId: job.id, job });
+    } catch (err: any) {
+      failures.push({ program, error: String(err?.message ?? err) });
+    }
+  }
+
+  return { queued, failures };
+}
+
 export function queueCoordinatorTrainingJob(
   deps: QueueCoordinatorTrainingJobDeps,
   options: QueueCoordinatorTrainingJobOptions,
@@ -1152,7 +1210,22 @@ export function runScheduledCoordinatorTrainingTick(
     headlessProgramsRepo: deps.headlessProgramsRepo,
   };
   const schedule = getCoordinatorTrainingSchedule(deps.settingsRepo, programDeps);
-  if (!schedule.enabled || schedule.programs.length === 0) return [];
+  if (!schedule.enabled) return [];
+
+  // Auto-detect programs from configured source paths when schedule has none
+  let schedulePrograms = schedule.programs;
+  if (schedulePrograms.length === 0) {
+    const allSourcePaths = resolveTrainingSourcePaths(
+      deps.settingsRepo,
+      deps.defaultCoordinatorPlaybookSourcePaths ?? [],
+      deps.coordinatorPlaybooksDir,
+      "global",
+      undefined,
+    );
+    const knownPrograms = getCoordinatorScriptPrograms(programDeps).map((p) => p.toLowerCase());
+    schedulePrograms = detectProgramsInPaths(allSourcePaths, knownPrograms);
+    if (schedulePrograms.length === 0) return [];
+  }
 
   const runningJobs = deps.jobsRepo.list(["queued", "running"]).jobs;
   const pending = new Set<string>();
@@ -1168,7 +1241,7 @@ export function runScheduledCoordinatorTrainingTick(
   const nowMs = now.getTime();
   const queued: Array<{ program: string; jobId: string }> = [];
 
-  for (const program of schedule.programs) {
+  for (const program of schedulePrograms) {
     if (pending.has(program)) continue;
     const lastIso = lastRunByProgram[program];
     const lastMs = lastIso ? Date.parse(lastIso) : NaN;
