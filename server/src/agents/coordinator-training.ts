@@ -337,8 +337,8 @@ export function buildTrainingAgenticAnalyzePrompt(
   if (mode === "bridge") {
     lines.push("Use bridge execution for this program when inspecting scene/project internals.");
   } else if (mode === "headless") {
-    lines.push("No live GUI bridge is available. Use execute_command and rely on headless CLI fallback (for Houdini this should route through hython when configured).");
-    lines.push("If headless execution fails, continue with deep filesystem analysis and still write detailed outputs.");
+    lines.push(`No live GUI bridge is available for ${program}. A headless CLI is configured — use execute_command to run ${program}-specific commands for deeper inspection.`);
+    lines.push("If headless execution fails or returns errors, continue with deep filesystem analysis and still write detailed outputs.");
   } else {
     lines.push("No live bridge is available. Perform deep filesystem analysis directly from files/folders.");
     lines.push("Do NOT skip analysis because bridge tools are unavailable.");
@@ -1045,10 +1045,12 @@ export function queueCoordinatorTrainingJob(
         if (shouldRunAgenticAnalysis) {
           const levelCfg = TRAINING_LEVEL_CONFIG[trainingLevel];
           projectFileBaselines = captureTrainingProjectFileBaselines(normalizedProgram, resolvedSourcePaths);
-          const bridgeOnline = hub.getBridges().some(
+          // "global" program has no bridge or headless CLI — always filesystem
+          const isDccProgram = normalizedProgram !== "global";
+          const bridgeOnline = isDccProgram && hub.getBridges().some(
             (bridge) => String(bridge.program ?? "").trim().toLowerCase() === normalizedProgram,
           );
-          const headlessEnabled = headlessProgramsRepo?.getByProgram(normalizedProgram)?.enabled === true;
+          const headlessEnabled = isDccProgram && headlessProgramsRepo?.getByProgram(normalizedProgram)?.enabled === true;
           // Headless mode requires a desktop client connected for the target worker.
           // If no bridge is online (which implies no client on that worker), headless
           // dispatch will fail. Fall back to bridge or filesystem in that case.
