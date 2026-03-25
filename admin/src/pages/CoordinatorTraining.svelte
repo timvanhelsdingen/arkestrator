@@ -174,16 +174,22 @@
       : undefined;
     trainingRunning = true;
     try {
-      const result = await api.coordinatorTraining.runTraining(programs ? { programs } : undefined);
-      if (result.queued.length > 0) {
-        toast.success(`Training queued for: ${result.queued.map((q) => q.program).join(", ")}`);
+      const result = await api.coordinatorTraining.runTraining(programs ? { programs } : undefined) as any;
+      // Orchestrator endpoint returns { ok, orchestratorJobId, job }
+      if (result?.orchestratorJobId || result?.job?.id) {
+        const jobId = String(result.orchestratorJobId ?? result.job?.id ?? "");
+        toast.success(`Training queued: ${jobId.slice(0, 8)} (auto-detect)`);
         const nowIso = new Date().toISOString();
-        for (const q of result.queued) {
-          scheduleLastRunByProgram = { ...scheduleLastRunByProgram, [q.program]: nowIso };
+        for (const prog of programs ?? ["global"]) {
+          scheduleLastRunByProgram = { ...scheduleLastRunByProgram, [prog]: nowIso };
         }
       }
-      if (result.failures.length > 0) {
-        toast.error(`Failed: ${result.failures.map((f) => `${f.program}: ${f.error}`).join(", ")}`);
+      // Legacy format: { queued, failures }
+      if (Array.isArray(result?.queued) && result.queued.length > 0) {
+        toast.success(`Training queued for: ${result.queued.map((q: any) => q.program).join(", ")}`);
+      }
+      if (Array.isArray(result?.failures) && result.failures.length > 0) {
+        toast.error(`Failed: ${result.failures.map((f: any) => `${f.program}: ${f.error}`).join(", ")}`);
       }
     } catch (err: any) {
       toast.error(err.message ?? "Failed to run training");
@@ -1566,30 +1572,37 @@
               })}
           />
         </label>
-        {#each schedulePrograms as prog}
-          <label class="toggle policy-toggle">
-            <input
-              type="checkbox"
-              checked={isScheduledForProgram(prog)}
-              onchange={(e) => toggleScheduleProgram(prog, (e.target as HTMLInputElement).checked)}
-            />
-            <span>Include {prog} in schedule</span>
-          </label>
-          <div class="policy-meta">
-            Last run: {formatScheduleDateTime(scheduleLastRunByProgram[prog])}
-            &mdash; Next run: {formatScheduleDateTime(scheduleNextRunByProgram[prog])}
+        <details class="bridge-selector">
+          <summary class="bridge-selector-summary">
+            Bridges in schedule ({trainingSchedule.programs?.length ?? 0} selected)
+          </summary>
+          <div class="bridge-selector-list">
+            {#each schedulePrograms as prog}
+              <label class="toggle policy-toggle">
+                <input
+                  type="checkbox"
+                  checked={isScheduledForProgram(prog)}
+                  onchange={(e) => toggleScheduleProgram(prog, (e.target as HTMLInputElement).checked)}
+                />
+                <span>{prog}</span>
+              </label>
+              <div class="policy-meta">
+                Last: {formatScheduleDateTime(scheduleLastRunByProgram[prog])}
+                &mdash; Next: {formatScheduleDateTime(scheduleNextRunByProgram[prog])}
+              </div>
+            {/each}
+            {#if schedulePrograms.length === 0}
+              <p class="hint">No bridge programs discovered yet.</p>
+            {/if}
           </div>
-        {/each}
-        {#if schedulePrograms.length === 0}
-          <p class="hint">No bridge programs discovered yet. Programs appear after coordinator scripts are created.</p>
-        {/if}
+        </details>
         <div style="margin-top: 8px; display: flex; gap: 8px;">
           <button
             class="btn-primary"
             onclick={runTrainingNow}
             disabled={trainingRunning}
           >
-            {trainingRunning ? "Queuing..." : trainingSchedule.programs.length > 0 ? `Run Training Now (${trainingSchedule.programs.join(", ")})` : "Run Training Now (auto-detect)"}
+            {trainingRunning ? "Queuing..." : "Run Training Now"}
           </button>
           <button
             class="btn-primary"
@@ -2526,6 +2539,24 @@
   .policy-meta {
     color: var(--text-muted);
     font-size: var(--font-size-sm);
+  }
+
+  .bridge-selector {
+    margin: 8px 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+  }
+  .bridge-selector-summary {
+    padding: 8px 12px;
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: var(--font-size-sm);
+  }
+  .bridge-selector-summary:hover { color: var(--text-primary); }
+  .bridge-selector-list {
+    padding: 4px 12px 8px;
+    max-height: 300px;
+    overflow-y: auto;
   }
 
   .repository-panel {

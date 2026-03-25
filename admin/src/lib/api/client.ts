@@ -1186,8 +1186,8 @@ export const api = {
         body: JSON.stringify(options ?? {}),
       }) as Promise<{
         ok: boolean;
-        queued: Array<{ program: string; jobId: string }>;
-        failures: Array<{ program: string; error: string }>;
+        orchestratorJobId?: string;
+        job?: { id: string; status: string };
       }>,
     // Housekeeping
     getHousekeepingSchedule: () =>
