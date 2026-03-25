@@ -1153,6 +1153,14 @@ export function queueCoordinatorTrainingJob(
               throw new Error(`Agentic source analysis ${terminal.status}${detail}`.trim());
             }
             if (terminal.status !== "completed" && agentActuallyCompleted) {
+              // The agent completed its work but the job was marked failed
+              // (e.g. hython syntax error on VEX code after MCP analysis was done).
+              // Fix the child job status so it doesn't show as failed in the UI.
+              try {
+                const childLogs = jobsRepo.getById(analysisJobId)?.logs ?? "";
+                jobsRepo.complete(analysisJobId, [], childLogs);
+                broadcastJobUpdated(hub, jobsRepo, analysisJobId);
+              } catch { /* ignore if already in terminal state */ }
               appendJobLog(
                 hub,
                 jobsRepo,
@@ -1392,24 +1400,46 @@ export function queueCoordinatorTrainingJob(
                 contentParts.push(`- ${f}`);
               }
             }
-            // Include the analysis agent's output — this is the actual
-            // knowledge the agent extracted about the project
+            // Include the analysis agent's structured output — extract the
+            // final markdown/JSON sections, not raw tool call logs.
             if (analysisContent && si === 0) {
-              // Extract useful sections from the agent's log output
-              // (skip init/tool noise, keep analysis text)
-              const usefulLines = analysisContent
-                .split("\n")
-                .filter((line) => {
-                  const t = line.trim();
-                  // Skip tool call noise and init lines
-                  if (t.startsWith("[init]") || t.startsWith("[TodoWrite]") || t.startsWith("[ToolSearch]")) return false;
-                  if (t.startsWith("[Bash]") || t.startsWith("[Read]") || t.startsWith("[Grep]")) return false;
-                  if (t.startsWith("[thinking]")) return false;
-                  if (!t) return false;
-                  return true;
-                })
-                .slice(-80) // last 80 meaningful lines
-                .join("\n")
+              // Look for the structured analysis output that typically starts
+              // with "# Analysis:" or "# Coordinator Training Analysis"
+              // or appears after the last [TodoWrite] before [done]
+              const lines = analysisContent.split("\n");
+              let extractStart = -1;
+              // Find the last major heading that signals structured output
+              for (let li = lines.length - 1; li >= 0; li--) {
+                const t = lines[li].trim();
+                if (t.startsWith("# ") && !t.startsWith("[")) {
+                  extractStart = li;
+                  break;
+                }
+              }
+              // Fallback: find content after the last [TodoWrite] before [done]
+              if (extractStart < 0) {
+                for (let li = lines.length - 1; li >= 0; li--) {
+                  if (lines[li].trim() === "[done]") {
+                    // Walk back to find the last [TodoWrite] before [done]
+                    for (let lj = li - 1; lj >= Math.max(0, li - 200); lj--) {
+                      if (lines[lj].trim().startsWith("[TodoWrite]")) {
+                        extractStart = lj + 1;
+                        break;
+                      }
+                    }
+                    break;
+                  }
+                }
+              }
+              const usefulLines = extractStart >= 0
+                ? lines.slice(extractStart)
+                    .filter((line) => {
+                      const t = line.trim();
+                      if (t === "[done]" || t.startsWith("[TodoWrite]")) return false;
+                      if (/^\[mcp__|^\[Bash\]|^\[Read\]|^\[Grep\]|^\[ToolSearch\]|^\[init\]|^\[thinking\]/.test(t)) return false;
+                      return true;
+                    })
+                    .join("\n")
                 .trim();
               if (usefulLines.length > 100) {
                 contentParts.push("");
