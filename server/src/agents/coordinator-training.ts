@@ -469,8 +469,23 @@ export function generateCoordinatorTraining(
     }
   }
 
+  // When no project references are found (e.g. first-time training with an
+  // empty vault and no configured source paths), produce a minimal training
+  // block with source path metadata rather than crashing the job.
+  if (summaries.length === 0 && sourcePaths.length > 0) {
+    for (const sp of sourcePaths.slice(0, 5)) {
+      summaries.push({
+        name: basename(sp) || sp,
+        path: sp,
+        summary: "Source path registered for future training. No project references discovered yet.",
+      });
+    }
+  }
   if (summaries.length === 0) {
-    throw new Error("No analyzable project references found for training");
+    throw new Error(
+      "No analyzable project references found for training. "
+      + "Configure source paths under Coordinator → Playbook Sources, or provide them when submitting the training job.",
+    );
   }
 
   summaries.sort((a, b) => a.name.localeCompare(b.name));
