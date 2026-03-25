@@ -318,12 +318,18 @@
   }
 
   async function openDetail(skill: SkillEntry) {
-    detailSkill = skill;
     playbookContent = [];
-    if (skill.playbooks?.length > 0) {
+    // Fetch full skill detail (list endpoint returns summary without content/playbooks)
+    try {
+      const data = await api.skills.get(skill.slug, skill.program || undefined);
+      detailSkill = data?.skill ?? skill;
+    } catch {
+      detailSkill = skill;
+    }
+    if (detailSkill.playbooks?.length > 0) {
       loadingPlaybooks = true;
       try {
-        const data = await api.skills.getPlaybookContent(skill.slug, skill.program || undefined);
+        const data = await api.skills.getPlaybookContent(detailSkill.slug, detailSkill.program || undefined);
         playbookContent = data?.playbooks ?? [];
       } catch {
         playbookContent = [];

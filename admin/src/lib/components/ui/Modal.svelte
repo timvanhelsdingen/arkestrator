@@ -60,8 +60,9 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     min-width: 400px;
-    max-width: 600px;
-    max-height: 80vh;
+    max-width: 800px;
+    width: 90vw;
+    max-height: 85vh;
     overflow-y: auto;
   }
 

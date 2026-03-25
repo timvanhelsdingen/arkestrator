@@ -261,11 +261,16 @@ export class SkillIndex {
       })
       .map((s) => ({
         slug: s.slug,
+        name: s.name,
         title: s.title,
         program: s.program,
         category: s.category,
         description: s.description,
+        keywords: s.keywords,
+        playbooks: s.playbooks,
+        relatedSkills: s.relatedSkills,
         source: s.source,
+        sourcePath: s.sourcePath,
         priority: s.priority,
         autoFetch: s.autoFetch,
         enabled: s.enabled,
