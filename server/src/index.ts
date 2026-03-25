@@ -58,21 +58,71 @@ import {
 } from "./security/network-policy.js";
 import { evaluateWorkerAccess } from "./security/worker-rules.js";
 
-/** Retry Bun.serve() up to `retries` times to handle orphaned sockets on Windows */
-async function serveWithRetry(fn: () => ReturnType<typeof Bun.serve>, retries = 15, delayMs = 2000) {
+/**
+ * Try to kill the process occupying a port. Works on Windows (netstat+taskkill)
+ * and Unix (lsof+kill). Returns true if a process was found and killed.
+ */
+async function tryKillPortHolder(port: number): Promise<boolean> {
+  const isWindows = process.platform === "win32";
+  try {
+    if (isWindows) {
+      // netstat -ano | findstr ":7800 " → extract PID from LISTENING line
+      const netstat = Bun.spawnSync(["cmd", "/c", `netstat -ano | findstr ":${port} "`]);
+      const output = netstat.stdout.toString();
+      const lines = output.split(/\r?\n/).filter((line) => line.includes("LISTENING"));
+      const pids = new Set<string>();
+      for (const line of lines) {
+        const parts = line.trim().split(/\s+/);
+        const pid = parts[parts.length - 1];
+        if (pid && /^\d+$/.test(pid) && pid !== "0") pids.add(pid);
+      }
+      if (pids.size === 0) return false;
+      for (const pid of pids) {
+        logger.warn("server", `Killing process ${pid} holding port ${port}`);
+        Bun.spawnSync(["taskkill", "/F", "/PID", pid]);
+      }
+      return true;
+    } else {
+      // Unix: lsof -ti :port → PIDs
+      const lsof = Bun.spawnSync(["lsof", "-ti", `:${port}`]);
+      const output = lsof.stdout.toString().trim();
+      if (!output) return false;
+      const pids = output.split(/\s+/).filter((p) => /^\d+$/.test(p));
+      for (const pid of pids) {
+        logger.warn("server", `Killing process ${pid} holding port ${port}`);
+        Bun.spawnSync(["kill", "-9", pid]);
+      }
+      return pids.length > 0;
+    }
+  } catch {
+    return false;
+  }
+}
+
+/** Retry Bun.serve() with automatic port-holder killing on first EADDRINUSE */
+async function serveWithRetry(fn: () => ReturnType<typeof Bun.serve>, port: number, retries = 5, delayMs = 1000) {
   for (let i = 0; i < retries; i++) {
     try {
       return fn();
     } catch (err: any) {
       if (err?.code === "EADDRINUSE" && i < retries - 1) {
-        logger.warn("server", `Port in use, retrying in ${delayMs}ms... (${i + 1}/${retries})`);
+        if (i === 0) {
+          // First failure: actively kill the port holder
+          const killed = await tryKillPortHolder(port);
+          if (killed) {
+            logger.info("server", `Killed previous process on port ${port}, retrying...`);
+            await Bun.sleep(1500); // give OS time to release the socket
+            continue;
+          }
+        }
+        logger.warn("server", `Port ${port} still in use, retrying in ${delayMs}ms... (${i + 1}/${retries})`);
         await Bun.sleep(delayMs);
         continue;
       }
       throw err;
     }
   }
-  throw new Error("Failed to start server after retries");
+  throw new Error(`Failed to start server on port ${port} after ${retries} retries`);
 }
 
 function parseOfferedProtocols(header: string | null): string[] {
@@ -778,7 +828,7 @@ async function main() {
         }
       },
     },
-  }));
+  }), config.port);
 
   // 11. Start worker loop
   worker.start();
