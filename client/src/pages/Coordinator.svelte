@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { open as openDialog } from "@tauri-apps/plugin-dialog";
   import { connection } from "../lib/stores/connection.svelte";
   import { api } from "../lib/api/rest";
 
@@ -135,6 +136,7 @@
   let scriptsSaving = $state(false);
   let trainingJobStarting = $state(false);
   let trainingInputPath = $state("");
+  let trainingSourcePaths = $state<string[]>([]);
   let trainingAgentConfigId = $state("");
   let trainingTargetWorkerName = $state("");
   let trainingPrompt = $state("");
@@ -903,10 +905,40 @@
 
   function clearTrainingInputs() {
     trainingInputPath = "";
+    trainingSourcePaths = [];
     trainingPrompt = "";
     trainingLevel = "medium";
     trainingUploadFiles = [];
     trainingUploadInputResetKey += 1;
+  }
+
+  async function addTrainingFolder() {
+    try {
+      const selected = await openDialog({
+        directory: true,
+        multiple: true,
+        title: "Select training source folder(s)",
+      });
+      if (!selected) return;
+      const paths = Array.isArray(selected) ? selected : [selected];
+      const newPaths = paths.map((p) => String(p).trim()).filter(Boolean);
+      trainingSourcePaths = [...new Set([...trainingSourcePaths, ...newPaths])];
+    } catch (err) {
+      console.warn("Folder picker failed:", err);
+    }
+  }
+
+  function removeTrainingPath(path: string) {
+    trainingSourcePaths = trainingSourcePaths.filter((p) => p !== path);
+  }
+
+  function addManualTrainingPath() {
+    const trimmed = trainingInputPath.trim();
+    if (!trimmed) return;
+    if (!trainingSourcePaths.includes(trimmed)) {
+      trainingSourcePaths = [...trainingSourcePaths, trimmed];
+    }
+    trainingInputPath = "";
   }
 
   async function queueTrainingJobForProgram() {
@@ -915,11 +947,14 @@
     error = "";
     info = "";
     try {
+      // Collect all source paths: from the multi-path list + any manual input
       const extraPath = trainingInputPath.trim();
       const trimmedPrompt = trainingPrompt.trim();
       const trimmedTargetWorkerName = trainingTargetWorkerName.trim();
       const applyTrainedUpdates = isAdmin ? trainingSchedule.apply : false;
-      const sourcePaths = extraPath ? [extraPath] : [];
+      const allPaths = [...trainingSourcePaths];
+      if (extraPath && !allPaths.includes(extraPath)) allPaths.push(extraPath);
+      const sourcePaths = allPaths;
       const relativeUploadPaths = trainingUploadFiles.map((file) =>
         String((file as File & { webkitRelativePath?: string }).webkitRelativePath ?? "").trim(),
       );
@@ -1512,15 +1547,33 @@
             Non-admin runs are always queued with auto-apply disabled.
           </p>
         {/if}
-        <div class="training-grid">
-          <label>
-            Training Source Path (file or folder)
+        <div class="training-source-paths">
+          <div class="source-paths-header">
+            <span class="label">Training Source Paths</span>
+            <button class="btn secondary btn-sm" onclick={addTrainingFolder}>
+              Add Folder
+            </button>
+          </div>
+          {#if trainingSourcePaths.length > 0}
+            <div class="source-paths-list">
+              {#each trainingSourcePaths as path}
+                <div class="source-path-item">
+                  <span class="mono path-text" title={path}>{path}</span>
+                  <button class="btn-remove" onclick={() => removeTrainingPath(path)} title="Remove">✕</button>
+                </div>
+              {/each}
+            </div>
+          {/if}
+          <div class="source-path-manual">
             <input
               type="text"
               bind:value={trainingInputPath}
-              placeholder="/path/to/project-or-file (optional)"
+              placeholder="Or type a path and press Enter"
+              onkeydown={(e) => { if (e.key === "Enter") { e.preventDefault(); addManualTrainingPath(); } }}
             />
-          </label>
+          </div>
+        </div>
+        <div class="training-grid">
           <label>
             Attach Files or ZIP (optional)
             {#key trainingUploadInputResetKey}
@@ -1924,6 +1977,62 @@
   .training-dashboard-panel {
     display: grid;
     gap: 8px;
+  }
+  .training-source-paths {
+    margin-bottom: 8px;
+  }
+  .source-paths-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .source-paths-header .label {
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+    font-weight: 500;
+  }
+  .btn-sm {
+    padding: 3px 10px;
+    font-size: var(--font-size-xs);
+  }
+  .source-paths-list {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-bottom: 6px;
+  }
+  .source-path-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    background: var(--bg-base);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-xs);
+  }
+  .path-text {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .btn-remove {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0 4px;
+    font-size: 12px;
+    line-height: 1;
+  }
+  .btn-remove:hover {
+    color: var(--danger);
+  }
+  .source-path-manual input {
+    width: 100%;
+    font-size: var(--font-size-sm);
   }
   .training-grid {
     display: grid;
