@@ -1539,64 +1539,14 @@
 
   {#if auth.canManageSecurity}
     <section class="policy-panel">
-      <h2>Self-Training Schedule</h2>
+      <h2>Self-Learning</h2>
       <p class="hint">
-        Configure automated coordinator self-training. When enabled, the server periodically runs training for the selected programs.
+        Arkestrator learns from your projects and past jobs. Training analyzes source content (scenes, textures, workflows) and creates skills with references to detailed playbook artifacts. After training, housekeeping reviews recent job outcomes, identifies patterns, links related skills, and generates new skills to improve future operations. Both run automatically when scheduled, or you can trigger them manually.
       </p>
-      {#if scheduleLoading}
-        <p class="hint">Loading schedule...</p>
+      {#if scheduleLoading || housekeepingLoading}
+        <p class="hint">Loading...</p>
       {:else}
-        <label class="toggle policy-toggle">
-          <input
-            type="checkbox"
-            checked={trainingSchedule.enabled}
-            onchange={(e) =>
-              (trainingSchedule = {
-                ...trainingSchedule,
-                enabled: (e.target as HTMLInputElement).checked,
-              })}
-          />
-          <span>Enable scheduled coordinator self-training</span>
-        </label>
-        <label class="field compact">
-          <span>Interval (minutes)</span>
-          <input
-            type="number"
-            min="5"
-            step="5"
-            value={String(trainingSchedule.intervalMinutes)}
-            oninput={(e) =>
-              (trainingSchedule = {
-                ...trainingSchedule,
-                intervalMinutes: Math.max(5, Number((e.target as HTMLInputElement).value || 0)),
-              })}
-          />
-        </label>
-        <details class="bridge-selector">
-          <summary class="bridge-selector-summary">
-            Bridges in schedule ({trainingSchedule.programs?.length ?? 0} selected)
-          </summary>
-          <div class="bridge-selector-list">
-            {#each schedulePrograms as prog}
-              <label class="toggle policy-toggle">
-                <input
-                  type="checkbox"
-                  checked={isScheduledForProgram(prog)}
-                  onchange={(e) => toggleScheduleProgram(prog, (e.target as HTMLInputElement).checked)}
-                />
-                <span>{prog}</span>
-              </label>
-              <div class="policy-meta">
-                Last: {formatScheduleDateTime(scheduleLastRunByProgram[prog])}
-                &mdash; Next: {formatScheduleDateTime(scheduleNextRunByProgram[prog])}
-              </div>
-            {/each}
-            {#if schedulePrograms.length === 0}
-              <p class="hint">No bridge programs discovered yet.</p>
-            {/if}
-          </div>
-        </details>
-        <div style="margin-top: 8px; display: flex; gap: 8px;">
+        <div style="display: flex; gap: 8px; margin-bottom: 12px; align-items: center;">
           <button
             class="btn-primary"
             onclick={runTrainingNow}
@@ -1605,79 +1555,113 @@
             {trainingRunning ? "Queuing..." : "Run Training Now"}
           </button>
           <button
-            class="btn-primary"
-            onclick={saveTrainingSchedule}
-            disabled={scheduleSaving}
-          >
-            {scheduleSaving ? "Saving..." : "Save Training Schedule"}
-          </button>
-        </div>
-      {/if}
-    </section>
-  {/if}
-
-  {#if auth.canManageSecurity}
-    <section class="policy-panel">
-      <h2>Housekeeping Agent</h2>
-      <p class="hint">
-        A system-level manager that reviews all completed/failed jobs across bridges, identifies patterns, and generates skills to improve future operations.
-      </p>
-      {#if housekeepingLoading}
-        <p class="hint">Loading...</p>
-      {:else}
-        <div style="display: flex; gap: 8px; margin-bottom: 12px;">
-          <button
-            class="btn-primary"
+            class="btn-secondary"
             onclick={runHousekeepingNow}
             disabled={housekeepingRunning}
           >
-            {housekeepingRunning ? "Queuing..." : "Run Housekeeping Now"}
+            {housekeepingRunning ? "Queuing..." : "Run Housekeeping Only"}
           </button>
           {#if housekeepingSchedule.lastRunAt}
-            <span class="hint" style="align-self: center;">
-              Last run: {formatScheduleDateTime(housekeepingSchedule.lastRunAt)}
+            <span class="hint">
+              Last housekeeping: {formatScheduleDateTime(housekeepingSchedule.lastRunAt)}
             </span>
           {/if}
         </div>
 
-        <label class="toggle policy-toggle">
-          <input
-            type="checkbox"
-            checked={housekeepingSchedule.enabled}
-            onchange={(e) =>
-              (housekeepingSchedule = {
-                ...housekeepingSchedule,
-                enabled: (e.target as HTMLInputElement).checked,
-              })}
-          />
-          <span>Enable scheduled housekeeping</span>
-        </label>
-        <label class="field compact">
-          <span>Interval (minutes)</span>
-          <input
-            type="number"
-            min="60"
-            step="60"
-            value={String(housekeepingSchedule.intervalMinutes)}
-            oninput={(e) =>
-              (housekeepingSchedule = {
-                ...housekeepingSchedule,
-                intervalMinutes: Math.max(60, Number((e.target as HTMLInputElement).value || 0)),
-              })}
-          />
-        </label>
-        <p class="hint" style="margin-top: 4px;">
-          The housekeeping agent reviews recent job history, identifies failure patterns and success techniques, and creates training skills to improve future operations.
-        </p>
-        <div style="margin-top: 8px;">
-          <button
-            class="btn-primary"
-            onclick={saveHousekeepingSchedule}
-            disabled={housekeepingSaving}
-          >
-            {housekeepingSaving ? "Saving..." : "Save Housekeeping Schedule"}
-          </button>
-        </div>
+        <details class="bridge-selector" open>
+          <summary class="bridge-selector-summary">Schedule Settings</summary>
+          <div class="bridge-selector-list">
+            <label class="toggle policy-toggle">
+              <input
+                type="checkbox"
+                checked={trainingSchedule.enabled}
+                onchange={(e) =>
+                  (trainingSchedule = {
+                    ...trainingSchedule,
+                    enabled: (e.target as HTMLInputElement).checked,
+                  })}
+              />
+              <span>Enable scheduled training</span>
+            </label>
+            <label class="toggle policy-toggle">
+              <input
+                type="checkbox"
+                checked={housekeepingSchedule.enabled}
+                onchange={(e) =>
+                  (housekeepingSchedule = {
+                    ...housekeepingSchedule,
+                    enabled: (e.target as HTMLInputElement).checked,
+                  })}
+              />
+              <span>Enable scheduled housekeeping</span>
+            </label>
+            <div style="display: flex; gap: 16px; margin: 8px 0;">
+              <label class="field compact" style="flex: 1;">
+                <span>Training interval (min)</span>
+                <input
+                  type="number"
+                  min="5"
+                  step="5"
+                  value={String(trainingSchedule.intervalMinutes)}
+                  oninput={(e) =>
+                    (trainingSchedule = {
+                      ...trainingSchedule,
+                      intervalMinutes: Math.max(5, Number((e.target as HTMLInputElement).value || 0)),
+                    })}
+                />
+              </label>
+              <label class="field compact" style="flex: 1;">
+                <span>Housekeeping interval (min)</span>
+                <input
+                  type="number"
+                  min="60"
+                  step="60"
+                  value={String(housekeepingSchedule.intervalMinutes)}
+                  oninput={(e) =>
+                    (housekeepingSchedule = {
+                      ...housekeepingSchedule,
+                      intervalMinutes: Math.max(60, Number((e.target as HTMLInputElement).value || 0)),
+                    })}
+                />
+              </label>
+            </div>
+
+            <details class="bridge-selector" style="margin-top: 4px;">
+              <summary class="bridge-selector-summary">
+                Bridges in training schedule ({trainingSchedule.programs?.length ?? 0} selected)
+              </summary>
+              <div class="bridge-selector-list">
+                {#each schedulePrograms as prog}
+                  <label class="toggle policy-toggle">
+                    <input
+                      type="checkbox"
+                      checked={isScheduledForProgram(prog)}
+                      onchange={(e) => toggleScheduleProgram(prog, (e.target as HTMLInputElement).checked)}
+                    />
+                    <span>{prog}</span>
+                  </label>
+                  <div class="policy-meta">
+                    Last: {formatScheduleDateTime(scheduleLastRunByProgram[prog])}
+                    &mdash; Next: {formatScheduleDateTime(scheduleNextRunByProgram[prog])}
+                  </div>
+                {/each}
+                {#if schedulePrograms.length === 0}
+                  <p class="hint">No bridge programs discovered yet.</p>
+                {/if}
+              </div>
+            </details>
+
+            <div style="margin-top: 8px; display: flex; gap: 8px;">
+              <button
+                class="btn-primary"
+                onclick={() => { saveTrainingSchedule(); saveHousekeepingSchedule(); }}
+                disabled={scheduleSaving || housekeepingSaving}
+              >
+                {scheduleSaving || housekeepingSaving ? "Saving..." : "Save Schedule"}
+              </button>
+            </div>
+          </div>
+        </details>
       {/if}
     </section>
   {/if}
