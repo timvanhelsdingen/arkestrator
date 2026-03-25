@@ -1592,14 +1592,6 @@
             />
           </div>
         </div>
-        <div class="training-grid">
-          <label>
-            Attach Files or ZIP (optional)
-            {#key trainingUploadInputResetKey}
-              <input type="file" multiple onchange={onTrainingFilesSelected} />
-            {/key}
-          </label>
-        </div>
         {#if canQueueTraining}
           <label>
             Training Agent / Model
