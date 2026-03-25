@@ -9,6 +9,7 @@
   import Sidebar from "./lib/components/layout/Sidebar.svelte";
   import StatusBar from "./lib/components/layout/StatusBar.svelte";
   import Setup from "./pages/Setup.svelte";
+  import StartupWizard from "./pages/StartupWizard.svelte";
   import Chat from "./pages/Chat.svelte";
   import Jobs from "./pages/Jobs.svelte";
   import Admin from "./pages/Admin.svelte";
@@ -56,6 +57,7 @@
     && (connection.isConnected || connection.hasSavedCredentials)
     && connection.isAuthenticated
     && !connection.pendingForcedSetup
+    && !connection.pendingWizard
   );
 
   $effect(() => {
@@ -256,6 +258,10 @@
     </main>
   </div>
   <StatusBar />
+{:else if connection.isAuthenticated && connection.pendingWizard}
+  <div class="app-body">
+    <StartupWizard />
+  </div>
 {:else}
   <div class="app-body">
     <Setup />

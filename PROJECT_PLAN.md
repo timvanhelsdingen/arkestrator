@@ -1,5 +1,18 @@
 # Arkestrator
 
+## Recent Update (2026-03-25)
+
+- **First-Time Startup Wizard**: Post-login onboarding flow for new users. Two-mode design based on server type:
+  - **Local server** (4 steps): Welcome → Agent Setup (template selection, CLI auth status, one-click config creation) → Bridge Plugins (auto-detect DCCs, batch install) → Ready
+  - **Remote server** (3 steps): Welcome → Bridge Plugins → Ready (skips agent setup — server admin's domain)
+  - `pendingWizard` flag on connection store blocks main app while wizard is active (same pattern as `pendingForcedSetup` for 2FA)
+  - `setupComplete` persisted to localStorage (`arkestrator-setup-complete-v1`) so wizard only shows once
+  - Each step skippable; "Skip Setup" bypasses entire wizard
+  - Agent setup step fetches server templates + CLI auth status, shows selectable cards with onboarding instructions
+  - Bridge step auto-fetches registry from GitHub + auto-detects all DCC install paths, batch installs selected
+  - New files: `wizard.svelte.ts` store, `StartupWizard.svelte` page, `wizard/` component directory (Welcome, AgentSetup, Bridges, Done)
+  - Client REST API: added `agents.templates()` and `agents.cliAuthStatus()` methods
+
 ## Recent Update (2026-03-24)
 
 - **Major refactor — 7 phases:**
@@ -480,6 +493,7 @@ arkestrator/
 â”‚   â”‚   â”‚   â”œâ”€â”€ Coordinator.svelte   # Coordinator management (server/client config, training)
 â”‚   â”‚   â”‚   â”œâ”€â”€ Settings.svelte      # Server connection, login/logout
 â”‚   â”‚   â”‚   â””â”€â”€ Setup.svelte         # First-time setup flow with TOTP 2FA support
+â”‚   â”‚   â”‚   â””â”€â”€ StartupWizard.svelte # Post-login first-time onboarding wizard
 â”‚   â”‚   â””â”€â”€ lib/
 â”‚   â”‚       â”œâ”€â”€ api/
 â”‚   â”‚       â”‚   â”œâ”€â”€ rest.ts          # REST API client (fetch + SSE streaming)
@@ -1042,9 +1056,10 @@ The server is the central hub - all state lives here.
 - **Projects**: Project mapping CRUD with per-project system prompt.
 - **Coordinator**: Dedicated coordinator management with Server Config (global + bridge scripts), Training (queue/schedule/run), and Client Config (local bridge prompt overrides) tabs.
 - **Settings**: Server URL, login/logout, bridge plugin installer, local model management, local server port configuration.
-- **Setup**: First-time setup with login-first flow. TOTP 2FA support (code input after password). Local server start via compiled sidecar binary (prod) or Bun (dev). Configurable local server port.
+- **Setup**: First-time setup with login-first flow. TOTP 2FA support (code input after password). Local server start via compiled sidecar binary (prod) or Bun (dev). Configurable local server port. Triggers first-time startup wizard after login.
+- **StartupWizard**: Post-login onboarding wizard (local: 4 steps, remote: 3 steps). Agent template selection, bridge auto-detection + batch install, setup completion tracking via localStorage.
 
-**Stores (9, Svelte 5 runes):** connection (url, session, serverMode, status - persists to localStorage), jobs (all, selectedId, selectedIds, logBuffer, statusFilter), agents (all), workers (workers + bridges + knownPrograms), chat (tabs, messages, machine selection, draft prompts - debounced persistence that now survives Chat page remounts), bridgeContext (per-bridge editor context + context items), server (local server process management), toast (notifications), navigation (current page).
+**Stores (10, Svelte 5 runes):** connection (url, session, serverMode, status - persists to localStorage), jobs (all, selectedId, selectedIds, logBuffer, statusFilter), agents (all), workers (workers + bridges + knownPrograms), chat (tabs, messages, machine selection, draft prompts - debounced persistence that now survives Chat page remounts), bridgeContext (per-bridge editor context + context items), server (local server process management), toast (notifications), navigation (current page).
 
 **API:** REST client (`api` object with full coverage including chat.stream SSE) + WebSocket manager (exponential backoff 3sâ†’30s with jitter, dispatches 12+ message types to stores, writes local config via Tauri IPC).
 

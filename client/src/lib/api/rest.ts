@@ -298,6 +298,8 @@ export const api = {
 
   agents: {
     list: () => request("/api/agent-configs"),
+    templates: () => request("/api/agent-configs/templates"),
+    cliAuthStatus: () => request("/api/agent-configs/cli-auth/status"),
     modelCatalogs: () =>
       request("/api/agent-configs/model-catalogs") as Promise<ProviderModelCatalogsResponse>,
     localModels: (runtime: "ollama" = "ollama", targetWorkerName?: string, host?: "server" | "client") => {

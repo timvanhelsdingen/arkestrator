@@ -69,6 +69,8 @@ class ConnectionState {
   totpEnabled = $state(false);
   /** Blocks navigation to main app while forced 2FA setup is in progress */
   pendingForcedSetup = $state(false);
+  /** Blocks navigation to main app while first-time wizard is active */
+  pendingWizard = $state(false);
 
   constructor() {
     const session = loadSession();

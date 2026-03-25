@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { connection } from "../lib/stores/connection.svelte";
+  import { wizard } from "../lib/stores/wizard.svelte";
   import { connect } from "../lib/api/ws";
   import { api } from "../lib/api/rest";
   import {
@@ -259,6 +260,12 @@
     // Connect WS with the auto-provisioned API key
     if (result.apiKey) {
       connect(connection.url, result.apiKey);
+    }
+    // Trigger first-time wizard if setup hasn't been completed
+    if (!wizard.isComplete) {
+      wizard.reset();
+      wizard.isLocal = connection.serverMode === "local";
+      connection.pendingWizard = true;
     }
   }
 
