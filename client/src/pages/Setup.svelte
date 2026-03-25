@@ -406,7 +406,21 @@
 
     {:else if mode === "login"}
       <p class="subtitle">Log in to continue</p>
-      <div class="connected-badge">Server: {connection.url}</div>
+      <div class="connected-badge">
+        <input
+          class="server-url-input"
+          value={connection.url}
+          onchange={(e) => {
+            const val = (e.target as HTMLInputElement).value.trim();
+            if (val) {
+              connection.url = val;
+              serverUrl = val;
+              const portMatch = val.match(/:(\d+)/);
+              if (portMatch) serverState.setPort(parseInt(portMatch[1], 10));
+            }
+          }}
+        />
+      </div>
       <form class="form" onsubmit={(e) => { e.preventDefault(); login(); }}>
         <label>
           Username
@@ -632,6 +646,19 @@
     border-radius: var(--radius-sm);
     margin-bottom: 12px;
     border: 1px solid var(--border);
+  }
+  .server-url-input {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 11px;
+    width: 100%;
+    outline: none;
+    padding: 0;
+    font-family: var(--font-mono, monospace);
+  }
+  .server-url-input:focus {
+    color: var(--text-primary);
   }
   .login-hint {
     font-size: 11px;
