@@ -76,12 +76,32 @@ async function tryKillPortHolder(port: number): Promise<boolean> {
         const pid = parts[parts.length - 1];
         if (pid && /^\d+$/.test(pid) && pid !== "0") pids.add(pid);
       }
-      if (pids.size === 0) return false;
+      if (pids.size === 0) {
+        logger.warn("server", `Port ${port} appears occupied but no LISTENING PID found (ghost socket). Will rely on reusePort.`);
+        return false;
+      }
+      let anyKilled = false;
       for (const pid of pids) {
         logger.warn("server", `Killing process ${pid} holding port ${port}`);
-        Bun.spawnSync(["taskkill", "/F", "/PID", pid]);
+        const result = Bun.spawnSync(["taskkill", "/F", "/PID", pid]);
+        if (result.exitCode === 0) {
+          anyKilled = true;
+        } else {
+          // Regular kill failed — try elevated (triggers UAC prompt on interactive sessions)
+          logger.warn("server", `Regular kill failed for PID ${pid}, attempting elevated kill...`);
+          const elevated = Bun.spawnSync([
+            "powershell", "-Command",
+            `Start-Process taskkill -ArgumentList '/F','/PID','${pid}' -Verb RunAs -Wait -WindowStyle Hidden`,
+          ]);
+          if (elevated.exitCode === 0) {
+            anyKilled = true;
+            logger.info("server", `Elevated kill succeeded for PID ${pid}`);
+          } else {
+            logger.warn("server", `Elevated kill also failed for PID ${pid} (ghost socket — will rely on reusePort)`);
+          }
+        }
       }
-      return true;
+      return anyKilled;
     } else {
       // Unix: lsof -ti :port → PIDs
       const lsof = Bun.spawnSync(["lsof", "-ti", `:${port}`]);
@@ -558,6 +578,7 @@ async function main() {
 
   const server = await serveWithRetry(() => Bun.serve({
     port: config.port,
+    reusePort: true,
     tls: tlsConfig,
     // SSE streams (chat, job logs) can take minutes before producing data.
     // Bun's default HTTP idle timeout is 10s, which kills long-running SSE
