@@ -1469,6 +1469,16 @@ export function queueCoordinatorTrainingJob(
               }
             }
             const content = contentParts.join("\n");
+            // Skip skills that have no real analysis data — just boilerplate
+            // headers + default summary text aren't useful as skills
+            const hasRealContent = content.includes("## Analysis")
+              || content.includes("## Agent Analysis Output")
+              || content.includes("## Conventions")
+              || content.length > 500;
+            if (!hasRealContent) {
+              appendJobLog(hub, jobsRepo, created.id, `  → Skipped ${projectName}: no meaningful analysis content yet (${content.length} chars)`);
+              continue;
+            }
             try {
               const summaryText = matchingSummary?.summary || "";
               deps.skillsRepo.upsertBySlugAndProgram({
