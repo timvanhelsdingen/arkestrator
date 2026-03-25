@@ -1300,6 +1300,11 @@ export const api = {
       form.append("file", file);
       return request("/api/skills/import", { method: "POST", body: form }) as Promise<any>;
     },
+    batchEffectiveness: (skillIds: string[]) =>
+      request("/api/skills/batch-effectiveness", {
+        method: "POST",
+        body: JSON.stringify({ skillIds }),
+      }) as Promise<{ stats: Record<string, { totalUsed: number; goodOutcomes: number; averageOutcomes: number; poorOutcomes: number; pendingOutcomes: number; successRate: number }> }>,
   },
 
   system: {

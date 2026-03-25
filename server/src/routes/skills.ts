@@ -501,6 +501,28 @@ export function createSkillsRoutes(
 
   // ── Skill effectiveness ─────────────────────────────────────────────
 
+  // POST /batch-effectiveness — get effectiveness stats for multiple skills
+  router.post("/batch-effectiveness", async (c) => {
+    const auth = await requireAuth(c);
+    if (!auth) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+
+    let body: any;
+    try { body = await c.req.json(); } catch { return errorResponse(c, 400, "Invalid JSON", "INVALID_INPUT"); }
+
+    const skillIds = Array.isArray(body?.skillIds) ? body.skillIds.filter((id: any) => typeof id === "string") : [];
+    if (!skillEffectivenessRepo || skillIds.length === 0) {
+      return c.json({ stats: {} });
+    }
+
+    const statsMap = skillEffectivenessRepo.getStatsForSkills(skillIds);
+    // Convert Map to plain object for JSON serialization
+    const stats: Record<string, any> = {};
+    for (const [id, s] of statsMap) {
+      stats[id] = s;
+    }
+    return c.json({ stats });
+  });
+
   // GET /:slug/effectiveness — get effectiveness stats
   router.get("/:slug/effectiveness", async (c) => {
     const auth = await requireAuth(c);

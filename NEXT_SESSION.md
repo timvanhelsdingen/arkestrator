@@ -204,16 +204,55 @@ Job rated "positive"
 - `server/src/agents/training-vault.ts` — vault artifact writing
 - `admin/src/pages/Skills.svelte` — admin skills UI
 
+## What Was Done (this session — UI/UX layer)
+
+### Skill Effectiveness Stats (admin + client)
+- New `POST /api/skills/batch-effectiveness` route — batch fetch stats for all skills in one call
+- Admin Skills table: "Uses" and "Success" columns with color-coded badges (green/yellow/red)
+- Client Coordinator skills table: same effectiveness columns
+- `SkillSummary` now includes `id` field for effectiveness lookups
+
+### Client Skill "View" Popup — Rich Detail
+- Replaced bare `<pre>` content block with full detail modal matching admin
+- Shows: metadata grid (slug, program, category, source, priority, enabled), effectiveness stats, description, related skills (clickable), playbook content preview, full content
+- Added `getPlaybookContent()` and `getEffectiveness()` to client REST API
+
+### Delete Any Skill
+- Removed `source === "user" || source === "registry"` restriction from both admin and client
+- All skills can now be deleted regardless of source (training, bridge-repo, coordinator, etc.)
+
+### Clear Pending Guidance
+- New `DELETE /api/jobs/:id/interventions/pending` route — rejects all pending interventions for a job
+- "Clear Pending" button in Jobs page intervention section, visible when pending guidance exists
+
+### Bridge Execution Mode in Job Settings
+- New "Execution Mode" dropdown in ChatJobConfig: Auto (default), Live Bridge, CLI/Headless
+- `setBridgeExecutionMode()` method added to chat store
+- Users can now explicitly force headless/CLI mode instead of relying on auto-detection
+
+### Per-Bridge Best Practices (coordinator scripts)
+- Added "Best Practices — File & Project Organization" sections to all 7 bridge coordinator.md files
+- Covers: Houdini ($HIP-relative paths, geo/usd/vex/cache folders), Blender (textures/renders/exports), ComfyUI (workflows/models structure), Godot (res:// paths, scenes/scripts/assets), Unity (Assets/ subfolders, PascalCase), Unreal (/Game/ structure, prefix conventions), Fusion (comps/renders/footage)
+- Pushed to arkestrator-bridges repo
+
+### Config Page Assessment
+- No separate "Config" page exists in the client to remove
+- Settings.svelte handles auth/bridges/LLM, Coordinator handles scripts/training, ChatJobConfig handles runtime options
+
 ## Remaining Work
 
-### UI Improvements (next session)
-- **Skill effectiveness stats in admin + client**: Show uses, success rate, which jobs used each skill. Make skills easier to browse.
-- **Client skill "View" popup**: Currently doesn't open the same detail popup as admin — fix to match.
-- **Delete any skill**: Currently restricted to `source === "user"` or `source === "registry"`. Allow deleting all skills regardless of source (training, bridge, etc.).
-- **Remove submitter guidance from queue**: Option to clear pending operator guidance from a job.
-- **Job setting: use CLI tool**: Explicit option in job settings to use DCC CLI (hython, blender --python) instead of live bridge. Currently only happens as a fallback.
-- **Consider removing client Config page**: Move all config server-side. The system is trending toward automatic training/improvement loops — client-side config may be unnecessary.
-- **Job collapsing UI**: Implemented (parent jobs collapse/expand sub-jobs) — verify in production.
+### First-Time Startup Wizard (next session — priority)
+- **Two modes based on connection type:**
+  - **Local server**: Welcome → Agent setup (AI providers, API keys) → Bridge plugin installer (detect DCCs, one-click install) → Quick preferences → Done
+  - **Remote server**: Welcome → Connect (URL + auth) → Bridge plugin installer → Done
+- **Bridge plugin installer**: Detect installed DCC apps by scanning known install paths per platform, offer one-click bridge plugin installation
+- **`setupComplete` flag** in client local storage to skip wizard on subsequent launches
+- **Extend or replace `Setup.svelte`** with multi-step wizard flow
+
+### Future Improvements
+- **Success extraction (Phase 3)**: When a job gets rated positive, extract specific techniques and feed back into skills
+- **Active skill refinement (Phase 4)**: Periodically re-evaluate skills based on accumulated evidence
+- **Job collapsing UI**: Implemented — verify in production
 
 ## Test Sources
 - `W:\AGENT_REPO\Houdini\FLIP drop object` — Houdini FLIP sim

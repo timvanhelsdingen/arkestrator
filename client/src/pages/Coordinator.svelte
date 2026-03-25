@@ -198,6 +198,7 @@
 
   // Skills
   interface SkillEntry {
+    id: string;
     slug: string;
     name?: string;
     program: string;
@@ -214,9 +215,12 @@
   }
   let serverSkills = $state<SkillEntry[]>([]);
   let skillsLoading = $state(false);
+  let skillEffectiveness = $state<Record<string, { totalUsed: number; successRate: number }>>({});
   let skillsFilter = $state("");
   let skillViewSlug = $state<string | null>(null);
-  let skillViewContent = $state("");
+  let skillViewData = $state<SkillEntry | null>(null);
+  let skillViewPlaybooks = $state<Array<{ path: string; content: string | null; error?: string }>>([]);
+  let skillViewEffectiveness = $state<{ totalUsed: number; successRate: number } | null>(null);
   let skillViewLoading = $state(false);
   let skillCreateOpen = $state(false);
   let skillCreateName = $state("");
@@ -1225,6 +1229,16 @@
     try {
       const data = await api.skills.list();
       serverSkills = Array.isArray(data?.skills ?? data) ? (data?.skills ?? data) : [];
+      // Fetch effectiveness stats
+      const ids = serverSkills.map((s) => s.id).filter(Boolean);
+      if (ids.length > 0) {
+        try {
+          const eff = await api.skills.batchEffectiveness(ids);
+          skillEffectiveness = eff?.stats ?? {};
+        } catch {
+          skillEffectiveness = {};
+        }
+      }
     } catch (err: any) {
       error = err.message ?? "Failed to load skills";
     } finally {
@@ -1234,12 +1248,31 @@
 
   async function viewSkill(slug: string, prog: string) {
     skillViewSlug = slug;
+    skillViewData = null;
+    skillViewPlaybooks = [];
+    skillViewEffectiveness = null;
     skillViewLoading = true;
     try {
       const data = await api.skills.get(slug, prog);
-      skillViewContent = data?.skill?.content ?? data?.content ?? "";
+      const skill = data?.skill ?? data;
+      skillViewData = skill;
+      // Fetch playbooks and effectiveness in parallel
+      const promises: Promise<void>[] = [];
+      if (skill?.playbooks?.length > 0) {
+        promises.push(
+          api.skills.getPlaybookContent(slug, prog).then((pb: any) => {
+            skillViewPlaybooks = pb?.playbooks ?? [];
+          }).catch(() => { skillViewPlaybooks = []; })
+        );
+      }
+      promises.push(
+        api.skills.getEffectiveness(slug, prog).then((eff: any) => {
+          skillViewEffectiveness = eff?.stats ?? null;
+        }).catch(() => { skillViewEffectiveness = null; })
+      );
+      await Promise.all(promises);
     } catch (err: any) {
-      skillViewContent = `Error: ${err.message}`;
+      skillViewData = { id: "", slug, program: prog, category: "", title: slug, content: `Error: ${err.message}` };
     } finally {
       skillViewLoading = false;
     }
@@ -1247,7 +1280,9 @@
 
   function closeSkillView() {
     skillViewSlug = null;
-    skillViewContent = "";
+    skillViewData = null;
+    skillViewPlaybooks = [];
+    skillViewEffectiveness = null;
   }
 
   async function createSkill() {
@@ -1524,33 +1559,97 @@
         {#if skillViewSlug}
           <div class="skill-view-modal">
             <div class="skill-view-header">
-              <h4>{skillViewSlug}</h4>
+              <h4>{skillViewData?.title ?? skillViewSlug}</h4>
               <button class="btn secondary" onclick={closeSkillView}>Close</button>
             </div>
-            {#if skillViewLoading}<p class="muted">Loading...</p>{:else}<pre class="skill-content">{skillViewContent}</pre>{/if}
+            {#if skillViewLoading}
+              <p class="muted">Loading...</p>
+            {:else if skillViewData}
+              <div class="skill-detail-grid">
+                <div><strong>Slug:</strong> <span class="mono">{skillViewData.slug}</span></div>
+                <div><strong>Bridge:</strong> {skillViewData.program || "-"}</div>
+                <div><strong>Category:</strong> {skillViewData.category}</div>
+                <div><strong>Source:</strong> {skillViewData.source ?? "-"}</div>
+                <div><strong>Priority:</strong> {skillViewData.priority ?? "-"}</div>
+                <div><strong>Enabled:</strong> {skillViewData.enabled ? "Yes" : "No"}</div>
+                {#if skillViewEffectiveness}
+                  <div><strong>Uses:</strong> {skillViewEffectiveness.totalUsed}</div>
+                  <div><strong>Success Rate:</strong>
+                    {#if skillViewEffectiveness.totalUsed > 0}
+                      {@const pct = Math.round(skillViewEffectiveness.successRate * 100)}
+                      <span class="badge {pct >= 70 ? 'success' : pct >= 40 ? 'warn' : 'bad'}">{pct}%</span>
+                    {:else}
+                      -
+                    {/if}
+                  </div>
+                {/if}
+              </div>
+              {#if skillViewData.description}
+                <div class="skill-detail-desc">{skillViewData.description}</div>
+              {/if}
+              {#if skillViewData.relatedSkills && skillViewData.relatedSkills.length > 0}
+                <div class="skill-detail-section">
+                  <strong>Related Skills:</strong>
+                  {#each skillViewData.relatedSkills as rel}
+                    <button class="btn-link" onclick={() => viewSkill(rel, skillViewData?.program ?? "")}>{rel}</button>
+                  {/each}
+                </div>
+              {/if}
+              {#if skillViewPlaybooks.length > 0}
+                <div class="skill-detail-section">
+                  <strong>Playbooks ({skillViewPlaybooks.length}):</strong>
+                  {#each skillViewPlaybooks as pb}
+                    <div class="playbook-entry">
+                      <span class="mono mini">{pb.path}</span>
+                      {#if pb.content}
+                        <pre class="playbook-preview">{pb.content.slice(0, 500)}{pb.content.length > 500 ? "..." : ""}</pre>
+                      {:else if pb.error}
+                        <span class="muted">{pb.error}</span>
+                      {/if}
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+              {#if skillViewData.content}
+                <div class="skill-detail-section">
+                  <strong>Content:</strong>
+                  <pre class="skill-content">{skillViewData.content}</pre>
+                </div>
+              {/if}
+            {/if}
           </div>
         {/if}
 
         <table class="skill-table">
-          <thead><tr><th>Slug</th><th>Title</th><th>Bridge</th><th>Category</th><th>Source</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Slug</th><th>Title</th><th>Bridge</th><th>Category</th><th>Source</th><th>Uses</th><th>Success</th><th>Actions</th></tr></thead>
           <tbody>
             {#if skillsLoading}
-              <tr><td colspan="6" class="muted">Loading...</td></tr>
+              <tr><td colspan="8" class="muted">Loading...</td></tr>
             {:else if filteredSkills.length === 0}
-              <tr><td colspan="6" class="muted">
+              <tr><td colspan="8" class="muted">
                 {#if serverSkills.length === 0}No skills loaded. <button class="btn-link" onclick={pullAllSkills}>Pull from Bridge Repo</button>{:else}No match.{/if}
               </td></tr>
             {:else}
               {#each filteredSkills as skill}
+                {@const eff = skillEffectiveness[skill.id]}
                 <tr>
                   <td class="mono">{skill.slug}</td>
                   <td>{skill.title}</td>
                   <td><span class="badge">{skill.program}</span></td>
                   <td><span class="badge">{skill.category}</span></td>
                   <td class="muted">{skill.source ?? ""}</td>
+                  <td class="mono">{eff?.totalUsed ?? "-"}</td>
+                  <td>
+                    {#if eff && eff.totalUsed > 0}
+                      {@const pct = Math.round(eff.successRate * 100)}
+                      <span class="badge {pct >= 70 ? 'success' : pct >= 40 ? 'warn' : 'bad'}">{pct}%</span>
+                    {:else}
+                      <span class="muted">-</span>
+                    {/if}
+                  </td>
                   <td class="actions">
                     <button class="btn-sm" onclick={() => viewSkill(skill.slug, skill.program)}>View</button>
-                    {#if canManage && (skill.source === "user" || skill.source === "registry")}
+                    {#if canManage}
                       <button class="btn-sm danger" onclick={() => deleteSkill(skill.slug, skill.program)}>Delete</button>
                     {/if}
                   </td>
@@ -2234,6 +2333,9 @@
   .skill-table td { padding: 6px 8px; border-bottom: 1px solid var(--border-light, rgba(255,255,255,0.06)); }
   .skill-table .mono { font-family: var(--font-mono); font-size: 0.85em; }
   .skill-table .badge { display: inline-block; padding: 2px 6px; border-radius: 3px; background: var(--bg-subtle, rgba(255,255,255,0.06)); font-size: 0.85em; }
+  .skill-table .badge.success { color: #4ec9b0; background: rgba(78, 201, 176, 0.12); }
+  .skill-table .badge.warn { color: #e2b93d; background: rgba(226, 185, 61, 0.12); }
+  .skill-table .badge.bad { color: #e05252; background: rgba(224, 82, 82, 0.12); }
   .skill-table .actions { display: flex; gap: 4px; }
   .btn-sm { font-size: 0.8em; padding: 2px 8px; cursor: pointer; background: var(--bg-subtle, rgba(255,255,255,0.08)); border: 1px solid var(--border); border-radius: 3px; color: inherit; }
   .btn-sm:hover { background: var(--bg-hover, rgba(255,255,255,0.12)); }
@@ -2242,7 +2344,14 @@
   .skill-create-form { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--border); border-radius: 4px; margin-bottom: 12px; background: var(--bg-subtle, rgba(255,255,255,0.03)); }
   .skill-create-form .form-row { display: flex; gap: 8px; }
   .skill-create-form .form-row > label { flex: 1; }
-  .skill-view-modal { padding: 12px; border: 1px solid var(--border); border-radius: 4px; margin-bottom: 12px; background: var(--bg-subtle, rgba(255,255,255,0.03)); }
+  .skill-view-modal { padding: 12px; border: 1px solid var(--border); border-radius: 4px; margin-bottom: 12px; background: var(--bg-subtle, rgba(255,255,255,0.03)); max-height: 70vh; overflow-y: auto; }
   .skill-view-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .skill-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; font-size: var(--font-size-sm); margin-bottom: 10px; }
+  .skill-detail-grid strong { color: var(--text-secondary); }
+  .skill-detail-desc { font-size: var(--font-size-sm); color: var(--text-secondary); margin-bottom: 10px; padding: 6px 8px; background: var(--bg-deep, rgba(0,0,0,0.15)); border-radius: 4px; }
+  .skill-detail-section { margin-bottom: 10px; font-size: var(--font-size-sm); }
+  .skill-detail-section strong { display: block; margin-bottom: 4px; color: var(--text-secondary); }
+  .playbook-entry { margin-bottom: 6px; }
+  .playbook-preview { white-space: pre-wrap; font-family: var(--font-mono); font-size: 0.8em; max-height: 150px; overflow-y: auto; padding: 6px; background: var(--bg-deep, rgba(0,0,0,0.2)); border-radius: 4px; margin-top: 2px; }
   .skill-content { white-space: pre-wrap; font-family: var(--font-mono); font-size: 0.85em; max-height: 400px; overflow-y: auto; padding: 8px; background: var(--bg-deep, rgba(0,0,0,0.2)); border-radius: 4px; }
 </style>

@@ -267,6 +267,11 @@ export const api = {
       request(`/api/jobs/${id}/dispatch`, { method: "POST" }),
     interventions: (id: string) =>
       request(`/api/jobs/${id}/interventions`) as Promise<JobInterventionsResponse>,
+    clearPendingInterventions: (id: string, reason?: string) =>
+      request(`/api/jobs/${id}/interventions/pending`, {
+        method: "DELETE",
+        body: JSON.stringify({ reason }),
+      }) as Promise<{ ok: boolean; rejectedCount: number }>,
     intervene: (id: string, intervention: JobInterventionCreate) =>
       request(`/api/jobs/${id}/interventions`, {
         method: "POST",
@@ -905,5 +910,18 @@ export const api = {
     pullProgram: (program: string) =>
       request(`/api/skills/pull/${encodeURIComponent(program)}`, { method: "POST" }),
     refreshIndex: () => request("/api/skills/refresh-index", { method: "POST" }),
+    batchEffectiveness: (skillIds: string[]) =>
+      request("/api/skills/batch-effectiveness", {
+        method: "POST",
+        body: JSON.stringify({ skillIds }),
+      }) as Promise<{ stats: Record<string, { totalUsed: number; goodOutcomes: number; averageOutcomes: number; poorOutcomes: number; pendingOutcomes: number; successRate: number }> }>,
+    getPlaybookContent: (slug: string, program?: string) => {
+      const qs = program ? `?program=${encodeURIComponent(program)}` : "";
+      return request(`/api/skills/${encodeURIComponent(slug)}/playbook-content${qs}`);
+    },
+    getEffectiveness: (slug: string, program?: string) => {
+      const qs = program ? `?program=${encodeURIComponent(program)}` : "";
+      return request(`/api/skills/${encodeURIComponent(slug)}/effectiveness${qs}`) as Promise<{ stats: { totalUsed: number; successRate: number }; records: any[] }>;
+    },
   },
 };

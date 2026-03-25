@@ -633,6 +633,7 @@
   let interventionsLoadedForJobId = $state<string | null>(null);
   let interventionDraft = $state("");
   let interventionSaving = $state(false);
+  let interventionClearing = $state(false);
   let interventionSupport = $state<JobInterventionSupport | null>(null);
 
   $effect(() => {
@@ -692,6 +693,22 @@
       toast.error(`Failed to guide job: ${err?.message ?? err}`);
     } finally {
       interventionSaving = false;
+    }
+  }
+
+  async function clearPendingInterventions(job: Job) {
+    interventionClearing = true;
+    try {
+      await api.jobs.clearPendingInterventions(job.id);
+      // Refresh interventions list
+      const result = await api.jobs.interventions(job.id);
+      jobs.setInterventions(job.id, result.interventions);
+      interventionSupport = result.support;
+      toast.success("Pending guidance cleared");
+    } catch (err: any) {
+      toast.error(`Failed to clear guidance: ${err?.message ?? err}`);
+    } finally {
+      interventionClearing = false;
     }
   }
 
@@ -1222,6 +1239,16 @@
           >
             {interventionSaving ? "Sending..." : "Guide Job"}
           </button>
+          {#if jobs.getInterventions(job.id).some((i) => i.status === "pending")}
+            <button
+              class="btn-cancel"
+              onclick={() => clearPendingInterventions(job)}
+              disabled={interventionClearing}
+              title="Remove all pending guidance that hasn't been delivered yet"
+            >
+              {interventionClearing ? "Clearing..." : "Clear Pending"}
+            </button>
+          {/if}
         </div>
         {#if jobs.getInterventions(job.id).length > 0}
           <div class="intervention-list">

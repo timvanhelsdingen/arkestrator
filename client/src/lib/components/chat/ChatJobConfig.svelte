@@ -392,6 +392,23 @@
       </button>
     </div>
 
+    <!-- Execution Mode -->
+    <div class="config-row">
+      <label for="jc-exec-mode">Execution Mode</label>
+      <select
+        id="jc-exec-mode"
+        value={chatStore.activeTab?.runtimeOptions?.bridgeExecutionMode ?? ""}
+        onchange={(e) => {
+          const v = (e.target as HTMLSelectElement).value;
+          chatStore.setBridgeExecutionMode(v === "live" || v === "headless" ? v : undefined);
+        }}
+      >
+        <option value="">Auto</option>
+        <option value="live">Live Bridge</option>
+        <option value="headless">CLI / Headless</option>
+      </select>
+    </div>
+
     <!-- Timeout -->
     <div class="config-row">
       <label for="jc-timeout">Timeout (min)</label>

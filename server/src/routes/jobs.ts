@@ -728,6 +728,39 @@ export function createJobRoutes(
     }, 201);
   });
 
+  // Clear all pending interventions for a job
+  router.delete("/:id/interventions/pending", async (c) => {
+    const principal = await getAuthPrincipal(c, usersRepo, apiKeysRepo);
+    if (!principal) {
+      return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+    }
+    const jobId = c.req.param("id");
+    const job = jobsRepo.getById(jobId);
+    if (!job) {
+      return errorResponse(c, 404, "Job not found", "NOT_FOUND");
+    }
+    if (!jobInterventionsRepo) {
+      return errorResponse(c, 503, "Job interventions are not available on this server.", "SERVICE_UNAVAILABLE");
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+    const reason = (body as { reason?: string })?.reason ?? "Cleared by operator";
+    const rejected = jobInterventionsRepo.rejectPendingForJob(jobId, reason);
+
+    const actor = principalToAuditActor(principal);
+    auditRepo.log({
+      userId: actor.userId,
+      username: actor.username,
+      action: "job_interventions_cleared",
+      resource: "job",
+      resourceId: jobId,
+      details: JSON.stringify({ rejectedCount: rejected }),
+      ipAddress: getClientIp(c),
+    });
+
+    return c.json({ ok: true, rejectedCount: rejected });
+  });
+
   router.post("/", async (c) => {
     const principal = await getAuthPrincipal(c, usersRepo, apiKeysRepo);
     if (!principal) {

@@ -5,6 +5,7 @@
   import Modal from "../lib/components/ui/Modal.svelte";
 
   interface SkillEntry {
+    id: string;
     slug: string;
     name: string;
     program: string | null;
@@ -22,6 +23,15 @@
     enabled: boolean;
   }
 
+  interface EffectivenessStats {
+    totalUsed: number;
+    goodOutcomes: number;
+    averageOutcomes: number;
+    poorOutcomes: number;
+    pendingOutcomes: number;
+    successRate: number;
+  }
+
   interface SearchResult {
     slug: string;
     name: string;
@@ -34,6 +44,7 @@
 
   let loading = $state(false);
   let skills = $state<SkillEntry[]>([]);
+  let effectivenessStats = $state<Record<string, EffectivenessStats>>({});
 
   // Filters
   let filterProgram = $state("");
@@ -131,6 +142,16 @@
     try {
       const data = await api.skills.list();
       skills = Array.isArray(data?.skills ?? data) ? (data?.skills ?? data) : [];
+      // Fetch effectiveness stats for all skills
+      const ids = skills.map((s) => s.id).filter(Boolean);
+      if (ids.length > 0) {
+        try {
+          const eff = await api.skills.batchEffectiveness(ids);
+          effectivenessStats = eff?.stats ?? {};
+        } catch {
+          effectivenessStats = {};
+        }
+      }
     } catch (err: any) {
       toast.error(err.message ?? "Failed to load skills");
     } finally {
@@ -434,6 +455,8 @@
         <th>Bridge</th>
         <th>Category</th>
         <th>Source</th>
+        <th>Uses</th>
+        <th>Success</th>
         <th>Playbooks</th>
         <th>Enabled</th>
         <th>Actions</th>
@@ -441,9 +464,9 @@
     </thead>
     <tbody>
       {#if loading}
-        <tr><td colspan="8" class="muted">Loading skills...</td></tr>
+        <tr><td colspan="10" class="muted">Loading skills...</td></tr>
       {:else if filteredSkills.length === 0}
-        <tr><td colspan="8" class="muted">
+        <tr><td colspan="10" class="muted">
           {#if skills.length === 0}
             No skills loaded yet.
             <button class="btn-link" onclick={pullAll} disabled={pullingAll}>
@@ -456,12 +479,22 @@
         </td></tr>
       {:else}
         {#each filteredSkills as skill}
+          {@const eff = effectivenessStats[skill.id]}
           <tr>
             <td class="mono">{skill.slug}</td>
             <td>{skill.title}</td>
             <td class="muted">{skill.program || "-"}</td>
             <td><span class="badge badge-cat">{skill.category}</span></td>
             <td><span class="badge {skill.source === 'user' ? 'badge-custom' : skill.source === 'registry' ? 'badge-registry' : skill.source === 'training' ? 'badge-training' : skill.source === 'bridge-repo' ? 'badge-bridge-repo' : 'badge-default'}">{skill.source}</span></td>
+            <td class="mono">{eff?.totalUsed ?? "-"}</td>
+            <td>
+              {#if eff && eff.totalUsed > 0}
+                {@const pct = Math.round(eff.successRate * 100)}
+                <span class="badge {pct >= 70 ? 'badge-ok' : pct >= 40 ? 'badge-warn' : 'badge-bad'}">{pct}%</span>
+              {:else}
+                <span class="muted">-</span>
+              {/if}
+            </td>
             <td>
               {#if skill.playbooks?.length > 0}
                 <span class="badge badge-playbook">{skill.playbooks.length}</span>
@@ -478,9 +511,7 @@
             </td>
             <td class="actions-cell">
               <button class="btn-small" onclick={() => openDetail(skill)}>View</button>
-              {#if skill.source === "user" || skill.source === "registry"}
-                <button class="btn-small btn-danger" onclick={() => (confirmDelete = skill)}>Delete</button>
-              {/if}
+              <button class="btn-small btn-danger" onclick={() => (confirmDelete = skill)}>Delete</button>
             </td>
           </tr>
         {/each}
@@ -698,6 +729,8 @@
     letter-spacing: 0.3px;
   }
   .badge-ok { color: var(--status-completed); background: rgba(78, 201, 176, 0.12); }
+  .badge-warn { color: #e2b93d; background: rgba(226, 185, 61, 0.12); }
+  .badge-bad { color: #e05252; background: rgba(224, 82, 82, 0.12); }
   .badge-off { color: var(--text-muted); background: var(--bg-elevated); }
   .badge-default { color: var(--text-muted); background: var(--bg-elevated); }
   .badge-custom { color: var(--accent); background: rgba(78, 156, 230, 0.12); }

@@ -125,6 +125,7 @@ export interface SkillSearchResult {
 }
 
 export interface SkillSummary {
+  id: string;
   slug: string;
   title: string;
   program: string;
@@ -364,6 +365,7 @@ export class SkillIndex {
         return s.enabled;
       })
       .map((s) => ({
+        id: s.id,
         slug: s.slug,
         name: s.name,
         title: s.title,

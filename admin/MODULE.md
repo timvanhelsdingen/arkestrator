@@ -11,6 +11,7 @@ Focused web admin panel (served at `/admin`) for:
 Job operations and broader operational tooling are intentionally handled in the Tauri client.
 
 ## Recent Updates (2026-03-25)
+- Skills effectiveness stats + delete cleanup (2026-03-25): `src/pages/Skills.svelte` now shows Uses and Success columns with effectiveness stats per skill (fetched via batch endpoint), delete button no longer restricted by source (all non-builtin skills deletable), and new `badge-warn`/`badge-bad` CSS classes for color-coded success rate badges. `src/lib/api/client.ts` adds `batchEffectiveness(ids)` method to the skills API namespace.
 - Skills playbook & related skills support (2026-03-25): `src/pages/Skills.svelte` now shows a playbooks column in the skill table, playbook content preview in the detail modal, and clickable related skills navigation links. `SkillEntry` interface updated with `playbooks: string[]` and `relatedSkills: string[]`. `src/lib/api/client.ts` adds `getPlaybookContent(slug)` method to the skills API namespace.
 
 ## Recent Updates (2026-03-21)
@@ -129,6 +130,7 @@ Active admin UI uses:
 - `policies.*`
 - `coordinatorTraining.*` (`list`, `readFile`, `writeFile`, `createFolder`, `deleteFile`, `deleteFolder`, `updateMetadata`, `listJobs`, `exportJobs`, `exportTrainingDataZip`, `importTrainingDataZip`, `exportSnapshot`, `importSnapshot`, `exportSnapshotZip`, `importSnapshotZip`, `listCoordinatorScripts`, `updateCoordinatorScript`, `deleteCoordinatorScript`)
 - `system.*` (`factoryReset(password, confirmation)`, `getConfig()`, `updateConfig(config)`)
+- `skills.*` (`list`, `get`, `create`, `update`, `delete`, `search`, `pullAll`, `pullProgram`, `registry`, `install`, `refreshIndex`, `validate`, `preview`, `getVersions`, `rollback`, `getEffectiveness`, `getPlaybookContent`, `batchEffectiveness`)
 - `audit.*`
 
 ## Removed Legacy Pages

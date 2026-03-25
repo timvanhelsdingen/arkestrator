@@ -1,4 +1,5 @@
 import type {
+  BridgeExecutionMode,
   CoordinationScripts,
   JobPriority,
   JobRuntimeOptions,
@@ -474,6 +475,19 @@ class ChatState {
     } else {
       delete next.coordinationScripts;
     }
+    tab.runtimeOptions = Object.keys(next).length > 0 ? next : undefined;
+    this.tabs = [...this.tabs];
+    this.persist();
+  }
+
+  setBridgeExecutionMode(mode: BridgeExecutionMode | undefined) {
+    const tab = this.activeTab;
+    if (!tab) return;
+    const next: JobRuntimeOptions = {
+      ...(tab.runtimeOptions ?? {}),
+      ...(mode ? { bridgeExecutionMode: mode } : {}),
+    };
+    if (!mode) delete next.bridgeExecutionMode;
     tab.runtimeOptions = Object.keys(next).length > 0 ? next : undefined;
     this.tabs = [...this.tabs];
     this.persist();
