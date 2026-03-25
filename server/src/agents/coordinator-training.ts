@@ -742,10 +742,15 @@ export function queueTrainingOrchestrator(
           programs = detectProgramsInPaths(sourcePaths, known);
         }
 
+        // When no program-specific files are found (e.g. PBR textures, docs,
+        // generic assets), train under "global" with filesystem-only analysis.
+        // The agent will analyze whatever content is in the source paths.
         if (programs.length === 0) {
-          throw new Error("No programs detected in source paths.");
+          programs = ["global"];
+          appendJobLog(deps.hub, deps.jobsRepo, created.id, `No program-specific files detected — training as global (filesystem analysis)`);
+        } else {
+          appendJobLog(deps.hub, deps.jobsRepo, created.id, `Detected programs: ${programs.join(", ")}`);
         }
-        appendJobLog(deps.hub, deps.jobsRepo, created.id, `Detected programs: ${programs.join(", ")}`);
 
         // Queue per-program training children
         const children: Array<{ program: string; jobId: string }> = [];
@@ -908,7 +913,8 @@ export function queueCoordinatorTrainingJob(
   const preferredAgentConfigId = String(options.agentConfigId ?? "").trim();
   const normalizedProgram = String(program ?? "").trim().toLowerCase();
   const programDeps: ProgramDiscoveryDeps = { coordinatorScriptsDir, hub, headlessProgramsRepo };
-  if (!normalizeProgramList([normalizedProgram], programDeps).includes(normalizedProgram)) {
+  // "global" is always valid — used for program-agnostic training (textures, docs, etc.)
+  if (normalizedProgram !== "global" && !normalizeProgramList([normalizedProgram], programDeps).includes(normalizedProgram)) {
     throw new Error(`Invalid coordinator program: ${program}`);
   }
 
