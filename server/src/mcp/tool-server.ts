@@ -988,7 +988,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
     {
       query: z.string().describe("Search query — describe what you need guidance on"),
       program: z.string().optional().describe("Filter by bridge program (e.g. 'blender', 'godot')"),
-      category: z.enum(["coordinator", "bridge", "training", "playbook", "verification", "project", "custom"]).optional().describe("Filter by skill category"),
+      category: z.enum(["coordinator", "bridge", "training", "playbook", "verification", "project", "project-reference", "housekeeping", "custom"]).optional().describe("Filter by skill category"),
       limit: z.number().optional().default(10).describe("Max results to return"),
     },
     async ({ query, program, category, limit }) => {
@@ -1039,7 +1039,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
       "Use to discover what guidance is available before searching.",
     {
       program: z.string().optional().describe("Filter by bridge program"),
-      category: z.enum(["coordinator", "bridge", "training", "playbook", "verification", "project", "custom"]).optional().describe("Filter by category"),
+      category: z.enum(["coordinator", "bridge", "training", "playbook", "verification", "project", "project-reference", "housekeeping", "custom"]).optional().describe("Filter by category"),
     },
     async ({ program, category }) => {
       if (!deps.skillIndex) {

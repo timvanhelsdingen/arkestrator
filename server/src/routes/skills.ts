@@ -103,7 +103,7 @@ const SkillCreateSchema = z.object({
   name: z.string().trim().min(1),
   slug: z.string().trim().min(1),
   program: z.string().optional(),
-  category: z.enum(["coordinator", "bridge", "training", "playbook", "verification", "project", "custom"]),
+  category: z.enum(["coordinator", "bridge", "training", "playbook", "verification", "project", "project-reference", "housekeeping", "custom"]),
   title: z.string().trim().min(1),
   description: z.string().optional(),
   keywords: z.array(z.string()).optional(),
@@ -128,7 +128,7 @@ const SkillUpdateSchema = z.object({
 const SkillSearchSchema = z.object({
   query: z.string().min(1),
   program: z.string().optional(),
-  category: z.enum(["coordinator", "bridge", "training", "playbook", "verification", "project", "custom"]).optional(),
+  category: z.enum(["coordinator", "bridge", "training", "playbook", "verification", "project", "project-reference", "housekeeping", "custom"]).optional(),
   limit: z.number().optional(),
 });
 
