@@ -1346,6 +1346,7 @@ export function queueCoordinatorTrainingJob(
               config: undefined as Record<string, unknown> | undefined,
               inventory: { files: [] as string[], sceneFiles: [] as string[] },
             }));
+        appendJobLog(hub, jobsRepo, created.id, `Skill creation: skillsRepo=${!!deps.skillsRepo}, sources=${skillSources.length}, analysisContent=${analysisContent.length} chars`);
         if (deps.skillsRepo && skillSources.length > 0) {
           let skillCount = 0;
           for (let si = 0; si < skillSources.length; si++) {
@@ -1429,7 +1430,9 @@ export function queueCoordinatorTrainingJob(
                 source: "training",
               });
               skillCount++;
+              appendJobLog(hub, jobsRepo, created.id, `  → Skill created: ${slug} (${content.length} chars)`);
             } catch (err: any) {
+              appendJobLog(hub, jobsRepo, created.id, `  → Skill FAILED: ${projectName}: ${String(err?.message ?? err)}`);
               logger.warn("coordinator-training", `Failed to write skill for ${projectName}: ${String(err?.message ?? err)}`);
             }
           }
