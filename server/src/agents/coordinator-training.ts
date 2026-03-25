@@ -1329,10 +1329,23 @@ export function queueCoordinatorTrainingJob(
             `Project analysis file cleanup: restored=${restoreSummary.restored}, removed=${restoreSummary.removed}, failed=${restoreSummary.failed}.`,
           );
         }
-        // Create per-project skills with actual analysis content
-        if (deps.skillsRepo && projectDetails.length > 0) {
+        // Create per-project skills with actual analysis content.
+        // Merge projectDetails with training summaries so skills always have
+        // content even when the agentic analysis produced minimal output.
+        const skillSources = projectDetails.length > 0
+          ? projectDetails
+          : result.summaries.map((s) => ({
+              projectPath: s.path,
+              sourcePath: s.path,
+              projectName: s.name,
+              notesExcerpt: undefined as string | undefined,
+              config: undefined as Record<string, unknown> | undefined,
+              inventory: { files: [] as string[], sceneFiles: [] as string[] },
+            }));
+        if (deps.skillsRepo && skillSources.length > 0) {
           let skillCount = 0;
-          for (const project of projectDetails) {
+          for (let si = 0; si < skillSources.length; si++) {
+            const project = skillSources[si];
             const projectName = String(project.projectName ?? "").trim();
             if (!projectName) continue;
             const slug = `project-${normalizedProgram}-${projectName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+$/, "")}`;
@@ -1340,6 +1353,13 @@ export function queueCoordinatorTrainingJob(
             contentParts.push(`# ${projectName}`);
             contentParts.push(`**Program:** ${normalizedProgram}`);
             contentParts.push(`**Path:** ${project.projectPath}`);
+            // Include training summary from the result if available
+            const matchingSummary = result.summaries.find((s) => s.name === projectName || s.path === project.projectPath);
+            if (matchingSummary?.summary) {
+              contentParts.push("");
+              contentParts.push("## Summary");
+              contentParts.push(matchingSummary.summary);
+            }
             if (project.notesExcerpt) {
               contentParts.push("");
               contentParts.push("## Analysis");
@@ -1368,7 +1388,6 @@ export function queueCoordinatorTrainingJob(
               }
             }
             const content = contentParts.join("\n");
-            if (content.length < 50) continue; // Skip empty/trivial skills
             try {
               deps.skillsRepo.upsertBySlugAndProgram({
                 slug,
