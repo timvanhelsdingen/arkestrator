@@ -75,6 +75,35 @@ import {
   type CoordinatorTrainingSchedule,
 } from "./training-scheduling.js";
 
+/** Extract searchable keywords from project name, summary, and content. */
+function extractProjectKeywords(name: string, summary: string, content: string): string[] {
+  const text = `${name} ${summary} ${content.slice(0, 2000)}`.toLowerCase();
+  const keywords = new Set<string>();
+  // DCC-specific terms
+  const dccTerms = [
+    "flip", "fluid", "sim", "simulation", "particles", "sop", "dop", "vex",
+    "pyro", "fire", "smoke", "rbdsim", "cloth", "wire", "ocean", "whitewater",
+    "scatter", "instance", "copy", "foreach", "solver", "constraint",
+    "shader", "material", "texture", "render", "light", "camera",
+    "animation", "keyframe", "rig", "bone", "blend", "morph",
+    "terrain", "heightfield", "erosion", "vegetation",
+    "cache", "filecache", "bgeo", "vdb", "alembic", "fbx", "usd",
+    "node", "network", "subnet", "hda", "otl",
+    "viscosity", "density", "velocity", "force", "gravity",
+    "mesh", "geometry", "polygon", "curve", "nurbs", "volume",
+    "comfyui", "workflow", "checkpoint", "lora", "controlnet",
+    "script", "gdscript", "scene", "prefab", "tilemap",
+  ];
+  for (const term of dccTerms) {
+    if (text.includes(term)) keywords.add(term);
+  }
+  // Add project name words
+  for (const word of name.toLowerCase().replace(/[^a-z0-9]+/g, " ").split(" ")) {
+    if (word.length > 2) keywords.add(word);
+  }
+  return [...keywords].slice(0, 30);
+}
+
 // ── Re-export sub-modules for backward compatibility ─────────────────────────
 
 export * from "./training-extraction.js";
@@ -584,25 +613,10 @@ export function generateCoordinatorTraining(
     );
   }
 
-  // Write training patterns to skills DB
-  if (options.skillsRepo) {
-    try {
-      const trainingBlockText = trainingLines.join("\n");
-      options.skillsRepo.upsertBySlugAndProgram({
-        slug: `training-${program}-patterns`,
-        name: `${program.charAt(0).toUpperCase() + program.slice(1)} Training Patterns`,
-        program,
-        category: "training",
-        title: `${program.charAt(0).toUpperCase() + program.slice(1)} Training Patterns`,
-        description: `Auto-generated training patterns for ${program}`,
-        content: trainingBlockText,
-        source: "training",
-      });
-      logger.info("coordinator-training", `Wrote training patterns skill for ${program} to skills DB`);
-    } catch (err: any) {
-      logger.warn("coordinator-training", `Failed to write training skill for ${program}: ${String(err?.message ?? err)}`);
-    }
-  }
+  // Per-project skills with actual analysis content are created in the
+  // queueCoordinatorTrainingJob async handler after the analysis completes.
+  // No generic "patterns" skill is needed here — the per-project skills
+  // carry the real knowledge.
 
   return {
     program,
@@ -1449,15 +1463,17 @@ export function queueCoordinatorTrainingJob(
             }
             const content = contentParts.join("\n");
             try {
+              const summaryText = matchingSummary?.summary || "";
               deps.skillsRepo.upsertBySlugAndProgram({
                 slug,
                 name: `${projectName} (${normalizedProgram})`,
                 program: normalizedProgram,
                 category: "project-reference",
                 title: `${projectName} — ${normalizedProgram} project reference`,
-                description: `Learned patterns and structure from ${projectName}`,
+                description: summaryText || `Learned patterns and structure from ${projectName}`,
                 content,
                 source: "training",
+                keywords: extractProjectKeywords(projectName, summaryText, content),
               });
               skillCount++;
               appendJobLog(hub, jobsRepo, created.id, `  → Skill created: ${slug} (${content.length} chars)`);
