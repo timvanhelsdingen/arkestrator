@@ -4311,6 +4311,7 @@ export function createSettingsCoordinatorRoutes(deps: SettingsRouteDeps) {
           jobsRepo,
           agentsRepo,
           settingsRepo,
+          skillsRepo,
           headlessProgramsRepo,
           hub,
           coordinatorScriptsDir,
