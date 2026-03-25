@@ -347,6 +347,12 @@ fn write_shared_config_json(path: &PathBuf, value: &Value) -> Result<(), String>
     Ok(())
 }
 
+#[tauri::command]
+fn read_shared_config() -> Result<Value, String> {
+    let path = shared_config_path()?;
+    Ok(read_shared_config_json(&path))
+}
+
 fn is_valid_api_key(value: &str) -> bool {
     let trimmed = value.trim();
     if trimmed.len() != 52 || !trimmed.starts_with("ark_") {
@@ -1228,6 +1234,7 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            read_shared_config,
             write_shared_config,
             ensure_app_data_dir,
             resolve_admin_dist_path,

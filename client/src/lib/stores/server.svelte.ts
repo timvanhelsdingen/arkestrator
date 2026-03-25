@@ -184,6 +184,27 @@ class ServerState {
         // Only mark as running when server is actually listening for connections
         if (this.status === "starting" && line.includes("Server listening")) {
           this.status = "running";
+          // Parse the actual port from the log line in case the server fell back
+          // to a different port (e.g. ghost socket on the configured port)
+          const portMatch = line.match(/localhost:(\d+)/);
+          if (portMatch) {
+            const actualPort = parseInt(portMatch[1], 10);
+            if (actualPort !== this.port) {
+              this.appendLog(`⚠ Port ${this.port} was unavailable — server started on ${actualPort}`);
+              this.port = actualPort;
+              savePort(actualPort);
+            }
+          }
+        }
+        // Also catch fallback port messages from the server
+        if (line.includes("Using fallback port")) {
+          const match = line.match(/fallback port (\d+)/);
+          if (match) {
+            const fallbackPort = parseInt(match[1], 10);
+            this.appendLog(`⚠ Port ${this.port} was unavailable — using fallback port ${fallbackPort}`);
+            this.port = fallbackPort;
+            savePort(fallbackPort);
+          }
         }
       });
 
@@ -336,13 +357,40 @@ class ServerState {
   }
 
   private async isLocalServerAlreadyRunning(): Promise<boolean> {
+    // First try the configured port
+    if (await this.probeHealth(this.localUrl)) return true;
+
+    // If configured port doesn't respond, check shared config for a fallback port
+    try {
+      const sharedConfig = await invoke<{ serverUrl?: string }>("read_shared_config");
+      const sharedUrl = sharedConfig?.serverUrl;
+      if (sharedUrl && sharedUrl !== this.localUrl && isLoopbackUrl(sharedUrl)) {
+        if (await this.probeHealth(sharedUrl)) {
+          // Server is running on a different port — update our state
+          const portMatch = sharedUrl.match(/:(\d+)/);
+          if (portMatch) {
+            const discoveredPort = parseInt(portMatch[1], 10);
+            if (discoveredPort !== this.port) {
+              this.appendLog(`Discovered server on port ${discoveredPort} (configured: ${this.port})`);
+              this.port = discoveredPort;
+              savePort(discoveredPort);
+            }
+          }
+          return true;
+        }
+      }
+    } catch {
+      // read_shared_config not available or failed — ignore
+    }
+    return false;
+  }
+
+  private async probeHealth(baseUrl: string): Promise<boolean> {
     let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
       const ctrl = new AbortController();
       timeout = setTimeout(() => ctrl.abort(), 1200);
-      const res = await fetch(`${this.localUrl}/health`, {
-        signal: ctrl.signal,
-      });
+      const res = await fetch(`${baseUrl}/health`, { signal: ctrl.signal });
       return res.ok;
     } catch {
       return false;
