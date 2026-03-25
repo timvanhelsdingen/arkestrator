@@ -198,9 +198,12 @@
                           {#each ctx.items as item}
                             {@const rowKey = itemKey(bridge.id, item.index)}
                             <div class="item-row">
+                              <!-- svelte-ignore a11y_no_static_element_interactions -->
                               <div
                                 class="item-drag-target"
-                                draggable={editingItemKey !== rowKey}
+                                draggable={editingItemKey !== rowKey ? "true" : "false"}
+                                role="button"
+                                tabindex="-1"
                                 title="Drag into prompt"
                                 ondragstart={(e) => onContextItemDragStart(e, bridge.id, bridge.program ?? "", item)}
                               >
