@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { invoke } from "@tauri-apps/api/core";
   import { connection } from "../lib/stores/connection.svelte";
   import { connect } from "../lib/api/ws";
   import { api } from "../lib/api/rest";
@@ -23,6 +24,18 @@
   // Local server
   let localStarting = $state(false);
   let localPort = $state(String(serverState.port));
+
+  // When serverState.port changes (e.g. fallback port discovered), update the URL
+  $effect(() => {
+    const currentLocalUrl = serverState.localUrl;
+    // Only auto-update if we're in local/login mode and URL was pointing at localhost
+    if ((mode === "login" || mode === "local" || mode === "choose") && isLoopbackUrl(serverUrl)) {
+      if (serverUrl !== currentLocalUrl) {
+        serverUrl = currentLocalUrl;
+        connection.url = currentLocalUrl;
+      }
+    }
+  });
 
   // Login
   let loginUsername = $state(connection.lastUsername || "admin");
@@ -161,6 +174,44 @@
 
       completeLogin(result);
     } catch (err: any) {
+      // If fetch failed and we're on localhost, try discovering the real port from shared config
+      if (err.message?.includes("Failed to fetch") && isLoopbackUrl(connection.url)) {
+        try {
+          const sharedConfig = await invoke<{ serverUrl?: string }>("read_shared_config");
+          const sharedUrl = sharedConfig?.serverUrl;
+          if (sharedUrl && sharedUrl !== connection.url && isLoopbackUrl(sharedUrl)) {
+            // Found a different port — update and retry
+            connection.url = sharedUrl;
+            serverUrl = sharedUrl;
+            const portMatch = sharedUrl.match(/:(\d+)/);
+            if (portMatch) {
+              serverState.setPort(parseInt(portMatch[1], 10));
+            }
+            loginError = "";
+            // Retry login on the discovered port
+            try {
+              const result = await api.auth.login(loginUsername, loginPassword);
+              if (result.requires2fa) {
+                challengeToken = result.challengeToken;
+                mode = "totp";
+                loggingIn = false;
+                return;
+              }
+              completeLogin(result);
+              loggingIn = false;
+              return;
+            } catch (retryErr: any) {
+              loginError = retryErr.message?.includes("401")
+                ? "Invalid username or password"
+                : `Login failed: ${retryErr.message}`;
+              loggingIn = false;
+              return;
+            }
+          }
+        } catch {
+          // read_shared_config not available
+        }
+      }
       loginError = err.message?.includes("401") ? "Invalid username or password" : `Login failed: ${err.message}`;
     } finally {
       loggingIn = false;
