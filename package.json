@@ -1,6 +1,6 @@
 {
   "name": "arkestrator",
-  "version": "0.1.77",
+  "version": "0.1.78",
   "private": true,
   "scripts": {
     "dev": "pnpm install && pnpm --filter @arkestrator/protocol build && concurrently -n server,client -c blue,green \"pnpm --filter @arkestrator/server dev\" \"pnpm --filter @arkestrator/client tauri dev\"",
