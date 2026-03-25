@@ -119,30 +119,52 @@ async function tryKillPortHolder(port: number): Promise<boolean> {
   }
 }
 
-/** Retry Bun.serve() with automatic port-holder killing on first EADDRINUSE */
-async function serveWithRetry(fn: () => ReturnType<typeof Bun.serve>, port: number, retries = 5, delayMs = 1000) {
-  for (let i = 0; i < retries; i++) {
+/**
+ * Start Bun.serve(), handling EADDRINUSE by:
+ *  1. Try the requested port
+ *  2. If busy, try to kill the holder process
+ *  3. If still busy, try up to 10 alternative ports (port+1, port+2, …)
+ * Returns { server, actualPort } so callers know which port was used.
+ */
+async function serveWithPortFallback(
+  makeFn: (port: number) => ReturnType<typeof Bun.serve>,
+  preferredPort: number,
+): Promise<{ server: ReturnType<typeof Bun.serve>; actualPort: number }> {
+  // Attempt 1: preferred port
+  try {
+    return { server: makeFn(preferredPort), actualPort: preferredPort };
+  } catch (err: any) {
+    if (err?.code !== "EADDRINUSE") throw err;
+  }
+
+  // Attempt 2: kill the holder and retry preferred port
+  const killed = await tryKillPortHolder(preferredPort);
+  if (killed) {
+    logger.info("server", `Killed previous process on port ${preferredPort}, retrying...`);
+    await Bun.sleep(1500);
     try {
-      return fn();
+      return { server: makeFn(preferredPort), actualPort: preferredPort };
     } catch (err: any) {
-      if (err?.code === "EADDRINUSE" && i < retries - 1) {
-        if (i === 0) {
-          // First failure: actively kill the port holder
-          const killed = await tryKillPortHolder(port);
-          if (killed) {
-            logger.info("server", `Killed previous process on port ${port}, retrying...`);
-            await Bun.sleep(1500); // give OS time to release the socket
-            continue;
-          }
-        }
-        logger.warn("server", `Port ${port} still in use, retrying in ${delayMs}ms... (${i + 1}/${retries})`);
-        await Bun.sleep(delayMs);
-        continue;
-      }
-      throw err;
+      if (err?.code !== "EADDRINUSE") throw err;
     }
   }
-  throw new Error(`Failed to start server on port ${port} after ${retries} retries`);
+
+  // Attempt 3: try alternative ports
+  logger.warn("server", `Port ${preferredPort} is stuck (ghost socket or another app). Scanning for a free port...`);
+  for (let offset = 1; offset <= 10; offset++) {
+    const candidatePort = preferredPort + offset;
+    try {
+      const server = makeFn(candidatePort);
+      logger.info("server", `Using fallback port ${candidatePort} (preferred ${preferredPort} was unavailable)`);
+      return { server, actualPort: candidatePort };
+    } catch (err: any) {
+      if (err?.code !== "EADDRINUSE") throw err;
+    }
+  }
+  throw new Error(
+    `Could not bind to port ${preferredPort} or any of ${preferredPort + 1}–${preferredPort + 10}. `
+    + `Kill the process using the port or run: powershell -Command "net stop winnat; net start winnat" (admin)`,
+  );
 }
 
 function parseOfferedProtocols(header: string | null): string[] {
@@ -576,8 +598,8 @@ async function main() {
     ? { cert: Bun.file(config.tlsCertPath), key: Bun.file(config.tlsKeyPath) }
     : undefined;
 
-  const server = await serveWithRetry(() => Bun.serve({
-    port: config.port,
+  const { server, actualPort } = await serveWithPortFallback((bindPort) => Bun.serve({
+    port: bindPort,
     reusePort: true,
     tls: tlsConfig,
     // SSE streams (chat, job logs) can take minutes before producing data.
@@ -850,6 +872,12 @@ async function main() {
       },
     },
   }), config.port);
+
+  // Update shared config if the server landed on a different port
+  if (actualPort !== config.port) {
+    const rawKey = apiKeysRepo.list().find((k) => k.role === "admin")?.rawKey;
+    if (rawKey) writeSharedConfig(actualPort, rawKey);
+  }
 
   // 11. Start worker loop
   worker.start();
