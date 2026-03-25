@@ -13,6 +13,8 @@
     description: string;
     keywords: string[];
     content: string;
+    playbooks: string[];
+    relatedSkills: string[];
     source: string;
     sourcePath: string | null;
     priority: number;
@@ -64,6 +66,8 @@
 
   // Detail modal
   let detailSkill = $state<SkillEntry | null>(null);
+  let playbookContent = $state<Array<{ path: string; content: string | null; error?: string }>>([]);
+  let loadingPlaybooks = $state(false);
 
   // Delete confirm
   let confirmDelete = $state<SkillEntry | null>(null);
@@ -313,6 +317,27 @@
     }
   }
 
+  async function openDetail(skill: SkillEntry) {
+    detailSkill = skill;
+    playbookContent = [];
+    if (skill.playbooks?.length > 0) {
+      loadingPlaybooks = true;
+      try {
+        const data = await api.skills.getPlaybookContent(skill.slug, skill.program || undefined);
+        playbookContent = data?.playbooks ?? [];
+      } catch {
+        playbookContent = [];
+      } finally {
+        loadingPlaybooks = false;
+      }
+    }
+  }
+
+  function navigateToSkill(slug: string) {
+    const target = skills.find(s => s.slug === slug);
+    if (target) openDetail(target);
+  }
+
   function autoSlug() {
     createSlug = createName
       .trim()
@@ -403,15 +428,16 @@
         <th>Bridge</th>
         <th>Category</th>
         <th>Source</th>
+        <th>Playbooks</th>
         <th>Enabled</th>
         <th>Actions</th>
       </tr>
     </thead>
     <tbody>
       {#if loading}
-        <tr><td colspan="7" class="muted">Loading skills...</td></tr>
+        <tr><td colspan="8" class="muted">Loading skills...</td></tr>
       {:else if filteredSkills.length === 0}
-        <tr><td colspan="7" class="muted">
+        <tr><td colspan="8" class="muted">
           {#if skills.length === 0}
             No skills loaded yet.
             <button class="btn-link" onclick={pullAll} disabled={pullingAll}>
@@ -431,6 +457,13 @@
             <td><span class="badge badge-cat">{skill.category}</span></td>
             <td><span class="badge {skill.source === 'user' ? 'badge-custom' : skill.source === 'registry' ? 'badge-registry' : skill.source === 'training' ? 'badge-training' : skill.source === 'bridge-repo' ? 'badge-bridge-repo' : 'badge-default'}">{skill.source}</span></td>
             <td>
+              {#if skill.playbooks?.length > 0}
+                <span class="badge badge-playbook">{skill.playbooks.length}</span>
+              {:else}
+                <span class="muted">-</span>
+              {/if}
+            </td>
+            <td>
               {#if skill.enabled}
                 <span class="badge badge-ok">yes</span>
               {:else}
@@ -438,7 +471,7 @@
               {/if}
             </td>
             <td class="actions-cell">
-              <button class="btn-small" onclick={() => (detailSkill = skill)}>View</button>
+              <button class="btn-small" onclick={() => openDetail(skill)}>View</button>
               {#if skill.source === "user" || skill.source === "registry"}
                 <button class="btn-small btn-danger" onclick={() => (confirmDelete = skill)}>Delete</button>
               {/if}
@@ -480,9 +513,43 @@
         <div><strong>Source Path:</strong> <span class="mono">{detailSkill.sourcePath}</span></div>
       {/if}
     </div>
+    {#if detailSkill.playbooks?.length > 0}
+      <div class="detail-section">
+        <strong>Playbook References ({detailSkill.playbooks.length})</strong>
+        <div class="playbook-list">
+          {#each detailSkill.playbooks as pb}
+            <div class="playbook-entry mono">{pb}</div>
+          {/each}
+        </div>
+        {#if loadingPlaybooks}
+          <p class="muted">Loading playbook content...</p>
+        {:else if playbookContent.length > 0}
+          {#each playbookContent as pb}
+            <div class="playbook-preview">
+              <div class="playbook-path mono">{pb.path}</div>
+              {#if pb.error}
+                <div class="playbook-error">{pb.error}</div>
+              {:else if pb.content}
+                <textarea rows="10" value={pb.content.slice(0, 4000)} readonly class="content-viewer"></textarea>
+              {/if}
+            </div>
+          {/each}
+        {/if}
+      </div>
+    {/if}
+    {#if detailSkill.relatedSkills?.length > 0}
+      <div class="detail-section">
+        <strong>Related Skills</strong>
+        <div class="related-skills">
+          {#each detailSkill.relatedSkills as slug}
+            <button class="btn-link" onclick={() => navigateToSkill(slug)}>{slug}</button>
+          {/each}
+        </div>
+      </div>
+    {/if}
     <label class="field">
       <span>Content</span>
-      <textarea rows="14" value={detailSkill.content} readonly class="content-viewer"></textarea>
+      <textarea rows="10" value={detailSkill.content} readonly class="content-viewer"></textarea>
     </label>
     <div class="actions">
       <button class="btn-secondary" onclick={() => (detailSkill = null)}>Close</button>
@@ -657,7 +724,16 @@
   .badge-registry { color: #b07cd8; background: rgba(176, 124, 216, 0.12); }
   .badge-training { color: #d8a07c; background: rgba(216, 160, 124, 0.12); }
   .badge-bridge-repo { color: #7cd89e; background: rgba(124, 216, 158, 0.12); }
+  .badge-playbook { color: #d8c87c; background: rgba(216, 200, 124, 0.12); }
   .hidden-file-input { display: none; }
+  .detail-section { margin-bottom: 12px; }
+  .detail-section strong { display: block; margin-bottom: 6px; color: var(--text-secondary); font-size: var(--font-size-sm); }
+  .playbook-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+  .playbook-entry { font-size: var(--font-size-sm); padding: 4px 8px; background: var(--bg-elevated); border-radius: var(--radius-sm); }
+  .playbook-preview { margin-top: 8px; }
+  .playbook-path { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
+  .playbook-error { color: #e05555; font-size: var(--font-size-sm); }
+  .related-skills { display: flex; flex-wrap: wrap; gap: 6px; }
   .registry-list { display: flex; flex-direction: column; gap: 8px; max-height: 400px; overflow-y: auto; margin-bottom: 12px; }
   .registry-item { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
   .registry-info { flex: 1; min-width: 0; }

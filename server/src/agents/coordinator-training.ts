@@ -8,7 +8,7 @@
  * - training-discovery.ts   — Project discovery and source path resolution
  */
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "fs";
-import { basename, dirname, join } from "path";
+import { basename, dirname, join, relative, resolve } from "path";
 import type { Job, JobSubmit } from "@arkestrator/protocol";
 import type { JobsRepo } from "../db/jobs.repo.js";
 import type { AgentsRepo } from "../db/agents.repo.js";
@@ -1357,13 +1357,9 @@ export function queueCoordinatorTrainingJob(
             `Project analysis file cleanup: restored=${restoreSummary.restored}, removed=${restoreSummary.removed}, failed=${restoreSummary.failed}.`,
           );
         }
-        // Create per-project skills with actual analysis content.
-        // Merge projectDetails with training summaries so skills always have
-        // content even when the agentic analysis produced minimal output.
-        // Also include the analysis agent's output as rich skill content.
-        const analysisContent = analysisJobId
-          ? String(jobsRepo.getById(analysisJobId)?.logs ?? "").trim()
-          : "";
+        // Create per-project skills as lightweight index entries that reference
+        // the vault artifact. Skills contain only a short summary + keywords;
+        // the full analysis lives in the vault and is loaded at job runtime.
         const skillSources = projectDetails.length > 0
           ? projectDetails
           : result.summaries.map((s) => ({
@@ -1374,7 +1370,10 @@ export function queueCoordinatorTrainingJob(
               config: undefined as Record<string, unknown> | undefined,
               inventory: { files: [] as string[], sceneFiles: [] as string[] },
             }));
-        appendJobLog(hub, jobsRepo, created.id, `Skill creation: skillsRepo=${!!deps.skillsRepo}, sources=${skillSources.length}, analysisContent=${analysisContent.length} chars`);
+        // Compute the playbook reference — relative path from coordinatorPlaybooksDir
+        const artifactRelPath = relative(resolve(coordinatorPlaybooksDir), resolve(artifactPaths.jsonPath))
+          .replace(/\\/g, "/");
+        appendJobLog(hub, jobsRepo, created.id, `Skill creation: skillsRepo=${!!deps.skillsRepo}, sources=${skillSources.length}, playbookRef=${artifactRelPath}`);
         if (deps.skillsRepo && skillSources.length > 0) {
           let skillCount = 0;
           for (let si = 0; si < skillSources.length; si++) {
@@ -1382,105 +1381,27 @@ export function queueCoordinatorTrainingJob(
             const projectName = String(project.projectName ?? "").trim();
             if (!projectName) continue;
             const slug = `project-${normalizedProgram}-${projectName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+$/, "")}`;
+            const matchingSummary = result.summaries.find((s) => s.name === projectName || s.path === project.projectPath);
+            const summaryText = matchingSummary?.summary || "";
+            // Build short content — just enough for discovery, NOT the full analysis
             const contentParts: string[] = [];
             contentParts.push(`# ${projectName}`);
             contentParts.push(`**Program:** ${normalizedProgram}`);
-            contentParts.push(`**Path:** ${project.projectPath}`);
-            // Include training summary from the result if available
-            const matchingSummary = result.summaries.find((s) => s.name === projectName || s.path === project.projectPath);
-            if (matchingSummary?.summary) {
+            if (summaryText) {
               contentParts.push("");
-              contentParts.push("## Summary");
-              contentParts.push(matchingSummary.summary);
-            }
-            if (project.notesExcerpt) {
-              contentParts.push("");
-              contentParts.push("## Analysis");
-              contentParts.push(project.notesExcerpt);
-            }
-            const config = project.config as Record<string, unknown> | undefined;
-            if (config?.prompt) {
-              contentParts.push("");
-              contentParts.push("## Conventions");
-              contentParts.push(String(config.prompt));
-            }
-            if (config?.contexts && Array.isArray(config.contexts)) {
-              for (const ctx of (config.contexts as Array<Record<string, unknown>>)) {
-                const ctxName = String(ctx?.name ?? "").trim();
-                const ctxPattern = String(ctx?.pattern ?? "").trim();
-                if (ctxName && ctxPattern) {
-                  contentParts.push(`- **${ctxName}:** ${ctxPattern}`);
-                }
-              }
+              contentParts.push(summaryText);
             }
             if (project.inventory?.sceneFiles?.length) {
               contentParts.push("");
-              contentParts.push(`## Scene Files`);
-              for (const f of project.inventory.sceneFiles.slice(0, 20)) {
-                contentParts.push(`- ${f}`);
-              }
-            }
-            // Include the analysis agent's structured output — extract the
-            // final markdown/JSON sections, not raw tool call logs.
-            if (analysisContent && si === 0) {
-              // Look for the structured analysis output that typically starts
-              // with "# Analysis:" or "# Coordinator Training Analysis"
-              // or appears after the last [TodoWrite] before [done]
-              const lines = analysisContent.split("\n");
-              let extractStart = -1;
-              // Find the last major heading that signals structured output
-              for (let li = lines.length - 1; li >= 0; li--) {
-                const t = lines[li].trim();
-                if (t.startsWith("# ") && !t.startsWith("[")) {
-                  extractStart = li;
-                  break;
-                }
-              }
-              // Fallback: find content after the last [TodoWrite] before [done]
-              if (extractStart < 0) {
-                for (let li = lines.length - 1; li >= 0; li--) {
-                  if (lines[li].trim() === "[done]") {
-                    // Walk back to find the last [TodoWrite] before [done]
-                    for (let lj = li - 1; lj >= Math.max(0, li - 200); lj--) {
-                      if (lines[lj].trim().startsWith("[TodoWrite]")) {
-                        extractStart = lj + 1;
-                        break;
-                      }
-                    }
-                    break;
-                  }
-                }
-              }
-              const usefulLines = extractStart >= 0
-                ? lines.slice(extractStart)
-                    .filter((line) => {
-                      const t = line.trim();
-                      if (t === "[done]" || t.startsWith("[TodoWrite]")) return false;
-                      if (/^\[mcp__|^\[Bash\]|^\[Read\]|^\[Grep\]|^\[ToolSearch\]|^\[init\]|^\[thinking\]/.test(t)) return false;
-                      return true;
-                    })
-                    .join("\n")
-                    .trim()
-                : "";
-              if (usefulLines.length > 100) {
-                contentParts.push("");
-                contentParts.push("## Agent Analysis Output");
-                contentParts.push(usefulLines.slice(0, 6000));
-              }
+              contentParts.push(`Scene files: ${project.inventory.sceneFiles.slice(0, 5).join(", ")}`);
             }
             const content = contentParts.join("\n");
-            // Skip skills that have no real analysis data — just boilerplate
-            // headers + default summary text aren't useful as skills
-            const hasRealContent = content.includes("## Analysis")
-              || content.includes("## Agent Analysis Output")
-              || content.includes("## Conventions")
-              || content.length > 500;
-            if (!hasRealContent) {
-              appendJobLog(hub, jobsRepo, created.id, `  → Skipped ${projectName}: no meaningful analysis content yet (${content.length} chars)`);
+            // Skip if we have no summary at all
+            if (!summaryText && content.length < 100) {
+              appendJobLog(hub, jobsRepo, created.id, `  → Skipped ${projectName}: no summary available`);
               continue;
             }
             try {
-              const summaryText = matchingSummary?.summary || "";
               deps.skillsRepo.upsertBySlugAndProgram({
                 slug,
                 name: `${projectName} (${normalizedProgram})`,
@@ -1489,18 +1410,19 @@ export function queueCoordinatorTrainingJob(
                 title: `${projectName} — ${normalizedProgram} project reference`,
                 description: summaryText || `Learned patterns and structure from ${projectName}`,
                 content,
+                playbooks: [artifactRelPath],
                 source: "training",
                 keywords: extractProjectKeywords(projectName, summaryText, content),
               });
               skillCount++;
-              appendJobLog(hub, jobsRepo, created.id, `  → Skill created: ${slug} (${content.length} chars)`);
+              appendJobLog(hub, jobsRepo, created.id, `  → Skill created: ${slug} → playbook: ${artifactRelPath}`);
             } catch (err: any) {
               appendJobLog(hub, jobsRepo, created.id, `  → Skill FAILED: ${projectName}: ${String(err?.message ?? err)}`);
               logger.warn("coordinator-training", `Failed to write skill for ${projectName}: ${String(err?.message ?? err)}`);
             }
           }
           if (skillCount > 0) {
-            appendJobLog(hub, jobsRepo, created.id, `Created ${skillCount} project reference skill(s) from training analysis.`);
+            appendJobLog(hub, jobsRepo, created.id, `Created ${skillCount} project reference skill(s) with playbook references.`);
           }
         }
 

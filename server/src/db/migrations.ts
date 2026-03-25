@@ -335,6 +335,9 @@ const COLUMN_ADDITIONS = [
     job_outcome TEXT,
     created_at TEXT NOT NULL
   )`,
+  // Knowledge graph: skills reference vault playbooks and link to related skills
+  `ALTER TABLE skills ADD COLUMN playbooks TEXT NOT NULL DEFAULT '[]'`,
+  `ALTER TABLE skills ADD COLUMN related_skills TEXT NOT NULL DEFAULT '[]'`,
 ];
 
 // Reset any jobs stuck in 'running' state (server crashed while they were active)

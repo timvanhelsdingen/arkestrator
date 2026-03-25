@@ -205,6 +205,8 @@
     title: string;
     description?: string;
     content?: string;
+    playbooks?: string[];
+    relatedSkills?: string[];
     source?: string;
     priority?: number;
     autoFetch?: boolean;

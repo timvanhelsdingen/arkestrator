@@ -15,6 +15,8 @@ export interface Skill {
   description: string;
   keywords: string[];
   content: string;
+  playbooks: string[];
+  relatedSkills: string[];
   source: string;
   sourcePath: string | null;
   priority: number;
@@ -46,6 +48,8 @@ interface SkillRow {
   description: string;
   keywords: string;
   content: string;
+  playbooks: string;
+  related_skills: string;
   source: string;
   source_path: string | null;
   priority: number;
@@ -66,6 +70,8 @@ export interface CreateSkillInput {
   description?: string;
   keywords?: string[];
   content: string;
+  playbooks?: string[];
+  relatedSkills?: string[];
   source?: string;
   sourcePath?: string | null;
   priority?: number;
@@ -80,19 +86,20 @@ export interface UpdateSkillInput {
   description?: string;
   keywords?: string[];
   content?: string;
+  playbooks?: string[];
+  relatedSkills?: string[];
   source?: string;
   priority?: number;
   autoFetch?: boolean;
   enabled?: boolean;
 }
 
+function parseJsonArray(raw: string | undefined | null): string[] {
+  if (!raw) return [];
+  try { return JSON.parse(raw); } catch { return []; }
+}
+
 function rowToSkill(row: SkillRow): Skill {
-  let keywords: string[] = [];
-  try {
-    keywords = JSON.parse(row.keywords);
-  } catch {
-    /* default empty */
-  }
   return {
     id: row.id,
     name: row.name,
@@ -101,8 +108,10 @@ function rowToSkill(row: SkillRow): Skill {
     category: row.category,
     title: row.title,
     description: row.description,
-    keywords,
+    keywords: parseJsonArray(row.keywords),
     content: row.content,
+    playbooks: parseJsonArray(row.playbooks),
+    relatedSkills: parseJsonArray(row.related_skills),
     source: row.source,
     sourcePath: row.source_path,
     priority: row.priority,
@@ -151,15 +160,16 @@ export class SkillsRepo {
       "SELECT * FROM skills WHERE slug = ? AND program = ? LIMIT 1",
     );
     this.insertStmt = db.prepare(`
-      INSERT INTO skills (id, name, slug, program, category, title, description, keywords, content, source, source_path, priority, auto_fetch, enabled, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO skills (id, name, slug, program, category, title, description, keywords, content, playbooks, related_skills, source, source_path, priority, auto_fetch, enabled, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     this.upsertStmt = db.prepare(`
-      INSERT INTO skills (id, name, slug, program, category, title, description, keywords, content, source, source_path, priority, auto_fetch, enabled, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO skills (id, name, slug, program, category, title, description, keywords, content, playbooks, related_skills, source, source_path, priority, auto_fetch, enabled, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(slug, program) DO UPDATE SET
         name = excluded.name, category = excluded.category, title = excluded.title,
         description = excluded.description, keywords = excluded.keywords, content = excluded.content,
+        playbooks = excluded.playbooks, related_skills = excluded.related_skills,
         source = excluded.source, source_path = excluded.source_path, priority = excluded.priority,
         auto_fetch = excluded.auto_fetch, enabled = excluded.enabled, updated_at = excluded.updated_at
     `);
@@ -207,6 +217,7 @@ export class SkillsRepo {
     this.insertStmt.run(
       id, input.name, input.slug, program, input.category, input.title,
       input.description ?? "", JSON.stringify(input.keywords ?? []), input.content,
+      JSON.stringify(input.playbooks ?? []), JSON.stringify(input.relatedSkills ?? []),
       src, input.sourcePath ?? null, input.priority ?? 50,
       (input.autoFetch ?? false) ? 1 : 0, (input.enabled ?? true) ? 1 : 0,
       now, now,
@@ -227,6 +238,8 @@ export class SkillsRepo {
     if (updates.description !== undefined) { sets.push("description = ?"); values.push(updates.description); }
     if (updates.keywords !== undefined) { sets.push("keywords = ?"); values.push(JSON.stringify(updates.keywords)); }
     if (updates.content !== undefined) { sets.push("content = ?"); values.push(updates.content); }
+    if (updates.playbooks !== undefined) { sets.push("playbooks = ?"); values.push(JSON.stringify(updates.playbooks)); }
+    if (updates.relatedSkills !== undefined) { sets.push("related_skills = ?"); values.push(JSON.stringify(updates.relatedSkills)); }
     if (updates.source !== undefined) { sets.push("source = ?"); values.push(updates.source); }
     if (updates.priority !== undefined) { sets.push("priority = ?"); values.push(updates.priority); }
     if (updates.autoFetch !== undefined) { sets.push("auto_fetch = ?"); values.push(updates.autoFetch ? 1 : 0); }
@@ -303,6 +316,7 @@ export class SkillsRepo {
     this.upsertStmt.run(
       id, input.name ?? input.slug, input.slug, program, input.category, input.title,
       input.description ?? "", JSON.stringify(input.keywords ?? []), input.content,
+      JSON.stringify(input.playbooks ?? []), JSON.stringify(input.relatedSkills ?? []),
       input.source ?? "user", input.sourcePath ?? null, input.priority ?? 50,
       (input.autoFetch ?? false) ? 1 : 0, (input.enabled ?? true) ? 1 : 0,
       now, now,

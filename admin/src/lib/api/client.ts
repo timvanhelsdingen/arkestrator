@@ -1281,6 +1281,12 @@ export const api = {
       request(`/api/skills/pull/${encodeURIComponent(program)}`, { method: "POST" }) as Promise<any>,
     pullAll: () =>
       request("/api/skills/pull-all", { method: "POST" }) as Promise<any>,
+    getPlaybookContent: (slug: string, program?: string) => {
+      const params = new URLSearchParams();
+      if (program) params.set("program", program);
+      const qs = params.toString();
+      return request(`/api/skills/${encodeURIComponent(slug)}/playbook-content${qs ? `?${qs}` : ""}`) as Promise<any>;
+    },
     export: async (opts?: { program?: string; category?: string; source?: string }) => {
       const params = new URLSearchParams();
       if (opts?.program) params.set("program", opts.program);

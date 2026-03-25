@@ -3,6 +3,9 @@
 ## Purpose
 Central hub. Receives jobs via REST+WS, queues them in SQLite, spawns AI CLI tools as subprocesses, streams results back to bridges+clients. Manages all state.
 
+## Recent Updates (2026-03-25)
+- Skills as knowledge graph (2026-03-25): Skills now support `playbooks` (string array of vault artifact paths) and `relatedSkills` (string array of related skill slugs) fields. `src/db/migrations.ts` adds `playbooks TEXT DEFAULT '[]'` and `related_skills TEXT DEFAULT '[]'` columns via COLUMN_ADDITIONS. `src/db/skills.repo.ts` updated Skill interface, SkillRow, CreateSkillInput, UpdateSkillInput, rowToSkill(), insert/upsert statements, create/update/upsertBySlugAndProgram to handle new fields. `src/agents/coordinator-training.ts` now creates lightweight skill index entries with `playbooks[]` referencing vault artifacts instead of embedding full analysis text. `src/agents/spawner.ts` skill injection loads referenced playbook files from disk when building agent prompts, falls back to embedded content, caps total at 30KB. `src/agents/housekeeping.ts` updated prompt and parsing to extract/persist `playbooks:` and `related_skills:` fields. `src/routes/skills.ts` adds `GET /:slug/playbook-content` endpoint and accepts `coordinatorPlaybooksDir` dependency; Create/Update Zod schemas include `playbooks` and `relatedSkills`. `src/app.ts` passes `deps.config.coordinatorPlaybooksDir` to skills routes.
+
 ## Recent Updates (2026-03-24)
 
 ### Major Refactor: Performance, Module Splits, Job Queue, Skills, Concurrency
@@ -41,7 +44,7 @@ Central hub. Receives jobs via REST+WS, queues them in SQLite, spawns AI CLI too
 ### Other 2026-03-24 Updates
 
 - Training output resilience: `repairTruncatedJson()` for truncated/unfenced JSON recovery, fallback for unclosed json blocks, synthetic seed construction when agent completes analysis but emits no JSON. Manual trigger vault fallback. Analysis child jobs use server-side working directory.
-- Skills injection into jobs: `src/agents/spawner.ts` injects all enabled skills matching the job's program (plus global) into every job's `orchestratorPromptOverride` under "Learned Skills & Knowledge".
+- Skills injection into jobs: `src/agents/spawner.ts` injects all enabled skills matching the job's program (plus global) into every job's `orchestratorPromptOverride` under "Learned Skills & Knowledge". Skills with `playbooks[]` references have their vault artifacts loaded from disk at injection time (falls back to embedded content if files not found); total injected skill content capped at 30KB.
 - MCP API key role migration: `src/db/migrations.ts` adds `'mcp'` to `api_keys` role CHECK constraint with `rebuildApiKeysTableIfNeeded()` migration.
 - Coordinator training source-path fixes: manual runs use `trigger: "manual"`, scheduled training merges vault+configured source paths, headless viability check before mode selection, `resolveClientForHeadlessProgram()` uses `workerName` as canonical identity.
 
@@ -268,7 +271,7 @@ src/
 | File | Tables/Purpose |
 |------|---------------|
 | `database.ts` | Opens SQLite + runs migrations |
-| `migrations.ts` | All CREATE TABLE + ALTER TABLE statements + startup recovery (stuck `running`→`queued`). Includes token denormalization columns on jobs table (`input_tokens`, `output_tokens`, `cost_usd`, `duration_ms`), retry columns (`retry_count`, `max_retries`, `retry_after`, `expires_at`), `local_model_host` column on `agent_configs`, `permissions TEXT` column on `api_keys`, `skill_versions` table, and `skill_effectiveness` table. Uses structured logger instead of console.log. |
+| `migrations.ts` | All CREATE TABLE + ALTER TABLE statements + startup recovery (stuck `running`→`queued`). Includes token denormalization columns on jobs table (`input_tokens`, `output_tokens`, `cost_usd`, `duration_ms`), retry columns (`retry_count`, `max_retries`, `retry_after`, `expires_at`), `local_model_host` column on `agent_configs`, `permissions TEXT` column on `api_keys`, `skill_versions` table, `skill_effectiveness` table, and `playbooks TEXT DEFAULT '[]'` + `related_skills TEXT DEFAULT '[]'` columns on skills table. Uses structured logger instead of console.log. |
 | `jobs.repo.ts` | Full CRUD: create (with `submittedBy`, `parentJobId`, `coordinationMode`, `runtimeOptions`, and AUTO routing metadata), list, claim, complete, fail, cancel, resume, reprioritize, appendLog, pickNext, pickNextForWorker (worker-targeted scheduling by `target_worker_name`, input normalized to lowercase), delete, deleteBulk, idempotent `addUsedBridge()` tracking, `updateTokens()` (denormalizes `input_tokens`, `output_tokens`, `cost_usd`, `duration_ms` onto the job row for direct query access), plus `markOutcome()` (canonical stored `positive`/`average`/`negative` + notes + marker metadata; API now also accepts `good`/`poor` aliases). Prepared statements. Priority-aware queue query with dependency exclusion. Row-to-job mapping now normalizes legacy/synthetic `editor_context` payloads (including old coordinator-training jobs missing `projectRoot`), parses persisted `runtime_options` safely, and populates `tokenUsage` from denormalized job-row columns so WS `job_list_response`/`job_updated` payloads stay schema-valid for clients. Root-job outcome propagation is handled at the route layer so descendant sub-jobs can inherit user ratings without changing the DB schema. |
 | `agents.repo.ts` | Agent config CRUD including optional `fallback_config_id` used by AUTO routing and optional `local_model_host` (`"server"` \| `"client"`) for local-oss model host routing |
 | `workers.repo.ts` | Worker upsert (by `machineId` first with `workerName` fallback), list, delete, `getByName()`, `getByMachineId()`, touchLastSeen. **worker_bridges** sub-table: `upsertBridge()`, `getBridgesForWorker()` - tracks per-worker program history persistently and follows the same machine across worker-name changes via `worker_machine_id`. `upsertBridge()` resolves UNIQUE constraint conflicts by cleaning up stale `(worker_name, program)` rows when `machineId` is provided before insert/update. Workers enriched with `knownPrograms` from worker_bridges on list/getById/getByName. |
@@ -346,12 +349,12 @@ Skills are modular instruction snippets that customize how the coordinator agent
 | `training` | Generated by the training system when rating jobs and running analysis. | Yes |
 
 ### Key Files
-- `src/db/skills.repo.ts` — SQLite CRUD for skills table (create, get, list, update, delete, upsert), plus `skill_versions` table for version snapshots and `skill_effectiveness` table for usage/outcome tracking
+- `src/db/skills.repo.ts` — SQLite CRUD for skills table (create, get, list, update, delete, upsert), plus `skill_versions` table for version snapshots and `skill_effectiveness` table for usage/outcome tracking. Skills now carry `playbooks: string[]` (vault artifact paths) and `relatedSkills: string[]` fields.
 - `src/skills/skill-index.ts` — In-memory search index with keyword + semantic vector matching, 60s TTL refresh
 - `src/skills/skill-materializer.ts` — Materializes all enabled skills from DB for the index
 - `src/skills/skill-registry.ts` — Fetches skill registry from GitHub bridge repos, pulls coordinator scripts + skills
 - `src/skills/skill-validator.ts` — Skill content validation: regex checks, contradiction detection across existing skills
-- `src/routes/skills.ts` — REST API: list, get, create, update, delete, search, pull-all, pull/:program, registry, install, refresh-index, validate, preview, `/:slug/versions`, `/:slug/rollback`, `/:slug/effectiveness`
+- `src/routes/skills.ts` — REST API: list, get, create, update, delete, search, pull-all, pull/:program, registry, install, refresh-index, validate, preview, `/:slug/versions`, `/:slug/rollback`, `/:slug/effectiveness`, `/:slug/playbook-content`. Accepts `coordinatorPlaybooksDir` dependency. Create/Update schemas include `playbooks` and `relatedSkills` fields.
 
 ### Auto-Pull Behavior
 When a bridge connects, the server auto-pulls coordinator scripts and skills from the bridge repo (controlled by `auto_pull_bridge_skills` setting, default: true). This keeps bridge-specific knowledge up to date without manual intervention.

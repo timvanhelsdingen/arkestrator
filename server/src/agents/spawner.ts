@@ -1449,8 +1449,8 @@ export async function spawnAgent(
   }
 
   // Inject relevant skills from the skills DB into the agent's context.
-  // Skills are the primary knowledge source — training, housekeeping, and
-  // bridge-synced guidance all write here and agents need to see them.
+  // Skills are lightweight index entries; real knowledge lives in referenced
+  // playbook artifacts. Load those artifacts and inject their content.
   if (deps.skillsRepo) {
     const jobProgram = (job.bridgeProgram ?? "").trim().toLowerCase();
     const allEnabled = deps.skillsRepo.listAll({ enabled: true });
@@ -1462,12 +1462,89 @@ export async function spawnAgent(
     });
     if (relevant.length > 0) {
       const skillLines: string[] = ["## Learned Skills & Knowledge"];
+      const MAX_SKILL_CONTENT_TOTAL = 30_000; // Cap total injected skill content
+      let totalInjected = 0;
       for (const skill of relevant) {
+        if (totalInjected >= MAX_SKILL_CONTENT_TOTAL) break;
         const header = skill.title || skill.name || skill.slug;
         const tag = skill.program && skill.program !== "global" ? ` [${skill.program}]` : "";
         skillLines.push(`### ${header}${tag}`);
         if (skill.description) skillLines.push(skill.description);
-        if (skill.content) skillLines.push(skill.content);
+        // Load referenced playbook artifacts instead of using embedded content
+        let playbookLoaded = false;
+        if (skill.playbooks?.length > 0 && deps.config.coordinatorPlaybooksDir) {
+          for (const pbPath of skill.playbooks) {
+            if (totalInjected >= MAX_SKILL_CONTENT_TOTAL) break;
+            const fullPath = join(deps.config.coordinatorPlaybooksDir, pbPath);
+            try {
+              if (existsSync(fullPath)) {
+                const raw = readFileSync(fullPath, "utf-8").trim();
+                if (raw) {
+                  // For JSON artifacts, extract the key analysis fields
+                  if (pbPath.endsWith(".json")) {
+                    try {
+                      const artifact = JSON.parse(raw);
+                      const parts: string[] = [];
+                      // Include project summaries
+                      if (artifact.summaries?.length) {
+                        parts.push("#### Project Analysis");
+                        for (const s of artifact.summaries) {
+                          parts.push(`**${s.name}** (${s.path})`);
+                          if (s.summary) parts.push(s.summary);
+                        }
+                      }
+                      // Include project details (node graphs, params, VEX, etc.)
+                      if (artifact.projects?.length) {
+                        for (const proj of artifact.projects) {
+                          if (proj.notesExcerpt) {
+                            parts.push(`#### ${proj.projectName} — Analysis Notes`);
+                            parts.push(proj.notesExcerpt);
+                          }
+                          if (proj.config?.prompt) {
+                            parts.push(`#### ${proj.projectName} — Conventions`);
+                            parts.push(String(proj.config.prompt));
+                          }
+                        }
+                      }
+                      // Include pipeline notes
+                      if (artifact.notes?.length) {
+                        parts.push("#### Notes");
+                        parts.push(artifact.notes.join("\n"));
+                      }
+                      const extracted = parts.join("\n\n").trim();
+                      if (extracted) {
+                        const capped = extracted.slice(0, MAX_SKILL_CONTENT_TOTAL - totalInjected);
+                        skillLines.push(capped);
+                        totalInjected += capped.length;
+                        playbookLoaded = true;
+                      }
+                    } catch {
+                      // JSON parse failed — inject raw (capped)
+                      const capped = raw.slice(0, Math.min(8000, MAX_SKILL_CONTENT_TOTAL - totalInjected));
+                      skillLines.push(capped);
+                      totalInjected += capped.length;
+                      playbookLoaded = true;
+                    }
+                  } else {
+                    // Markdown or other text — inject as-is (capped)
+                    const capped = raw.slice(0, Math.min(8000, MAX_SKILL_CONTENT_TOTAL - totalInjected));
+                    skillLines.push(capped);
+                    totalInjected += capped.length;
+                    playbookLoaded = true;
+                  }
+                }
+              }
+            } catch {
+              // File read failed — fall through to content fallback
+            }
+          }
+        }
+        // Fall back to embedded content if no playbooks loaded
+        if (!playbookLoaded && skill.content) {
+          const capped = skill.content.slice(0, Math.min(4000, MAX_SKILL_CONTENT_TOTAL - totalInjected));
+          skillLines.push(capped);
+          totalInjected += capped.length;
+        }
         skillLines.push("");
       }
       const skillBlock = skillLines.join("\n").trim();

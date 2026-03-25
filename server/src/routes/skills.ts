@@ -1,5 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
+import { existsSync, readFileSync } from "fs";
+import { join } from "path";
 import type { SkillsRepo } from "../db/skills.repo.js";
 import type { SkillEffectivenessRepo } from "../db/skill-effectiveness.repo.js";
 import type { SkillIndex } from "../skills/skill-index.js";
@@ -108,6 +110,8 @@ const SkillCreateSchema = z.object({
   description: z.string().optional(),
   keywords: z.array(z.string()).optional(),
   content: z.string().min(1),
+  playbooks: z.array(z.string()).optional(),
+  relatedSkills: z.array(z.string()).optional(),
   sourcePath: z.string().nullable().optional(),
   priority: z.number().optional(),
   autoFetch: z.boolean().optional(),
@@ -120,6 +124,8 @@ const SkillUpdateSchema = z.object({
   description: z.string().optional(),
   keywords: z.array(z.string()).optional(),
   content: z.string().min(1).optional(),
+  playbooks: z.array(z.string()).optional(),
+  relatedSkills: z.array(z.string()).optional(),
   priority: z.number().optional(),
   autoFetch: z.boolean().optional(),
   enabled: z.boolean().optional(),
@@ -140,6 +146,7 @@ export function createSkillsRoutes(
   settingsRepo?: SettingsRepo,
   workersRepo?: WorkersRepo,
   skillEffectivenessRepo?: SkillEffectivenessRepo,
+  coordinatorPlaybooksDir?: string,
 ) {
   const router = new Hono();
 
@@ -509,6 +516,36 @@ export function createSkillsRoutes(
     const stats = skillEffectivenessRepo.getStats(skill.id);
     const records = skillEffectivenessRepo.listForSkill(skill.id, 20);
     return c.json({ stats, records });
+  });
+
+  // GET /:slug/playbook-content — load referenced playbook artifact content
+  router.get("/:slug/playbook-content", async (c) => {
+    const auth = await requireAuth(c);
+    if (!auth) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+
+    const slug = c.req.param("slug");
+    const program = c.req.query("program");
+    const skill = skillIndex.get(slug, program || undefined);
+    if (!skill) return errorResponse(c, 404, `Skill not found: ${slug}`, "NOT_FOUND");
+
+    if (!coordinatorPlaybooksDir) {
+      return c.json({ playbooks: [], error: "Coordinator playbooks directory not configured" });
+    }
+
+    const playbooks: Array<{ path: string; content: string | null; error?: string }> = [];
+    for (const pbPath of skill.playbooks ?? []) {
+      const fullPath = join(coordinatorPlaybooksDir, pbPath);
+      try {
+        if (existsSync(fullPath)) {
+          playbooks.push({ path: pbPath, content: readFileSync(fullPath, "utf-8") });
+        } else {
+          playbooks.push({ path: pbPath, content: null, error: "File not found" });
+        }
+      } catch (err: any) {
+        playbooks.push({ path: pbPath, content: null, error: err?.message ?? "Read error" });
+      }
+    }
+    return c.json({ playbooks });
   });
 
   // GET /:slug — get skill by slug (from index) — MUST be last (catch-all param route)
