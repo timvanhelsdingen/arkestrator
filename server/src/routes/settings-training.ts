@@ -39,6 +39,7 @@ import {
   getCoordinatorTrainingLastRunByProgram,
   getCoordinatorTrainingSchedule,
   fanOutTrainingByProgram,
+  queueTrainingOrchestrator,
   queueCoordinatorTrainingJob,
   setCoordinatorTrainingLastRunByProgram,
   setCoordinatorTrainingSchedule,
@@ -47,6 +48,7 @@ import {
   getHousekeepingSchedule,
   setHousekeepingSchedule,
   queueHousekeepingJob,
+  type HousekeepingDeps,
 } from "../agents/housekeeping.js";
 import {
   getNetworkControls,
@@ -3482,38 +3484,42 @@ export function createSettingsTrainingRoutes(deps: SettingsRouteDeps) {
       : [];
     const apply = body?.apply == null ? schedule.apply : body.apply !== false;
 
-    // Use fanOutTrainingByProgram — auto-detects programs when none provided
-    const { queued, failures } = fanOutTrainingByProgram(
-      {
-        jobsRepo,
-        agentsRepo,
-        settingsRepo,
-        skillsRepo,
-        headlessProgramsRepo,
-        hub,
-        coordinatorScriptsDir,
-        coordinatorPlaybooksDir,
-        defaultCoordinatorPlaybookSourcePaths,
-        processTracker,
-      },
-      {
-        programs: requestedPrograms.length > 0 ? requestedPrograms : undefined,
-        trigger: "manual",
-        apply,
-        sourcePaths: requestedSourcePaths.length > 0 ? requestedSourcePaths : undefined,
-        submittedBy: user.id,
-      },
-    );
+    console.log(`[run-now] programs=${JSON.stringify(requestedPrograms)}, sourcePaths=${JSON.stringify(requestedSourcePaths)}, body keys=${Object.keys(body || {})}, body.sourcePaths type=${typeof body?.sourcePaths}, isArray=${Array.isArray(body?.sourcePaths)}`);
 
-    if (queued.length === 0 && failures.length === 0) {
-      return errorResponse(c, 400, "No programs detected in source paths. Configure source paths or specify programs explicitly.", "INVALID_INPUT");
-    }
+    // Build housekeeping deps for orchestrator chaining
+    const housekeepingDeps: HousekeepingDeps | undefined = skillsRepo
+      ? { jobsRepo, skillsRepo, agentsRepo, settingsRepo, hub }
+      : undefined;
 
-    if (queued.length > 0) {
-      const nowIso = new Date().toISOString();
-      const lastRunByProgram = getCoordinatorTrainingLastRunByProgram(settingsRepo);
-      for (const item of queued) lastRunByProgram[item.program] = nowIso;
-      setCoordinatorTrainingLastRunByProgram(settingsRepo, lastRunByProgram);
+    // Use queueTrainingOrchestrator — creates a single parent job that
+    // fans out per-program training and optionally chains housekeeping.
+    let orchestratorJob: import("@arkestrator/protocol").Job;
+    try {
+      orchestratorJob = queueTrainingOrchestrator(
+        {
+          jobsRepo,
+          agentsRepo,
+          settingsRepo,
+          skillsRepo,
+          headlessProgramsRepo,
+          hub,
+          coordinatorScriptsDir,
+          coordinatorPlaybooksDir,
+          defaultCoordinatorPlaybookSourcePaths,
+          processTracker,
+          housekeepingDeps,
+        },
+        {
+          programs: requestedPrograms.length > 0 ? requestedPrograms : undefined,
+          trigger: "manual",
+          apply,
+          sourcePaths: requestedSourcePaths.length > 0 ? requestedSourcePaths : undefined,
+          submittedBy: user.id,
+          chainHousekeeping: true,
+        },
+      );
+    } catch (err: any) {
+      return errorResponse(c, 400, String(err?.message ?? err), "INVALID_INPUT");
     }
 
     auditRepo.log({
@@ -3522,16 +3528,14 @@ export function createSettingsTrainingRoutes(deps: SettingsRouteDeps) {
       action: "coordinator_training_run_now",
       resource: "settings",
       details: JSON.stringify({
-        programs: queued.map((q) => q.program),
+        orchestratorJobId: orchestratorJob.id,
         autoDetected: requestedPrograms.length === 0,
         apply,
-        queued: queued.map((q) => ({ program: q.program, jobId: q.jobId })),
-        failures,
       }),
       ipAddress: getClientIp(c),
     });
 
-    return c.json({ ok: true, apply, queued, failures });
+    return c.json({ ok: true, apply, orchestratorJobId: orchestratorJob.id, job: orchestratorJob });
   });
 
   // List normalized training-job summaries from vault artifacts so admin UI can

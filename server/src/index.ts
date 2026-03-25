@@ -906,6 +906,9 @@ async function main() {
         coordinatorPlaybooksDir: config.coordinatorPlaybooksDir,
         defaultCoordinatorPlaybookSourcePaths: config.coordinatorPlaybookSourcePaths,
         processTracker,
+        housekeepingDeps: skillsRepo
+          ? { jobsRepo, skillsRepo, agentsRepo, settingsRepo, hub }
+          : undefined,
       });
       if (queued.length > 0) {
         logger.info(

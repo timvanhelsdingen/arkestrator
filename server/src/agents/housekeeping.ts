@@ -40,7 +40,10 @@ export function setHousekeepingSchedule(settingsRepo: SettingsRepo, schedule: Ho
  * 3. Suggests new skills or updates to existing ones
  * 4. Outputs a structured report
  */
-export function queueHousekeepingJob(deps: HousekeepingDeps): { jobId: string } | null {
+export function queueHousekeepingJob(
+  deps: HousekeepingDeps,
+  options?: { submittedBy?: string; parentJobId?: string },
+): { jobId: string } | null {
   // Find a suitable agent config (prefer claude-code, fall back to any)
   const agents = deps.agentsRepo.list();
   const agent = agents.find(a => a.engine === "claude-code") ?? agents[0];
@@ -70,12 +73,18 @@ export function queueHousekeepingJob(deps: HousekeepingDeps): { jobId: string } 
       editorContext: {
         metadata: {
           housekeeping: true,
-          trigger: "manual",
+          trigger: options?.parentJobId ? "chained" : "manual",
         },
       },
       files: [],
       contextItems: [],
     },
+    undefined, // bridgeId
+    undefined, // bridgeProgram
+    undefined, // workerName
+    undefined, // targetWorkerName
+    options?.submittedBy,
+    options?.parentJobId,
   );
 
   // Update last run timestamp

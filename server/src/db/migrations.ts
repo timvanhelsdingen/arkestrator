@@ -229,7 +229,7 @@ const MIGRATIONS = [
     name        TEXT NOT NULL,
     slug        TEXT NOT NULL,
     program     TEXT NOT NULL DEFAULT 'global',
-    category    TEXT NOT NULL CHECK(category IN ('coordinator','bridge','training','playbook','verification','project','custom')),
+    category    TEXT NOT NULL CHECK(category IN ('coordinator','bridge','training','playbook','verification','project','project-reference','housekeeping','custom')),
     title       TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
     keywords    TEXT NOT NULL DEFAULT '[]',
@@ -366,6 +366,9 @@ export function runMigrations(db: Database) {
   // Rebuild api_keys table if CHECK constraint is missing 'mcp' role
   rebuildApiKeysTableIfNeeded(db);
 
+  // Rebuild skills table if CHECK constraint is missing new categories
+  rebuildSkillsTableIfNeeded(db);
+
   // Normalize existing worker names to lowercase (fixes case-sensitivity duplicates)
   normalizeWorkerNames(db);
 
@@ -450,6 +453,55 @@ function rebuildPoliciesTableIfNeeded(db: Database) {
     db.exec(`CREATE INDEX IF NOT EXISTS idx_policies_scope ON policies(scope, type, enabled)`);
     db.exec("COMMIT");
     logger.info("migrations", "Policies table migration complete.");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  } finally {
+    db.exec("PRAGMA foreign_keys = ON");
+  }
+}
+
+/** Rebuild skills table if CHECK constraint is missing new categories (project-reference, housekeeping). */
+function rebuildSkillsTableIfNeeded(db: Database) {
+  const tableInfo = db.prepare(
+    `SELECT sql FROM sqlite_master WHERE type='table' AND name='skills'`,
+  ).get() as { sql: string } | null;
+
+  if (!tableInfo || tableInfo.sql.includes("'project-reference'")) {
+    return; // Already has new categories or table doesn't exist
+  }
+
+  logger.info("migrations", "Migrating skills table to support 'project-reference' and 'housekeeping' categories...");
+  db.exec("PRAGMA foreign_keys = OFF");
+  db.exec("BEGIN TRANSACTION");
+  try {
+    db.exec(`CREATE TABLE skills_new (
+      id          TEXT PRIMARY KEY,
+      name        TEXT NOT NULL,
+      slug        TEXT NOT NULL,
+      program     TEXT NOT NULL DEFAULT 'global',
+      category    TEXT NOT NULL CHECK(category IN ('coordinator','bridge','training','playbook','verification','project','project-reference','housekeeping','custom')),
+      title       TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      keywords    TEXT NOT NULL DEFAULT '[]',
+      content     TEXT NOT NULL,
+      source      TEXT NOT NULL DEFAULT 'user',
+      source_path TEXT,
+      priority    INTEGER NOT NULL DEFAULT 50,
+      auto_fetch  INTEGER NOT NULL DEFAULT 0,
+      enabled     INTEGER NOT NULL DEFAULT 1,
+      created_at  TEXT NOT NULL,
+      updated_at  TEXT NOT NULL,
+      UNIQUE(slug, program)
+    )`);
+    const oldCols = db.prepare(`PRAGMA table_info(skills)`).all() as { name: string }[];
+    const colNames = oldCols.map((c) => c.name);
+    const selectCols = colNames.join(", ");
+    db.exec(`INSERT INTO skills_new (${selectCols}) SELECT ${selectCols} FROM skills`);
+    db.exec(`DROP TABLE skills`);
+    db.exec(`ALTER TABLE skills_new RENAME TO skills`);
+    db.exec("COMMIT");
+    logger.info("migrations", "Skills table migration complete.");
   } catch (err) {
     db.exec("ROLLBACK");
     throw err;
