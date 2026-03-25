@@ -1454,7 +1454,8 @@ export function queueCoordinatorTrainingJob(
                       return true;
                     })
                     .join("\n")
-                .trim();
+                    .trim()
+                : "";
               if (usefulLines.length > 100) {
                 contentParts.push("");
                 contentParts.push("## Agent Analysis Output");
