@@ -1424,33 +1424,8 @@ export function queueCoordinatorTrainingJob(
         broadcastJobUpdated(hub, jobsRepo, created.id);
         logger.warn("coordinator-training", `Training job ${created.id} failed: ${message}`);
 
-        // Record a negative outcome skill so the failure is tracked and discoverable
-        if (deps.skillsRepo) {
-          try {
-            recordCoordinatorExecutionOutcome({
-              dir: coordinatorPlaybooksDir,
-              program: normalizedProgram,
-              prompt: trainingPrompt || `Training for ${normalizedProgram}`,
-              success: false,
-              outcome: message,
-              skillsRepo: deps.skillsRepo,
-              jobSnapshot: {
-                id: created.id,
-                name: `Training: ${normalizedProgram}`,
-                status: "failed",
-                prompt: trainingPrompt || `Training for ${normalizedProgram}`,
-                bridgeProgram: normalizedProgram,
-                error: message,
-                logs,
-              },
-            });
-          } catch (outcomeErr: any) {
-            logger.warn(
-              "coordinator-training",
-              `Failed to record outcome skill for failed training job ${created.id}: ${String(outcomeErr?.message ?? outcomeErr)}`,
-            );
-          }
-        }
+        // Training failures are tracked in job records and vault — no need for
+        // outcome skills that just say "Outcome: negative".
       }
     })();
   }, 0);

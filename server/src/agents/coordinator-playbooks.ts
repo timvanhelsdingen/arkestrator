@@ -1932,47 +1932,11 @@ export function recordCoordinatorExecutionOutcome(
     writeJobLearningArtifact(dir, program, artifact, jobId);
   }
 
-  // Write significant outcomes to skills DB
-  if (options.skillsRepo && signal !== "average") {
-    try {
-      const jobId = String(jobSnapshot?.id ?? normalizedMetadata?.jobId ?? "").trim();
-      const shortId = jobId ? jobId.slice(0, 8) : timestamp.replace(/\D/g, "").slice(0, 8);
-      // Include a sanitized project/job name in the slug for discoverability
-      const slugName = (resolvedJobName || "")
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-+|-+$/g, "")
-        .slice(0, 40);
-      const slugBase = slugName
-        ? `outcome-${program}-${slugName}-${shortId}`
-        : `outcome-${program}-${shortId}`;
-      const outcomeTitle = signal === "positive"
-        ? `Positive: ${(resolvedJobName || promptSummary || "").slice(0, 60)}`
-        : `Negative: ${(resolvedJobName || promptSummary || "").slice(0, 60)}`;
-      const outcomeContent = [
-        `## Outcome: ${signal}`,
-        `**Program:** ${program}`,
-        `**Prompt:** ${promptSummary}`,
-        `**Result:** ${outcomeSummary}`,
-        jobId ? `**Job ID:** ${jobId}` : "",
-        resolvedJobName ? `**Job Name:** ${resolvedJobName}` : "",
-      ].filter(Boolean).join("\n");
-
-      options.skillsRepo.upsertBySlugAndProgram({
-        slug: slugBase,
-        name: outcomeTitle,
-        program,
-        category: "training",
-        title: outcomeTitle,
-        description: `Execution outcome recorded at ${timestamp}`,
-        content: outcomeContent,
-        source: "training",
-      });
-      logger.info("coordinator-playbooks", `Wrote outcome skill for ${program}/${shortId} to skills DB`);
-    } catch (err: any) {
-      logger.warn("coordinator-playbooks", `Failed to write outcome skill: ${String(err?.message ?? err)}`);
-    }
-  }
+  // Outcome data is already persisted in the training vault and repository index.
+  // Don't create per-job "outcome skills" — they're just metadata noise ("Outcome:
+  // positive, Prompt: ...") that pollutes the skills list without adding actionable
+  // knowledge.  Real skills are created by training (per-project references) and
+  // housekeeping (pattern-based recommendations).
 
   // Keep the training repository index fresh after each recorded outcome.
   scheduleTrainingRepositoryIndexRefresh({
