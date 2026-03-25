@@ -976,18 +976,29 @@
       const relativeUploadPaths = trainingUploadFiles.map((file) =>
         String((file as File & { webkitRelativePath?: string }).webkitRelativePath ?? "").trim(),
       );
-      const result = await api.settings.queueCoordinatorTrainingJob(
-        program,
-        sourcePaths,
-        applyTrainedUpdates,
-        trainingUploadFiles,
-        relativeUploadPaths,
-        trainingAgentConfigId.trim(),
-        trimmedPrompt,
-        trimmedTargetWorkerName,
-        trainingLevel,
-      );
-      const jobId = String(result?.job?.id ?? "");
+      // Use the orchestrator endpoint — auto-detects programs from source content.
+      // Only use per-program endpoint when files need uploading (multipart).
+      const hasFiles = trainingUploadFiles.length > 0;
+      const result = hasFiles
+        ? await api.settings.queueCoordinatorTrainingJob(
+            program,
+            sourcePaths,
+            applyTrainedUpdates,
+            trainingUploadFiles,
+            relativeUploadPaths,
+            trainingAgentConfigId.trim(),
+            trimmedPrompt,
+            trimmedTargetWorkerName,
+            trainingLevel,
+          )
+        : await api.settings.runCoordinatorTrainingNow({
+            sourcePaths: sourcePaths.length > 0 ? sourcePaths : undefined,
+            apply: applyTrainedUpdates,
+            prompt: trimmedPrompt || undefined,
+            targetWorkerName: trimmedTargetWorkerName || undefined,
+            trainingLevel: trainingLevel || undefined,
+          });
+      const jobId = String(result?.job?.id ?? result?.orchestratorJobId ?? "");
       const uploadedCount = Array.isArray(result?.input?.uploadedFiles) ? result.input.uploadedFiles.length : 0;
       const resolvedSourcePathCount = Array.isArray(result?.input?.sourcePaths) ? result.input.sourcePaths.length : sourcePaths.length;
       const uploadSessionVaultPath = String(result?.input?.uploadSessionVaultPath ?? "").trim();
@@ -995,9 +1006,10 @@
       const resolvedTargetWorkerName = String(result?.input?.targetWorkerName ?? trimmedTargetWorkerName).trim();
       const resolvedTrainingPrompt = String(result?.input?.trainingPrompt ?? trimmedPrompt).trim();
       const uploadedSuffix = uploadedCount > 0 ? ` (${uploadedCount} uploaded input${uploadedCount === 1 ? "" : "s"})` : "";
+      const programLabel = hasFiles ? program : "auto-detect";
       info = jobId
-        ? `Queued coordinator training job ${jobId.slice(0, 8)} for ${program}${uploadedSuffix}.`
-        : `Queued coordinator training job for ${program}${uploadedSuffix}.`;
+        ? `Queued training job ${jobId.slice(0, 8)} (${programLabel})${uploadedSuffix}.`
+        : `Queued training job (${programLabel})${uploadedSuffix}.`;
       if (jobId) {
         trainingLastQueued = {
           jobId,

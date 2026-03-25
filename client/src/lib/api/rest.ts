@@ -776,12 +776,18 @@ export const api = {
         body: JSON.stringify(payload),
       }),
     runCoordinatorTrainingNow: (
-      programs?: string[],
-      apply?: boolean,
+      options?: {
+        programs?: string[];
+        sourcePaths?: string[];
+        apply?: boolean;
+        prompt?: string;
+        targetWorkerName?: string;
+        trainingLevel?: string;
+      },
     ) =>
       request("/api/settings/coordinator-training/run-now", {
         method: "POST",
-        body: JSON.stringify({ programs, apply }),
+        body: JSON.stringify(options ?? {}),
       }),
     getCoordinatorEditors: () => request("/api/settings/coordinator-editors"),
     setCoordinatorEditors: (userIds: string[]) =>

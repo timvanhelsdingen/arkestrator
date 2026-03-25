@@ -3483,8 +3483,9 @@ export function createSettingsTrainingRoutes(deps: SettingsRouteDeps) {
       ? body.sourcePaths.map((p: unknown) => String(p ?? "").trim()).filter(Boolean)
       : [];
     const apply = body?.apply == null ? schedule.apply : body.apply !== false;
-
-    console.log(`[run-now] programs=${JSON.stringify(requestedPrograms)}, sourcePaths=${JSON.stringify(requestedSourcePaths)}, body keys=${Object.keys(body || {})}, body.sourcePaths type=${typeof body?.sourcePaths}, isArray=${Array.isArray(body?.sourcePaths)}`);
+    const trainingPrompt = String(body?.prompt ?? "").trim();
+    const targetWorkerName = String(body?.targetWorkerName ?? "").trim();
+    const trainingLevel = String(body?.trainingLevel ?? "").trim();
 
     // Build housekeeping deps for orchestrator chaining
     const housekeepingDeps: HousekeepingDeps | undefined = skillsRepo
@@ -3514,6 +3515,9 @@ export function createSettingsTrainingRoutes(deps: SettingsRouteDeps) {
           trigger: "manual",
           apply,
           sourcePaths: requestedSourcePaths.length > 0 ? requestedSourcePaths : undefined,
+          trainingPrompt: trainingPrompt || undefined,
+          targetWorkerName: targetWorkerName || undefined,
+          trainingLevel: trainingLevel || undefined,
           submittedBy: user.id,
           chainHousekeeping: true,
         },
