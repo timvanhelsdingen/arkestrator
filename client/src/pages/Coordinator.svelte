@@ -928,6 +928,22 @@
     }
   }
 
+  async function addTrainingFiles() {
+    try {
+      const selected = await openDialog({
+        directory: false,
+        multiple: true,
+        title: "Select training source file(s)",
+      });
+      if (!selected) return;
+      const paths = Array.isArray(selected) ? selected : [selected];
+      const newPaths = paths.map((p) => String(p).trim()).filter(Boolean);
+      trainingSourcePaths = [...new Set([...trainingSourcePaths, ...newPaths])];
+    } catch (err) {
+      console.warn("File picker failed:", err);
+    }
+  }
+
   function removeTrainingPath(path: string) {
     trainingSourcePaths = trainingSourcePaths.filter((p) => p !== path);
   }
@@ -1552,6 +1568,9 @@
             <span class="label">Training Source Paths</span>
             <button class="btn secondary btn-sm" onclick={addTrainingFolder}>
               Add Folder
+            </button>
+            <button class="btn secondary btn-sm" onclick={addTrainingFiles}>
+              Add Files
             </button>
           </div>
           {#if trainingSourcePaths.length > 0}
