@@ -2,7 +2,7 @@
   "name": "arkestrator-vscode",
   "displayName": "Arkestrator",
   "description": "Connect to Arkestrator server - submit jobs, stream chat, and interact with DCC bridges from VS Code",
-  "version": "0.1.75",
+  "version": "0.1.76",
   "publisher": "agent-manager",
   "engines": {
     "vscode": "^1.93.0"
