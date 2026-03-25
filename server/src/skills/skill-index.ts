@@ -267,6 +267,7 @@ export class SkillIndex {
         category: s.category,
         description: s.description,
         keywords: s.keywords,
+        content: s.content,
         playbooks: s.playbooks,
         relatedSkills: s.relatedSkills,
         source: s.source,
