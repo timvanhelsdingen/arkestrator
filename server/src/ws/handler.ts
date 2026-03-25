@@ -113,7 +113,12 @@ export function handleMessage(
       `${i.path.join(".")}: ${i.message}`,
     ).join("; ");
     const msgType = String((parsed as Record<string, unknown>)?.type ?? "unknown");
-    errorReply(ws, "INVALID_MESSAGE", `type=${msgType}: ${issues}`);
+    // Log protocol validation errors server-side only — don't bother clients
+    // with internal message format issues they can't act on.
+    logger.warn(
+      "ws-handler",
+      `Invalid WS message from ${ws.data.type}/${ws.data.id}: type=${msgType}: ${issues}`,
+    );
     return;
   }
 
