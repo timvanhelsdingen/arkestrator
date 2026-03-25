@@ -250,16 +250,18 @@ export function createSkillsRoutes(
     return c.json({ skill: updated });
   });
 
-  // DELETE /:slug — delete custom skill (source=user only)
+  // DELETE /:slug — delete any skill
   router.delete("/:slug", async (c) => {
     const auth = await requireWriteAccess(c);
     if (!auth) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
 
     const slug = c.req.param("slug");
     const program = c.req.query("program");
-    const deleted = skillsRepo.delete(slug, program || undefined);
+    const deleted = program
+      ? skillsRepo.deleteAny(slug, program)
+      : skillsRepo.delete(slug);
     if (!deleted) {
-      return errorResponse(c, 404, `Custom skill not found: ${slug}`, "NOT_FOUND");
+      return errorResponse(c, 404, `Skill not found: ${slug}`, "NOT_FOUND");
     }
 
     skillIndex.refresh();

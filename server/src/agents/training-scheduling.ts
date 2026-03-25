@@ -38,7 +38,7 @@ function normalizeProgramList(programs: string[] | undefined, deps?: ProgramDisc
 
 export function getCoordinatorTrainingSchedule(settingsRepo: SettingsRepo, deps?: ProgramDiscoveryDeps): CoordinatorTrainingSchedule {
   const defaults: CoordinatorTrainingSchedule = {
-    enabled: false,
+    enabled: true,
     intervalMinutes: 24 * 60,
     apply: true,
     programs: normalizeProgramList(getCoordinatorScriptPrograms(deps), deps),

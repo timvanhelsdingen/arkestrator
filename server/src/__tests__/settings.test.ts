@@ -824,7 +824,7 @@ describe("settings routes", () => {
     });
     expect(initialRes.status).toBe(200);
     const initialBody = await initialRes.json();
-    expect(initialBody?.schedule?.enabled).toBe(false);
+    expect(initialBody?.schedule?.enabled).toBe(true); // default: enabled daily
 
     const putRes = await app.request("/api/settings/coordinator-training-schedule", {
       method: "PUT",

@@ -3487,16 +3487,12 @@ export function createSettingsTrainingRoutes(deps: SettingsRouteDeps) {
     const targetWorkerName = String(body?.targetWorkerName ?? "").trim();
     const trainingLevel = String(body?.trainingLevel ?? "").trim();
 
-    // Build housekeeping deps for orchestrator chaining
-    const housekeepingDeps: HousekeepingDeps | undefined = skillsRepo
-      ? { jobsRepo, skillsRepo, agentsRepo, settingsRepo, hub }
-      : undefined;
-
-    // Use queueTrainingOrchestrator — creates a single parent job that
-    // fans out per-program training and optionally chains housekeeping.
-    let orchestratorJob: import("@arkestrator/protocol").Job;
+    // Call training directly — no orchestrator wrapper needed.
+    // Program defaults to "global" (agent auto-detects from content).
+    const program = requestedPrograms.length > 0 ? requestedPrograms[0] : "global";
+    let trainingJob: import("@arkestrator/protocol").Job;
     try {
-      orchestratorJob = queueTrainingOrchestrator(
+      trainingJob = queueCoordinatorTrainingJob(
         {
           jobsRepo,
           agentsRepo,
@@ -3508,10 +3504,9 @@ export function createSettingsTrainingRoutes(deps: SettingsRouteDeps) {
           coordinatorPlaybooksDir,
           defaultCoordinatorPlaybookSourcePaths,
           processTracker,
-          housekeepingDeps,
         },
         {
-          programs: requestedPrograms.length > 0 ? requestedPrograms : undefined,
+          program,
           trigger: "manual",
           apply,
           sourcePaths: requestedSourcePaths.length > 0 ? requestedSourcePaths : undefined,
@@ -3532,14 +3527,15 @@ export function createSettingsTrainingRoutes(deps: SettingsRouteDeps) {
       action: "coordinator_training_run_now",
       resource: "settings",
       details: JSON.stringify({
-        orchestratorJobId: orchestratorJob.id,
+        jobId: trainingJob.id,
+        program,
         autoDetected: requestedPrograms.length === 0,
         apply,
       }),
       ipAddress: getClientIp(c),
     });
 
-    return c.json({ ok: true, apply, orchestratorJobId: orchestratorJob.id, job: orchestratorJob });
+    return c.json({ ok: true, apply, orchestratorJobId: trainingJob.id, job: trainingJob });
   });
 
   // List normalized training-job summaries from vault artifacts so admin UI can

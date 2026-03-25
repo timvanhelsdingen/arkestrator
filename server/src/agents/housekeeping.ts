@@ -21,7 +21,7 @@ export interface HousekeepingSchedule {
 
 export function getHousekeepingSchedule(settingsRepo: SettingsRepo): HousekeepingSchedule {
   const raw = settingsRepo.get("housekeeping_schedule");
-  if (!raw) return { enabled: false, intervalMinutes: 1440 }; // default: disabled, daily
+  if (!raw) return { enabled: true, intervalMinutes: 1440 }; // default: enabled, daily
   try {
     return JSON.parse(raw);
   } catch {
