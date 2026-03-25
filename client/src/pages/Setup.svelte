@@ -150,6 +150,12 @@
     }
     loginError = "";
     loggingIn = true;
+
+    // Ensure connection URL matches the actual server port
+    if (isLoopbackUrl(connection.url) || !connection.url) {
+      connection.url = serverState.localUrl;
+    }
+
     try {
       const result = await api.auth.login(loginUsername, loginPassword);
 

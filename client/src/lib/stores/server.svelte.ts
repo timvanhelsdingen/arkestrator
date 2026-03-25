@@ -76,6 +76,14 @@ class ServerState {
   private restartRequested = false;
 
   constructor() {
+    // Auto-detect if user previously connected (has saved session/connection)
+    try {
+      const saved = localStorage.getItem("arkestrator-connection");
+      const session = localStorage.getItem("arkestrator-session");
+      if (saved || session) {
+        this.autoDetectEnabled = true;
+      }
+    } catch { /* ignore */ }
     this.startLocalServerMonitor();
   }
 
@@ -159,6 +167,7 @@ class ServerState {
   async start() {
     if (!this.canStart) return;
 
+    this.autoDetectEnabled = true;
     this.status = "starting";
     this.error = "";
     this.message = "";
@@ -319,10 +328,17 @@ class ServerState {
     this.logs = [...this.logs, text].slice(-this.maxLogLines);
   }
 
+  /** Whether auto-detection of external servers is allowed.
+   *  Only enabled after the user clicks Start or after a server was previously running. */
+  private autoDetectEnabled = false;
+
+  /** Enable auto-detection (called after user explicitly starts or connects). */
+  enableAutoDetect() {
+    this.autoDetectEnabled = true;
+  }
+
   private startLocalServerMonitor() {
     if (this.monitorTimer) return;
-    // Detect localhost server state even when it was started outside the client.
-    void this.refreshLocalServerStatus();
     this.monitorTimer = setInterval(() => {
       void this.refreshLocalServerStatus();
     }, 3000);
@@ -332,6 +348,8 @@ class ServerState {
     if (this.healthProbeInFlight) return;
     if (this.child) return;
     if (this.status === "starting" || this.status === "stopping") return;
+    // Don't auto-detect external servers until user has interacted
+    if (!this.autoDetectEnabled && this.status === "stopped") return;
 
     this.healthProbeInFlight = true;
     try {
