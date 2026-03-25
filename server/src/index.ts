@@ -21,6 +21,8 @@ import { DependenciesRepo } from "./db/dependencies.repo.js";
 import { HeadlessProgramsRepo } from "./db/headless-programs.repo.js";
 import { SettingsRepo } from "./db/settings.repo.js";
 import { SkillsRepo } from "./db/skills.repo.js";
+import { SkillIndex } from "./skills/skill-index.js";
+import { materializeSkills } from "./skills/skill-materializer.js";
 import { JobInterventionsRepo } from "./db/job-interventions.repo.js";
 import { SyncManager } from "./workspace/sync-manager.js";
 import { WebSocketHub } from "./ws/hub.js";
@@ -546,7 +548,12 @@ async function main() {
     logger.info("server", "Cleaned expired sessions");
   }, 60 * 60 * 1000);
 
-  // 8. Create worker loop
+  // 8. Create skill index (shared between worker and app)
+  const skillIndex = new SkillIndex(() =>
+    materializeSkills({ skillsRepo }),
+  );
+
+  // 8b. Create worker loop
   const worker = new WorkerLoop({
     scheduler,
     processTracker,
@@ -562,6 +569,7 @@ async function main() {
     settingsRepo,
     skillsRepo,
     skillEffectivenessRepo,
+    skillIndex,
     syncManager,
     config,
     hub,
@@ -572,7 +580,7 @@ async function main() {
   });
 
   // 9. Create Hono app
-  const app = createApp({ db, jobsRepo, agentsRepo, apiKeysRepo, usersRepo, policiesRepo, auditRepo, projectsRepo, workersRepo, usageRepo, depsRepo, syncManager, hub, headlessProgramsRepo, settingsRepo, skillsRepo, skillEffectivenessRepo, jobInterventionsRepo, config, resourceLeaseManager, processTracker, dispatchJob: (id) => worker.dispatchById(id) });
+  const app = createApp({ db, jobsRepo, agentsRepo, apiKeysRepo, usersRepo, policiesRepo, auditRepo, projectsRepo, workersRepo, usageRepo, depsRepo, syncManager, hub, headlessProgramsRepo, settingsRepo, skillsRepo, skillEffectivenessRepo, skillIndex, jobInterventionsRepo, config, resourceLeaseManager, processTracker, dispatchJob: (id) => worker.dispatchById(id) });
 
   // Handler deps for WebSocket messages
   const handlerDeps = {

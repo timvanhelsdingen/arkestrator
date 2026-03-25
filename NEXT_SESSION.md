@@ -9,6 +9,23 @@
 - DB migration adds `playbooks` and `related_skills` columns
 - Admin UI: playbook content preview, related skills navigation, wider modal, delete for all skills
 
+### Phase 1: Smart Skill Matching (completed)
+- `SkillIndex.rankForJob()` — hybrid lexical (50%) + semantic (30%) + effectiveness (20%) scoring
+- Spawner now injects top-N most relevant skills instead of all enabled skills for a program
+- AutoFetch skills (coordinators, bridge scripts) always inject regardless of score
+- Skills with <20% success rate over 10+ uses are auto-excluded from injection
+- `SkillEffectivenessRepo.getStatsForSkills()` — batch effectiveness lookup (single SQL query)
+- `SkillIndex` wired through index.ts → WorkerLoop → SpawnerDeps for job-time ranking
+- Structured logging (`skill-ranking`) shows which skills were selected and why
+- Falls back to old program-only filter when SkillIndex unavailable
+
+### Phase 2: Outcome-Weighted Learning (core — completed)
+- Effectiveness scores from `skill_effectiveness` table are now factored into ranking
+- Skills with `successRate < 0.2` over 10+ uses are auto-excluded from injection
+- Skills with `totalUsed >= 3` get their actual success rate as the effectiveness score
+- New skills (< 3 uses) get a neutral 0.5 effectiveness score (benefit of the doubt)
+- Remaining: admin UI stats display, manual review surface for flagged skills
+
 ### Training Consolidation (completed)
 - Eliminated orchestrator wrapper job (was 4-5 jobs per training run, now 2-3)
 - Training routes through `queueCoordinatorTrainingJob` directly
@@ -186,6 +203,17 @@ Job rated "positive"
 - `server/src/agents/coordinator-training.ts` — training flow, skill creation from analysis
 - `server/src/agents/training-vault.ts` — vault artifact writing
 - `admin/src/pages/Skills.svelte` — admin skills UI
+
+## Remaining Work
+
+### UI Improvements (next session)
+- **Skill effectiveness stats in admin + client**: Show uses, success rate, which jobs used each skill. Make skills easier to browse.
+- **Client skill "View" popup**: Currently doesn't open the same detail popup as admin — fix to match.
+- **Delete any skill**: Currently restricted to `source === "user"` or `source === "registry"`. Allow deleting all skills regardless of source (training, bridge, etc.).
+- **Remove submitter guidance from queue**: Option to clear pending operator guidance from a job.
+- **Job setting: use CLI tool**: Explicit option in job settings to use DCC CLI (hython, blender --python) instead of live bridge. Currently only happens as a fallback.
+- **Consider removing client Config page**: Move all config server-side. The system is trending toward automatic training/improvement loops — client-side config may be unnecessary.
+- **Job collapsing UI**: Implemented (parent jobs collapse/expand sub-jobs) — verify in production.
 
 ## Test Sources
 - `W:\AGENT_REPO\Houdini\FLIP drop object` — Houdini FLIP sim

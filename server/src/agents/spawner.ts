@@ -190,6 +190,7 @@ export interface SpawnerDeps {
   settingsRepo?: SettingsRepo;
   skillsRepo?: SkillsRepo;
   skillEffectivenessRepo?: import("../db/skill-effectiveness.repo.js").SkillEffectivenessRepo;
+  skillIndex?: import("../skills/skill-index.js").SkillIndex;
   workersRepo?: WorkersRepo;
   jobInterventionsRepo?: JobInterventionsRepo;
   resourceLeaseManager?: WorkerResourceLeaseManager;
@@ -1449,17 +1450,59 @@ export async function spawnAgent(
   }
 
   // Inject relevant skills from the skills DB into the agent's context.
-  // Skills are lightweight index entries; real knowledge lives in referenced
-  // playbook artifacts. Load those artifacts and inject their content.
+  // Skills are ranked by semantic relevance to the job prompt + effectiveness scores.
+  // AutoFetch skills (coordinators, bridge scripts) always inject regardless of score.
   if (deps.skillsRepo) {
     const jobProgram = (job.bridgeProgram ?? "").trim().toLowerCase();
-    const allEnabled = deps.skillsRepo.listAll({ enabled: true });
-    const relevant = allEnabled.filter((skill) => {
-      const sp = skill.program.trim().toLowerCase();
-      if (!sp || sp === "global") return true;
-      if (jobProgram && sp === jobProgram) return true;
-      return false;
-    });
+
+    // Determine which skills to inject — ranked by relevance or fallback to program filter
+    let relevant: import("../db/skills.repo.js").Skill[];
+    if (deps.skillIndex) {
+      // Fetch effectiveness scores for ranking
+      const allEnabled = deps.skillsRepo.listAll({ enabled: true });
+      const skillIds = allEnabled.map((s) => s.id);
+      const effectivenessScores = deps.skillEffectivenessRepo
+        ? deps.skillEffectivenessRepo.getStatsForSkills(skillIds)
+        : new Map<string, { successRate: number; totalUsed: number }>();
+
+      const { results: ranked, autoDisable } = deps.skillIndex.rankForJob(job.prompt, jobProgram, {
+        effectivenessScores,
+      });
+      relevant = ranked.map((r) => r.skill);
+
+      // Auto-disable skills that consistently correlate with failure
+      if (autoDisable.length > 0 && deps.skillsRepo) {
+        for (const skill of autoDisable) {
+          try {
+            deps.skillsRepo.update(skill.slug, { enabled: false }, skill.program);
+            logger.warn(
+              "skill-ranking",
+              `Auto-disabled skill "${skill.title || skill.slug}" [${skill.program}]: <15% success over 20+ uses`,
+            );
+          } catch { /* ignore update failures */ }
+        }
+      }
+
+      // Log ranking decisions for observability
+      const promptPreview = job.prompt.length > 80 ? job.prompt.slice(0, 80) + "..." : job.prompt;
+      const rankedNames = ranked
+        .map((r) => `${r.skill.title || r.skill.slug}(${r.score.toFixed(2)},${r.reason})`)
+        .join(", ");
+      logger.info(
+        "skill-ranking",
+        `Job ${job.id} [${jobProgram || "global"}] "${promptPreview}" → ${ranked.length} skills: ${rankedNames}`,
+      );
+    } else {
+      // Fallback: program filter only (no ranking index available)
+      const allEnabled = deps.skillsRepo.listAll({ enabled: true });
+      relevant = allEnabled.filter((skill) => {
+        const sp = skill.program.trim().toLowerCase();
+        if (!sp || sp === "global") return true;
+        if (jobProgram && sp === jobProgram) return true;
+        return false;
+      });
+    }
+
     if (relevant.length > 0) {
       const skillLines: string[] = ["## Learned Skills & Knowledge"];
       const MAX_SKILL_CONTENT_TOTAL = 30_000; // Cap total injected skill content

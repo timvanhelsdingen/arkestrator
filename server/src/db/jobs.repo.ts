@@ -182,6 +182,7 @@ export class JobsRepo {
   private listBySubmittedByStmt;
   private countBySubmittedByStmt;
   private countBySubmittedByStatusStmt;
+  private listByStatusIncludingTrashedStmt;
   private updateTokensStmt;
   private archiveStmt;
   private restoreStmt;
@@ -318,6 +319,9 @@ export class JobsRepo {
     );
     this.countBySubmittedByStatusStmt = db.prepare(
       `SELECT COUNT(*) as total FROM jobs WHERE submitted_by = ? AND status = ?`,
+    );
+    this.listByStatusIncludingTrashedStmt = db.prepare(
+      `SELECT * FROM jobs WHERE status IN (SELECT value FROM json_each(?)) ORDER BY created_at DESC LIMIT ?`,
     );
     this.updateTokensStmt = db.prepare(
       `UPDATE jobs SET input_tokens = ?, output_tokens = ?, cost_usd = ?, duration_ms = ? WHERE id = ?`,
@@ -460,6 +464,17 @@ export class JobsRepo {
     }
 
     return { jobs: rows.map(rowToJob), total };
+  }
+
+  /**
+   * List jobs by status, including soft-deleted (trashed) jobs.
+   * Used by housekeeping/self-learning to review jobs that ran but were
+   * trashed before the learning loop could analyze them.
+   */
+  listIncludingTrashed(statuses: string[], limit: number): Job[] {
+    const filterJson = JSON.stringify(statuses);
+    const rows = this.listByStatusIncludingTrashedStmt.all(filterJson, limit) as JobRow[];
+    return rows.map(rowToJob);
   }
 
   /** Atomically claim a queued job for execution. Returns true if claimed. */

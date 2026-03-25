@@ -39,6 +39,7 @@ export interface WorkerDeps {
   settingsRepo?: SettingsRepo;
   skillsRepo?: SkillsRepo;
   skillEffectivenessRepo?: import("../db/skill-effectiveness.repo.js").SkillEffectivenessRepo;
+  skillIndex?: import("../skills/skill-index.js").SkillIndex;
   resourceLeaseManager: WorkerResourceLeaseManager;
   localLlmGate: LocalLlmGate;
   hub: WebSocketHub;
@@ -244,6 +245,7 @@ export class WorkerLoop {
       settingsRepo: this.deps.settingsRepo,
       skillsRepo: this.deps.skillsRepo,
       skillEffectivenessRepo: this.deps.skillEffectivenessRepo,
+      skillIndex: this.deps.skillIndex,
       workersRepo: this.deps.workersRepo,
       resourceLeaseManager: this.deps.resourceLeaseManager,
       localLlmGate: this.deps.localLlmGate,

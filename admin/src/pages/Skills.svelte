@@ -326,7 +326,7 @@
     } catch {
       detailSkill = skill;
     }
-    if (detailSkill.playbooks?.length > 0) {
+    if (detailSkill && detailSkill.playbooks?.length > 0) {
       loadingPlaybooks = true;
       try {
         const data = await api.skills.getPlaybookContent(detailSkill.slug, detailSkill.program || undefined);

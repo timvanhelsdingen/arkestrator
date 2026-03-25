@@ -70,6 +70,48 @@ export class SkillEffectivenessRepo {
     }
   }
 
+  /**
+   * Batch-fetch effectiveness stats for multiple skills in one query.
+   * Returns a Map of skillId -> stats. Missing skills get default zero stats.
+   */
+  getStatsForSkills(skillIds: string[]): Map<string, SkillEffectivenessStats> {
+    const result = new Map<string, SkillEffectivenessStats>();
+    if (skillIds.length === 0) return result;
+    try {
+      const placeholders = skillIds.map(() => "?").join(",");
+      const rows = this.db.prepare(
+        `SELECT skill_id, job_outcome FROM skill_effectiveness WHERE skill_id IN (${placeholders})`,
+      ).all(...skillIds) as Array<{ skill_id: string; job_outcome: string | null }>;
+
+      // Group by skill_id
+      const grouped = new Map<string, Array<string | null>>();
+      for (const row of rows) {
+        let arr = grouped.get(row.skill_id);
+        if (!arr) { arr = []; grouped.set(row.skill_id, arr); }
+        arr.push(row.job_outcome);
+      }
+
+      for (const [skillId, outcomes] of grouped) {
+        const total = outcomes.length;
+        const good = outcomes.filter((o) => o === "positive" || o === "good").length;
+        const average = outcomes.filter((o) => o === "average").length;
+        const poor = outcomes.filter((o) => o === "negative" || o === "poor").length;
+        const pending = outcomes.filter((o) => !o).length;
+        result.set(skillId, {
+          totalUsed: total,
+          goodOutcomes: good,
+          averageOutcomes: average,
+          poorOutcomes: poor,
+          pendingOutcomes: pending,
+          successRate: total > 0 ? good / total : 0,
+        });
+      }
+    } catch {
+      // Table may not exist
+    }
+    return result;
+  }
+
   /** List recent usage records for a skill (newest first). */
   listForSkill(skillId: string, limit = 20): SkillEffectivenessRecord[] {
     try {

@@ -52,9 +52,10 @@ export function queueHousekeepingJob(
     return null;
   }
 
-  // Gather job history summary
-  const recentJobs = deps.jobsRepo.list(["completed", "failed", "cancelled"], 100);
-  const jobSummary = buildJobSummary(recentJobs.jobs);
+  // Gather job history summary — include trashed jobs so the learning loop
+  // doesn't miss completed/failed jobs that were deleted before analysis.
+  const recentJobs = deps.jobsRepo.listIncludingTrashed(["completed", "failed", "cancelled"], 100);
+  const jobSummary = buildJobSummary(recentJobs);
 
   // Gather current skills
   const skills = deps.skillsRepo.listAll();

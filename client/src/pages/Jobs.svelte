@@ -117,6 +117,21 @@
     depth: number;
   }
 
+  /** Track which parent jobs are collapsed (children hidden). Parents start collapsed. */
+  let collapsedParents = $state(new Set<string>());
+  let collapsedInitialized = $state(false);
+
+  function toggleCollapse(jobId: string, e: Event) {
+    e.stopPropagation();
+    const next = new Set(collapsedParents);
+    if (next.has(jobId)) {
+      next.delete(jobId);
+    } else {
+      next.add(jobId);
+    }
+    collapsedParents = next;
+  }
+
   interface FilterOption {
     value: string;
     label: string;
@@ -573,12 +588,27 @@
     return nodes;
   });
 
-  /** Flatten tree for rendering */
+  /** Auto-collapse parent jobs on first data load */
+  $effect(() => {
+    if (!collapsedInitialized && jobTree.length > 0) {
+      const parents = new Set<string>();
+      for (const node of jobTree) {
+        if (node.children.length > 0) parents.add(node.job.id);
+      }
+      if (parents.size > 0) collapsedParents = parents;
+      collapsedInitialized = true;
+    }
+  });
+
+  /** Flatten tree for rendering, skipping children of collapsed parents */
   let flatNodes = $derived.by(() => {
     const result: JobNode[] = [];
     function walk(nodes: JobNode[]) {
       for (const node of nodes) {
         result.push(node);
+        if (node.children.length > 0 && collapsedParents.has(node.job.id)) {
+          continue; // Skip children — parent is collapsed
+        }
         walk(node.children);
       }
     }
@@ -909,6 +939,19 @@
           {#if getAgentLabel(job)}
             {@const agentLabel = getAgentLabel(job)!}
             <span class="job-agent" title={agentLabel.full}>{truncate(agentLabel.short, 24)}</span>
+          {/if}
+          {#if delegation.childCount > 0}
+            <span
+              class="collapse-toggle"
+              class:collapsed={collapsedParents.has(job.id)}
+              role="button"
+              tabindex="-1"
+              onclick={(e) => toggleCollapse(job.id, e)}
+              onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") toggleCollapse(job.id, e); }}
+              title={collapsedParents.has(job.id) ? `Expand ${delegation.childCount} sub-jobs` : "Collapse sub-jobs"}
+            >
+              {collapsedParents.has(job.id) ? "▶" : "▼"}
+            </span>
           {/if}
           <span class="job-name">{job.name || truncate(job.prompt, 50)}</span>
           {#if node.depth > 0}
@@ -1532,6 +1575,27 @@
     background: rgba(59, 130, 246, 0.14);
     color: #8ec5ff;
     border-color: rgba(59, 130, 246, 0.28);
+  }
+  .collapse-toggle {
+    all: unset;
+    cursor: pointer;
+    font-size: 0.65rem;
+    color: rgba(255, 255, 255, 0.45);
+    width: 16px;
+    height: 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border-radius: 3px;
+    transition: color 0.15s, background 0.15s;
+  }
+  .collapse-toggle:hover {
+    color: rgba(255, 255, 255, 0.8);
+    background: rgba(255, 255, 255, 0.08);
+  }
+  .collapse-toggle.collapsed {
+    color: rgba(245, 158, 11, 0.7);
   }
   .job-chip-fanout {
     background: rgba(245, 158, 11, 0.14);

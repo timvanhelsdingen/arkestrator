@@ -104,6 +104,17 @@ function semanticSimilarity(a: number[], b: number[]): number {
 // Public types
 // ---------------------------------------------------------------------------
 
+export interface SkillEffectivenessInfo {
+  successRate: number;
+  totalUsed: number;
+}
+
+export interface SkillRankResult {
+  skill: Skill;
+  score: number;
+  reason: "ranked" | "auto-fetch";
+}
+
 export interface SkillSearchResult {
   slug: string;
   title: string;
@@ -240,6 +251,99 @@ export class SkillIndex {
         relevanceScore: Math.round(score * 1000) / 1000,
       };
     });
+  }
+
+  /**
+   * Rank skills for a specific job prompt using hybrid semantic + lexical + effectiveness scoring.
+   * Returns the top-N most relevant skills for injection into agent context.
+   *
+   * AutoFetch skills (coordinators, bridge scripts) are always included regardless of score.
+   * Low-effectiveness skills get a soft penalty (score floor 0.05) so they can still match
+   * if nothing else is relevant. Skills with <15% success over 20+ uses are flagged for
+   * auto-disable via the returned `autoDisable` list.
+   */
+  rankForJob(
+    prompt: string,
+    program: string,
+    opts?: {
+      limit?: number;
+      effectivenessScores?: Map<string, SkillEffectivenessInfo>;
+    },
+  ): { results: SkillRankResult[]; autoDisable: Skill[] } {
+    this.ensureFresh();
+
+    const limit = opts?.limit ?? 8;
+    const effectivenessMap = opts?.effectivenessScores ?? new Map();
+    const queryTokens = tokenize(prompt);
+    const queryVector = buildSemanticVector(prompt);
+    const programLower = program.trim().toLowerCase();
+
+    const autoFetchResults: SkillRankResult[] = [];
+    const ranked: Array<{ index: number; score: number }> = [];
+    const autoDisable: Skill[] = [];
+
+    for (let i = 0; i < this.skills.length; i++) {
+      const skill = this.skills[i];
+      if (!skill.enabled) continue;
+
+      const sp = skill.program.trim().toLowerCase();
+      // Filter by program: global + matching
+      if (sp && sp !== "global" && programLower && sp !== programLower) continue;
+
+      // AutoFetch skills always get included (coordinator scripts, bridge scripts, etc.)
+      if (skill.autoFetch) {
+        autoFetchResults.push({ skill, score: 1.0, reason: "auto-fetch" });
+        continue;
+      }
+
+      const eff = effectivenessMap.get(skill.id);
+
+      // Flag for auto-disable: <15% success over 20+ uses — consistently harmful
+      if (eff && eff.totalUsed >= 20 && eff.successRate < 0.15) {
+        autoDisable.push(skill);
+        continue;
+      }
+
+      // Lexical score: fraction of query tokens that hit this skill
+      let lexicalHits = 0;
+      for (const token of queryTokens) {
+        const postings = this.invertedIndex.get(token);
+        if (postings?.has(i)) lexicalHits++;
+      }
+      const lexicalScore = queryTokens.length > 0 ? lexicalHits / queryTokens.length : 0;
+
+      // Semantic score: cosine similarity
+      const semScore = Math.max(0, semanticSimilarity(queryVector, this.vectors[i]));
+
+      // Effectiveness score: success rate when we have enough data, else neutral
+      // Low-performing skills get a floor of 0.05 (not zero) so they can still
+      // surface as a last resort if nothing else matches the prompt well.
+      let effScore = 0.5; // neutral default for new skills
+      if (eff && eff.totalUsed >= 3) {
+        effScore = Math.max(0.05, eff.successRate);
+      }
+
+      // Combined score: lexical 50%, semantic 30%, effectiveness 20%
+      const score = lexicalScore * 0.5 + semScore * 0.3 + effScore * 0.2;
+
+      if (score > 0.05) {
+        ranked.push({ index: i, score });
+      }
+    }
+
+    // Sort by score descending, take top N
+    ranked.sort((a, b) => b.score - a.score);
+    const topRanked = ranked.slice(0, limit).map(({ index, score }) => ({
+      skill: this.skills[index],
+      score: Math.round(score * 1000) / 1000,
+      reason: "ranked" as const,
+    }));
+
+    // AutoFetch first, then ranked by relevance
+    return {
+      results: [...autoFetchResults, ...topRanked],
+      autoDisable,
+    };
   }
 
   /** Direct lookup by slug, optionally filtered by program. */

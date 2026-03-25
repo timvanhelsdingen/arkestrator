@@ -6,8 +6,15 @@ export interface SpawnUserSpec {
   preserveEnvironment?: boolean;
 }
 
-export interface SpawnWithFallbackOptions extends Parameters<typeof Bun.spawn>[1] {
+export interface SpawnWithFallbackOptions {
+  cwd?: string;
+  env?: Record<string, string | undefined>;
+  stdin?: any;
+  stdout?: any;
+  stderr?: any;
+  onExit?: (...args: any[]) => void;
   runAsUser?: SpawnUserSpec;
+  [key: string]: any;
 }
 
 function hasExplicitExtension(command: string): boolean {
