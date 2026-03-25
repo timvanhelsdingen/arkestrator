@@ -104,7 +104,7 @@
   );
 
   let program = $state<string>("houdini");
-  let scopeTab = $state<ScopeTab>("server");
+  let scopeTab = $state<ScopeTab>("training");
   type ScriptEditorTarget = "global" | "bridge" | null;
   let scriptEditorTarget = $state<ScriptEditorTarget>(null);
   let scriptEditorDraft = $state("");
@@ -1312,26 +1312,28 @@
     <div class="coord-toolbar-bar">
       <div class="coord-toolbar-row">
         <div class="tabs">
-          <button class="tab" class:active={scopeTab === "server"} onclick={() => setScopeTab("server")}>
-            Server Config
-          </button>
           <button class="tab" class:active={scopeTab === "training"} onclick={() => setScopeTab("training")}>
             Training
+          </button>
+          <button class="tab" class:active={scopeTab === "server"} onclick={() => setScopeTab("server")}>
+            Server Config
           </button>
           <button class="tab" class:active={scopeTab === "client"} onclick={() => setScopeTab("client")}>
             Client Config
           </button>
         </div>
-        <div class="toolbar-select">
-          <label>
-            Bridge
-            <select value={program} onchange={(e) => onProgramChanged((e.target as HTMLSelectElement).value)}>
-              {#each programs as p}
-                <option value={p.value}>{p.label}</option>
-              {/each}
-            </select>
-          </label>
-        </div>
+        {#if scopeTab !== "training"}
+          <div class="toolbar-select">
+            <label>
+              Bridge
+              <select value={program} onchange={(e) => onProgramChanged((e.target as HTMLSelectElement).value)}>
+                {#each programs as p}
+                  <option value={p.value}>{p.label}</option>
+                {/each}
+              </select>
+            </label>
+          </div>
+        {/if}
         <button class="btn secondary" onclick={refreshAll} disabled={loading}>Refresh</button>
         <button class="btn secondary" onclick={runExecutionProbe} disabled={readinessProbing}>
           {readinessProbing ? "Probing..." : "Probe"}
