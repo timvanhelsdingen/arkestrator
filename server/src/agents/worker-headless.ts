@@ -8,9 +8,27 @@ import {
   inferHeadlessArgsHeavyResources,
 } from "./resource-control.js";
 import { newId } from "../utils/id.js";
-import { existsSync, readdirSync } from "fs";
-import { join } from "path";
+import { existsSync, readdirSync, statSync } from "fs";
+import { dirname, join } from "path";
 import { logger } from "../utils/logger.js";
+
+/**
+ * Ensure a project path is a valid directory for use as cwd.
+ * If the path is a file, returns its parent directory.
+ * If the path doesn't exist or is empty, returns undefined.
+ */
+function sanitizeProjectPath(projectPath?: string): string | undefined {
+  const trimmed = String(projectPath ?? "").trim();
+  if (!trimmed) return undefined;
+  try {
+    const st = statSync(trimmed);
+    if (st.isDirectory()) return trimmed;
+    if (st.isFile()) return dirname(trimmed);
+  } catch {
+    // Path doesn't exist — don't use it as cwd
+  }
+  return undefined;
+}
 
 export interface WorkerHeadlessResult {
   success: boolean;
@@ -187,7 +205,7 @@ export async function executeWorkerHeadlessCommands(params: {
         senderId: "server",
         correlationId: newId(),
         program,
-        projectPath: params.projectPath,
+        projectPath: sanitizeProjectPath(params.projectPath),
         timeoutMs: params.timeoutMs,
         execution: {
           mode: "commands",
@@ -296,7 +314,7 @@ export async function runWorkerHeadlessCheck(params: {
         senderId: "server",
         correlationId: newId(),
         program,
-        projectPath: params.projectPath,
+        projectPath: sanitizeProjectPath(params.projectPath),
         timeoutMs: params.timeoutMs,
         execution: {
           mode: "raw_args",

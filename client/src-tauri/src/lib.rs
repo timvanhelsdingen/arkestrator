@@ -857,7 +857,18 @@ fn run_local_process_with_timeout(
     let mut command = Command::new(executable);
     command.args(args);
     if let Some(path) = project_path.filter(|value| !value.trim().is_empty()) {
-        command.current_dir(path);
+        let p = std::path::Path::new(path);
+        // Only use as cwd if the path is an existing directory.
+        // If it's a file, use its parent directory instead.
+        // If it doesn't exist at all, skip setting cwd (use process default).
+        if p.is_dir() {
+            command.current_dir(path);
+        } else if p.is_file() {
+            if let Some(parent) = p.parent() {
+                command.current_dir(parent);
+            }
+        }
+        // else: path doesn't exist, skip — let the OS use the default cwd
     }
     command.stdout(Stdio::piped());
     command.stderr(Stdio::piped());
