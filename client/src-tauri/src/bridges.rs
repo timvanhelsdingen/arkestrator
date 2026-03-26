@@ -520,9 +520,10 @@ pub fn uninstall_bridge(bridge_id: String, install_path: String) -> Result<(), S
     let expanded = expand_path(&install_path);
     let target = PathBuf::from(&expanded);
 
-    // Only remove if the target is a bridge-owned directory (contains "arkestrator"
-    // in the final path component). Shared directories like Houdini's `packages/`
-    // must NOT be wiped — they contain other plugins too.
+    // If the target directory name contains "arkestrator", it's bridge-owned and
+    // can be deleted entirely.  Otherwise it's a shared directory (e.g. Fusion's
+    // Config/ or Houdini's packages/) — remove only arkestrator-specific entries
+    // inside it instead of wiping the whole thing.
     if target.exists() {
         let is_bridge_owned = target
             .file_name()
@@ -533,10 +534,28 @@ pub fn uninstall_bridge(bridge_id: String, install_path: String) -> Result<(), S
             fs::remove_dir_all(&target)
                 .map_err(|e| format!("Failed to remove {}: {e}", target.display()))?;
         } else {
-            return Err(format!(
-                "Cannot uninstall: {} is a shared directory. Remove bridge files manually.",
-                target.display()
-            ));
+            // Shared directory — selectively remove arkestrator files/subdirs
+            let mut removed = 0u32;
+            if let Ok(entries) = fs::read_dir(&target) {
+                for entry in entries.flatten() {
+                    let name = entry.file_name().to_string_lossy().to_lowercase();
+                    if name.contains("arkestrator") {
+                        let p = entry.path();
+                        if p.is_dir() {
+                            let _ = fs::remove_dir_all(&p);
+                        } else {
+                            let _ = fs::remove_file(&p);
+                        }
+                        removed += 1;
+                    }
+                }
+            }
+            if removed == 0 {
+                return Err(format!(
+                    "No arkestrator files found in shared directory {}",
+                    target.display()
+                ));
+            }
         }
     }
 

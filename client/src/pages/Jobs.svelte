@@ -1756,6 +1756,7 @@
   .source-comfyui { background: #16a34a22; color: #16a34a; }
   .source-unity { background: #cbd5e122; color: #cbd5e1; }
   .source-unreal { background: #a78bfa22; color: #a78bfa; }
+  .source-fusion { background: #e8b83222; color: #e8b832; }
   .bridges-row { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
   .dep-connector {
     display: inline-block;

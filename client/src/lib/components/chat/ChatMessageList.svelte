@@ -307,6 +307,10 @@
   .source-godot { background: #478cbf22; color: #478cbf; }
   .source-blender { background: #ea722022; color: #ea7220; }
   .source-houdini { background: #ff450022; color: #ff4500; }
+  .source-comfyui { background: #16a34a22; color: #16a34a; }
+  .source-unity { background: #cbd5e122; color: #cbd5e1; }
+  .source-unreal { background: #a78bfa22; color: #a78bfa; }
+  .source-fusion { background: #e8b83222; color: #e8b832; }
   .token-info, .change-info {
     font-size: 11px;
     color: var(--text-muted);

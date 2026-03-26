@@ -361,6 +361,10 @@
   .bridge-godot { background: #478cbf22; color: #478cbf; }
   .bridge-blender { background: #ea722022; color: #ea7220; }
   .bridge-houdini { background: #ff450022; color: #ff4500; }
+  .bridge-comfyui { background: #16a34a22; color: #16a34a; }
+  .bridge-unity { background: #cbd5e122; color: #cbd5e1; }
+  .bridge-unreal { background: #a78bfa22; color: #a78bfa; }
+  .bridge-fusion { background: #e8b83222; color: #e8b832; }
   .bridge-name {
     flex: 1;
     overflow: hidden;

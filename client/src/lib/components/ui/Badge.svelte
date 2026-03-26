@@ -34,5 +34,6 @@
   .comfyui { background: #163b25; color: #34d399; }
   .unity { background: #334155; color: #e2e8f0; }
   .unreal { background: #3d3552; color: #c4b5fd; }
+  .fusion { background: #4a3d1e; color: #e8b832; }
   .blocked { background: #5c4a1e; color: #e8c23a; }
 </style>
