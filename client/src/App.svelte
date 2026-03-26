@@ -1,5 +1,6 @@
 <script lang="ts">
   import { connection } from "./lib/stores/connection.svelte";
+  import { wizard } from "./lib/stores/wizard.svelte";
   import { clientCoordination } from "./lib/stores/clientCoordination.svelte";
   import { isLoopbackUrl, serverState } from "./lib/stores/server.svelte";
   import { nav } from "./lib/stores/navigation.svelte";
@@ -10,6 +11,7 @@
   import StatusBar from "./lib/components/layout/StatusBar.svelte";
   import Setup from "./pages/Setup.svelte";
   import StartupWizard from "./pages/StartupWizard.svelte";
+  import BootstrapWizard from "./pages/BootstrapWizard.svelte";
   import Chat from "./pages/Chat.svelte";
   import Jobs from "./pages/Jobs.svelte";
   import Admin from "./pages/Admin.svelte";
@@ -260,7 +262,11 @@
   <StatusBar />
 {:else if connection.isAuthenticated && connection.pendingWizard}
   <div class="app-body">
-    <StartupWizard />
+    <BootstrapWizard />
+  </div>
+{:else if !wizard.isComplete}
+  <div class="app-body">
+    <BootstrapWizard />
   </div>
 {:else}
   <div class="app-body">
