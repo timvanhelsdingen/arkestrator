@@ -128,7 +128,7 @@
                     onclick={() => (expandedBridge = expandedBridge === bridge.id ? null : bridge.id)}
                   >
                     <span class="bridge-icon bridge-{bridge.program}">{bridge.program?.[0]?.toUpperCase() ?? "?"}</span>
-                    <span class="bridge-name">{bridge.name}</span>
+                    <span class="bridge-name">{bridge.program ? `${bridge.program[0].toUpperCase() + bridge.program.slice(1)} — ${bridge.name}` : bridge.name}</span>
                     <span class="expand-icon">{expandedBridge === bridge.id ? "\u25B2" : "\u25BC"}</span>
                   </button>
 

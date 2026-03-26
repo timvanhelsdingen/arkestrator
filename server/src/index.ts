@@ -187,6 +187,39 @@ function extractWsApiKeyFromProtocol(header: string | null): { token?: string; p
   return {};
 }
 
+/**
+ * Sanitize a bridge project name sent via query parameter.
+ * DCC apps often send internal identifiers (e.g. Nuke sends "Root",
+ * the node name, instead of the script path).  Detect these and
+ * replace with "Untitled" so the UI stays clean regardless of how
+ * a third-party bridge implements its name parameter.
+ */
+function sanitizeBridgeName(raw: string | undefined, program: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+
+  // Known DCC internal default names that are NOT real project names.
+  // Bridge authors frequently pass these by mistake.
+  const INTERNAL_NAMES = new Set([
+    "root",       // Nuke root node name
+    "untitled",   // already generic
+    "scene",      // generic scene name
+    "default",    // generic default
+  ]);
+  if (INTERNAL_NAMES.has(trimmed.toLowerCase())) {
+    return "Untitled";
+  }
+
+  // If the name looks like a real file path, extract just the filename
+  if (trimmed.includes("/") || trimmed.includes("\\")) {
+    const basename = trimmed.split(/[/\\]/).pop() ?? trimmed;
+    return basename || "Untitled";
+  }
+
+  return trimmed;
+}
+
 function generateBootstrapSecret(length = 32): string {
   const bytes = new Uint8Array(length);
   crypto.getRandomValues(bytes);
@@ -672,8 +705,12 @@ async function main() {
           return new Response("Client/MCP API keys cannot open bridge sockets", { status: 403 });
         }
 
-        const name = url.searchParams.get("name") ?? undefined;
+        const rawName = url.searchParams.get("name") ?? undefined;
         const program = url.searchParams.get("program") ?? undefined;
+        // Sanitize bridge name: DCC apps often send internal node names
+        // (e.g. Nuke sends "Root", others may send class names) instead of
+        // actual project/file names. Treat these as "Untitled".
+        const name = sanitizeBridgeName(rawName, program);
         const programVersion = url.searchParams.get("programVersion") ?? undefined;
         const bridgeVersion = url.searchParams.get("bridgeVersion") ?? undefined;
         const projectPath = url.searchParams.get("projectPath") ?? undefined;
