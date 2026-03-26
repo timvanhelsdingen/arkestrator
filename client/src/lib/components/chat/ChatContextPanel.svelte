@@ -2,6 +2,7 @@
   import type { ContextItem } from "@arkestrator/protocol";
   import { bridgeContextStore } from "../../stores/bridgeContext.svelte";
   import { workersStore } from "../../stores/workers.svelte";
+  import { sendMessage } from "../../api/ws";
   import { truncate } from "../../utils/format";
 
   const CONTEXT_DRAG_MIME = "application/x-arkestrator-context-item+json";
@@ -64,6 +65,26 @@
       e.preventDefault();
       cancelRenameItem();
     }
+  }
+
+  function removeContextItem(bridgeId: string, itemIndex: number) {
+    sendMessage({
+      type: "client_context_item_remove",
+      id: crypto.randomUUID(),
+      payload: { bridgeId, itemIndex },
+    });
+    // Optimistic local update (server will also broadcast a sync)
+    bridgeContextStore.removeItem(bridgeId, itemIndex);
+  }
+
+  function clearContextItems(bridgeId: string) {
+    sendMessage({
+      type: "client_context_items_clear",
+      id: crypto.randomUUID(),
+      payload: { bridgeId },
+    });
+    // Optimistic local update
+    bridgeContextStore.clearItems(bridgeId);
   }
 
   function formatDragReference(item: ContextItem): string {
@@ -193,7 +214,7 @@
                         <div class="context-section">
                           <div class="section-label-row">
                             <span class="section-label">Context Items ({ctx.items.length})</span>
-                            <button class="clear-btn" type="button" onclick={() => bridgeContextStore.clearItems(bridge.id)} title="Clear all items">Clear</button>
+                            <button class="clear-btn" type="button" onclick={() => clearContextItems(bridge.id)} title="Clear all items">Clear</button>
                           </div>
                           {#each ctx.items as item}
                             {@const rowKey = itemKey(bridge.id, item.index)}
@@ -226,7 +247,7 @@
                               {#if editingItemKey !== rowKey}
                                 <button class="rename-item-btn" type="button" onclick={() => startRenameItem(bridge.id, item)} title="Rename item">rename</button>
                               {/if}
-                              <button class="remove-item-btn" type="button" onclick={() => bridgeContextStore.removeItem(bridge.id, item.index)} title="Remove item">x</button>
+                              <button class="remove-item-btn" type="button" onclick={() => removeContextItem(bridge.id, item.index)} title="Remove item">x</button>
                             </div>
                           {/each}
                         </div>

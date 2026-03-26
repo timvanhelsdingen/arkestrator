@@ -391,6 +391,25 @@ export const BridgeEditorContextMessage = makeMessage(
 );
 export type BridgeEditorContextMessage = z.infer<typeof BridgeEditorContextMessage>;
 
+/** Client asks server to remove a single context item from a bridge */
+export const ClientContextItemRemoveMessage = makeMessage(
+  "client_context_item_remove",
+  z.object({
+    bridgeId: z.string(),
+    itemIndex: z.number().int().positive(),
+  }),
+);
+export type ClientContextItemRemoveMessage = z.infer<typeof ClientContextItemRemoveMessage>;
+
+/** Client asks server to clear all context items for a bridge */
+export const ClientContextItemsClearMessage = makeMessage(
+  "client_context_items_clear",
+  z.object({
+    bridgeId: z.string(),
+  }),
+);
+export type ClientContextItemsClearMessage = z.infer<typeof ClientContextItemsClearMessage>;
+
 /** Server sends full context state to a newly-connected client */
 export const BridgeContextSyncMessage = makeMessage(
   "bridge_context_sync",
@@ -563,6 +582,8 @@ export const Message = z.discriminatedUnion("type", [
   BridgeContextClearMessage,
   BridgeEditorContextMessage,
   BridgeContextSyncMessage,
+  ClientContextItemRemoveMessage,
+  ClientContextItemsClearMessage,
   JobDependencyBlockedMessage,
   ClientJobDispatchMessage,
   ClientToolRequestMessage,

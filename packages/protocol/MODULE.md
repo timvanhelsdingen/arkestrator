@@ -10,7 +10,7 @@ Shared Zod schema definitions that serve as the single source of truth for all T
 | `agents.ts` | `AgentConfig` (full) and `AgentConfigCreate` (omits id/timestamps) schemas; includes optional `fallbackConfigId` for AUTO routing escalation and optional `localModelHost` (`"server"` \| `"client"`) for local-oss model host routing (`"server"` = use server's own Ollama, `"client"` = auto-distribute to any online worker with `localLlmEnabled`) |
 | `interventions.ts` | Running-job intervention schemas: `JobIntervention`, `JobInterventionCreate`, source/status enums, and `JobInterventionSupport` capability payloads shared across REST/WS/MCP/UI |
 | `jobs.ts` | `Job` / `JobSubmit` schemas plus runtime override schemas (`RuntimeReasoningLevel`, `RuntimeVerificationMode`, `BridgeExecutionMode`, `CoordinationScriptMode`, `CoordinationScripts`, `JobRuntimeOptions` including optional `timeoutMinutes`), AUTO target (`AgentConfigTarget`), routing metadata (`requestedAgentConfigId`, `actualAgentConfigId`, `actualModel`, `routingReason`), manual outcome feedback fields (`JobOutcomeRating`, `outcomeRating`, `outcomeNotes`, `outcomeMarkedAt`, `outcomeMarkedBy`), and job-identity/usage display metadata (`submittedByUsername`, `tokenUsage.costUsd`) |
-| `messages.ts` | All 41 WebSocket message types + `Message` discriminated union. Includes running-job intervention list/submit/update envelopes, cross-bridge command payloads with optional `projectPath`, worker-owned headless execution messages (`worker_headless_command`, `worker_headless_result`) for desktop-client CLI runs, client-dispatched local LLM job messages (`client_job_dispatch`, `client_tool_request`, `client_tool_result`, `client_job_log`, `client_job_complete`, `client_job_cancel`), and `FileDeliverMessage` (type: `file_deliver`) for server->bridge/client file delivery. |
+| `messages.ts` | All 43 WebSocket message types + `Message` discriminated union. Includes running-job intervention list/submit/update envelopes, cross-bridge command payloads with optional `projectPath`, worker-owned headless execution messages (`worker_headless_command`, `worker_headless_result`) for desktop-client CLI runs, client-dispatched local LLM job messages (`client_job_dispatch`, `client_tool_request`, `client_tool_result`, `client_job_log`, `client_job_complete`, `client_job_cancel`), `FileDeliverMessage` (type: `file_deliver`) for server->bridge/client file delivery, and client→server context management messages (`client_context_item_remove`, `client_context_items_clear`). |
 | `policies.ts` | `PolicyScope`, `PolicyType`, `PolicyAction`, `PolicyCreate`, `Policy` schemas |
 | `projects.ts` | `WorkspaceMode`, `CommandResult`, `PathMappingEntry`, `PathMapping`, `ProjectFolder`, `ProjectFile`, `GitHubRepo`, `Project` (prompt, pathMappings, folders, files, githubRepos), `ProjectCreate` schemas |
 | `workers.ts` | `WorkerStatus`, `Worker` (includes optional `machineId` + `knownPrograms: string[]`), `BridgeInfo` (includes optional `machineId`, `osUser` + `activeProjects: string[]`) schemas |
@@ -34,13 +34,13 @@ Shared Zod schema definitions that serve as the single source of truth for all T
 - **PolicyType**: `file_path | tool | prompt_filter | engine_model | command_filter`
 - **PolicyAction**: `block | warn`
 
-## WebSocket Messages (41 types)
+## WebSocket Messages (43 types)
 - **Bridge→Server**: `job_submit`
 - **Server→Bridge+Clients**: `job_accepted`, `job_started`, `job_log`, `job_complete`, `job_updated`
 - **Client↔Server**: `job_list`/`job_list_response`, `job_cancel`, `job_reprioritize`, `job_intervention_list`/`job_intervention_list_response`, `job_intervention_submit`, `job_intervention_updated`, `agent_config_list`/`_response`, `agent_config_create`/`update`/`delete`, `bridge_status`, `worker_status`, `project_list`/`_response`, `job_dependency_blocked`, `error`
 - **Cross-bridge commands**: `bridge_command_send` (sender→server), `bridge_command` (server→target bridge), `bridge_command_result` (target→server→sender, includes optional `stdout`/`stderr` for script output relay)
 - **Worker-owned headless execution**: `worker_headless_command` (server→desktop client), `worker_headless_result` (desktop client→server)
-- **Bridge Context**: `bridge_context_item_add` (bridge→server→client), `bridge_context_clear` (bridge→server→client), `bridge_editor_context` (bridge→server→client), `bridge_context_sync` (server→client)
+- **Bridge Context**: `bridge_context_item_add` (bridge→server→client), `bridge_context_clear` (bridge→server→client), `bridge_editor_context` (bridge→server→client), `bridge_context_sync` (server→client), `client_context_item_remove` (client→server), `client_context_items_clear` (client→server)
 - **Client-dispatched local LLM jobs**: `client_job_dispatch` (server→client), `client_tool_request` (client→server), `client_tool_result` (server→client), `client_job_log` (client→server), `client_job_complete` (client→server), `client_job_cancel` (server→client)
 - **File delivery**: `file_deliver` (server→bridge/client)
 
@@ -86,6 +86,6 @@ All messages use `makeMessage(type, payloadSchema)` → `{ type: literal, id: uu
 
 ## WS-Only vs REST-Only Operations
 - **WS + REST**: job list, job cancel, job reprioritize, job interventions, agent config CRUD
-- **WS only**: job_submit (bridge), job_log, job_started, job_complete, job_updated, bridge_status, worker_status, bridge_context_item_add, bridge_context_clear, bridge_editor_context, bridge_context_sync
+- **WS only**: job_submit (bridge), job_log, job_started, job_complete, job_updated, bridge_status, worker_status, bridge_context_item_add, bridge_context_clear, bridge_editor_context, bridge_context_sync, client_context_item_remove, client_context_items_clear
 - **REST only**: policies CRUD, project CRUD (beyond list), job delete, job resume, job requeue, users, API keys, audit log
 - **No WS messages for**: pause/resume, delete, policy management, user/auth

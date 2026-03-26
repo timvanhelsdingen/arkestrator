@@ -32,6 +32,7 @@ export interface WsData {
 
 export interface BridgeContextState {
   items: ContextItem[];
+  nextIndex: number;
   editorContext?: EditorContext;
   files: Array<{ path: string; content: string }>;
 }
@@ -460,19 +461,37 @@ export class WebSocketHub {
 
   // --- Bridge Context Management ---
 
-  addBridgeContextItem(bridgeId: string, item: ContextItem) {
+  addBridgeContextItem(bridgeId: string, item: ContextItem): ContextItem {
     let ctx = this.bridgeContexts.get(bridgeId);
     if (!ctx) {
-      ctx = { items: [], files: [] };
+      ctx = { items: [], nextIndex: 1, files: [] };
       this.bridgeContexts.set(bridgeId, ctx);
     }
-    // De-duplicate by per-bridge @index. If the same index is resent
-    // (replay/reconnect/menu duplication), treat it as an upsert.
-    const idx = ctx.items.findIndex((existing) => existing.index === item.index);
-    if (idx >= 0) {
-      ctx.items[idx] = item;
-    } else {
-      ctx.items.push(item);
+    // Server assigns the index so numbering stays sequential after removals.
+    const serverItem = { ...item, index: ctx.nextIndex++ };
+    ctx.items.push(serverItem);
+    return serverItem;
+  }
+
+  /** Remove a single context item and re-index remaining items */
+  removeBridgeContextItem(bridgeId: string, itemIndex: number): ContextItem[] | null {
+    const ctx = this.bridgeContexts.get(bridgeId);
+    if (!ctx) return null;
+    ctx.items = ctx.items.filter((i) => i.index !== itemIndex);
+    // Re-index remaining items sequentially
+    for (let i = 0; i < ctx.items.length; i++) {
+      ctx.items[i] = { ...ctx.items[i], index: i + 1 };
+    }
+    ctx.nextIndex = ctx.items.length + 1;
+    return ctx.items;
+  }
+
+  /** Clear all context items for a bridge (keep editor context and files) */
+  clearBridgeContextItems(bridgeId: string) {
+    const ctx = this.bridgeContexts.get(bridgeId);
+    if (ctx) {
+      ctx.items = [];
+      ctx.nextIndex = 1;
     }
   }
 
@@ -483,7 +502,7 @@ export class WebSocketHub {
   setBridgeEditorContext(bridgeId: string, editorContext: EditorContext, files: Array<{ path: string; content: string }>) {
     let ctx = this.bridgeContexts.get(bridgeId);
     if (!ctx) {
-      ctx = { items: [], files: [] };
+      ctx = { items: [], nextIndex: 1, files: [] };
       this.bridgeContexts.set(bridgeId, ctx);
     }
     ctx.editorContext = editorContext;

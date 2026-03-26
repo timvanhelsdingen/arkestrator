@@ -432,6 +432,140 @@
     });
   }
 
+  // --- Archive / Trash / Restore ---
+
+  async function fetchArchivedJobs() {
+    try {
+      const data = await api.jobs.listArchived();
+      jobs.replaceArchived(data.jobs, data.total);
+    } catch (err: any) {
+      toast.error(`Failed to load archived jobs: ${err.message}`);
+    }
+  }
+
+  async function fetchTrashedJobs() {
+    try {
+      const data = await api.jobs.listTrashed();
+      jobs.replaceTrashed(data.jobs, data.total);
+    } catch (err: any) {
+      toast.error(`Failed to load trashed jobs: ${err.message}`);
+    }
+  }
+
+  function switchView(mode: "active" | "archived" | "trash") {
+    jobs.viewMode = mode;
+    jobs.selectedId = null;
+    jobs.clearSelection();
+    if (mode === "archived") fetchArchivedJobs();
+    else if (mode === "trash") fetchTrashedJobs();
+  }
+
+  async function refreshCurrentView() {
+    if (jobs.viewMode === "archived") return fetchArchivedJobs();
+    if (jobs.viewMode === "trash") return fetchTrashedJobs();
+    return refreshJobs();
+  }
+
+  async function archiveJob(jobId: string) {
+    try {
+      await api.jobs.archive(jobId);
+      jobs.removeFromActive(jobId);
+      if (jobs.selectedId === jobId) jobs.selectedId = null;
+      toast.success("Job archived");
+    } catch (err: any) {
+      toast.error(`Failed to archive: ${err.message}`);
+    }
+  }
+
+  async function restoreJob(jobId: string) {
+    try {
+      await api.jobs.restore(jobId);
+      if (jobs.viewMode === "archived") jobs.removeFromArchived(jobId);
+      else if (jobs.viewMode === "trash") jobs.removeFromTrashed(jobId);
+      if (jobs.selectedId === jobId) jobs.selectedId = null;
+      toast.success("Job restored");
+    } catch (err: any) {
+      toast.error(`Failed to restore: ${err.message}`);
+    }
+  }
+
+  function confirmPermanentDelete(job: Job) {
+    showConfirm("Permanently Delete Job", "This will permanently delete the job. This cannot be undone.", async () => {
+      try {
+        await api.jobs.permanentDelete(job.id);
+        jobs.removeFromTrashed(job.id);
+        if (jobs.selectedId === job.id) jobs.selectedId = null;
+        toast.success("Job permanently deleted");
+      } catch (err: any) {
+        toast.error(`Failed to delete: ${err.message}`);
+      }
+    });
+  }
+
+  function confirmBulkArchive() {
+    const ids = [...jobs.selectedIds];
+    if (ids.length === 0) return;
+    showConfirm("Archive Selected Jobs", `Archive ${ids.length} job(s)?`, async () => {
+      let failures = 0;
+      for (const id of ids) {
+        try { await api.jobs.archive(id); } catch { failures++; }
+      }
+      if (failures > 0) toast.error(`Failed to archive ${failures} of ${ids.length} job(s)`);
+      jobs.clearSelection();
+      refreshJobs();
+    });
+  }
+
+  function confirmBulkRestore() {
+    const ids = [...jobs.selectedIds];
+    if (ids.length === 0) return;
+    showConfirm("Restore Selected Jobs", `Restore ${ids.length} job(s)?`, async () => {
+      let failures = 0;
+      for (const id of ids) {
+        try { await api.jobs.restore(id); } catch { failures++; }
+      }
+      if (failures > 0) toast.error(`Failed to restore ${failures} of ${ids.length} job(s)`);
+      jobs.clearSelection();
+      refreshCurrentView();
+    });
+  }
+
+  function confirmBulkPermanentDelete() {
+    const ids = [...jobs.selectedIds];
+    if (ids.length === 0) return;
+    showConfirm("Permanently Delete Selected Jobs", `Permanently delete ${ids.length} job(s)? This cannot be undone.`, async () => {
+      let failures = 0;
+      for (const id of ids) {
+        try { await api.jobs.permanentDelete(id); } catch { failures++; }
+      }
+      if (failures > 0) toast.error(`Failed to delete ${failures} of ${ids.length} job(s)`);
+      jobs.clearSelection();
+      fetchTrashedJobs();
+    });
+  }
+
+  // --- View-aware display ---
+
+  let displayJobs = $derived.by(() => {
+    if (jobs.viewMode === "archived") return jobs.archivedJobs;
+    if (jobs.viewMode === "trash") return jobs.trashedJobs;
+    return filteredJobs;
+  });
+
+  let displayNodes = $derived.by(() => {
+    if (jobs.viewMode !== "active") {
+      // Flat list for archive/trash — no tree nesting
+      return displayJobs.map((j): JobNode => ({ job: j, children: [], depth: 0 }));
+    }
+    return flatNodes;
+  });
+
+  let displaySelected = $derived.by(() => {
+    if (jobs.viewMode === "archived") return jobs.archivedJobs.find((j) => j.id === jobs.selectedId);
+    if (jobs.viewMode === "trash") return jobs.trashedJobs.find((j) => j.id === jobs.selectedId);
+    return jobs.selected;
+  });
+
   async function removeDep(jobId: string, depJobId: string) {
     try {
       await api.jobs.removeDependency(jobId, depJobId);
@@ -447,7 +581,7 @@
   }
 
   function toggleSelectAll() {
-    const visibleIds = filteredJobs.map((job) => job.id);
+    const visibleIds = displayJobs.map((job) => job.id);
     if (visibleIds.length === 0) return;
     const allVisibleSelected = visibleIds.every((id) => jobs.selectedIds.has(id));
     const next = new Set(jobs.selectedIds);
@@ -622,7 +756,7 @@
 
   let hasSelection = $derived(jobs.selectedIds.size > 0);
   let allSelected = $derived(
-    filteredJobs.length > 0 && filteredJobs.every((job) => jobs.selectedIds.has(job.id)),
+    displayJobs.length > 0 && displayJobs.every((job) => jobs.selectedIds.has(job.id)),
   );
   let logScrollMode = $state<LogScrollMode>("live");
   let expandedPromptJobId = $state<string | null>(null);
@@ -864,58 +998,97 @@
 <div class="jobs-page" class:resizing>
   <div class="list-panel" style="width: {listWidth}px">
     <div class="filters">
-      {#each statuses as s}
-        <button
-          class="filter-btn"
-          class:active={activeFilter === s}
-          onclick={() => setFilter(s)}
-        >
-          {s}
+      {#if jobs.viewMode === "active"}
+        {#each statuses as s}
+          <button
+            class="filter-btn"
+            class:active={activeFilter === s}
+            onclick={() => setFilter(s)}
+          >
+            {s}
+          </button>
+        {/each}
+      {:else}
+        <button class="filter-btn" onclick={() => switchView("active")}>
+          &larr; Back
         </button>
-      {/each}
+        <span class="view-label">{jobs.viewMode === "archived" ? "Archived Jobs" : "Trashed Jobs"}</span>
+      {/if}
       <div class="filter-spacer"></div>
-      {#if jobs.all.some((j) => j.status === "paused")}
+      <button
+        class="filter-btn view-tab"
+        class:active={jobs.viewMode === "archived"}
+        onclick={() => switchView(jobs.viewMode === "archived" ? "active" : "archived")}
+        title="Archived jobs"
+      >
+        Archived
+      </button>
+      <button
+        class="filter-btn view-tab"
+        class:active={jobs.viewMode === "trash"}
+        onclick={() => switchView(jobs.viewMode === "trash" ? "active" : "trash")}
+        title="Trashed jobs"
+      >
+        Trash
+      </button>
+      <span class="filter-divider"></span>
+      {#if jobs.viewMode === "active" && jobs.all.some((j) => j.status === "paused")}
         <button class="btn-start-queue" onclick={startAll}>Start Queue</button>
       {/if}
-      <button class="btn-refresh" onclick={refreshJobs}>Refresh</button>
+      <button class="btn-refresh" onclick={refreshCurrentView}>Refresh</button>
     </div>
-    <div class="advanced-filters">
-      <input
-        class="search-input"
-        type="text"
-        bind:value={searchQuery}
-        placeholder="Search jobs, prompt, ID, machine, bridge, user..."
-      />
-      <select class="filter-select" bind:value={workerFilter}>
-        <option value={ALL_OPTION}>All Machines</option>
-        {#each workerOptions as worker}
-          <option value={worker.value}>{worker.label}</option>
-        {/each}
-      </select>
-      <select class="filter-select" bind:value={bridgeFilter}>
-        <option value={ALL_OPTION}>All Bridges</option>
-        {#each bridgeOptions as bridge}
-          <option value={bridge}>{bridge}</option>
-        {/each}
-      </select>
-      <select class="filter-select" bind:value={userFilter}>
-        <option value={ALL_OPTION}>All Users</option>
-        {#each userOptions as user}
-          <option value={user.value}>{user.label}</option>
-        {/each}
-      </select>
-      <button class="btn-clear-filters" onclick={clearAdvancedFilters}>Clear</button>
-      <span class="filter-count">{filteredJobs.length} shown</span>
-    </div>
+    {#if jobs.viewMode === "active"}
+      <div class="advanced-filters">
+        <input
+          class="search-input"
+          type="text"
+          bind:value={searchQuery}
+          placeholder="Search jobs, prompt, ID, machine, bridge, user..."
+        />
+        <select class="filter-select" bind:value={workerFilter}>
+          <option value={ALL_OPTION}>All Machines</option>
+          {#each workerOptions as worker}
+            <option value={worker.value}>{worker.label}</option>
+          {/each}
+        </select>
+        <select class="filter-select" bind:value={bridgeFilter}>
+          <option value={ALL_OPTION}>All Bridges</option>
+          {#each bridgeOptions as bridge}
+            <option value={bridge}>{bridge}</option>
+          {/each}
+        </select>
+        <select class="filter-select" bind:value={userFilter}>
+          <option value={ALL_OPTION}>All Users</option>
+          {#each userOptions as user}
+            <option value={user.value}>{user.label}</option>
+          {/each}
+        </select>
+        <button class="btn-clear-filters" onclick={clearAdvancedFilters}>Clear</button>
+        <span class="filter-count">{filteredJobs.length} shown</span>
+      </div>
+    {:else}
+      <div class="advanced-filters">
+        <span class="filter-count">{displayJobs.length} shown</span>
+      </div>
+    {/if}
     {#if hasSelection}
       <div class="bulk-bar">
         <span>{jobs.selectedIds.size} selected</span>
-        <button class="btn-bulk-delete" onclick={confirmBulkDelete}>Delete Selected</button>
+        {#if jobs.viewMode === "active"}
+          <button class="btn-bulk-archive" onclick={confirmBulkArchive}>Archive Selected</button>
+          <button class="btn-bulk-delete" onclick={confirmBulkDelete}>Delete Selected</button>
+        {:else if jobs.viewMode === "archived"}
+          <button class="btn-bulk-restore" onclick={confirmBulkRestore}>Restore Selected</button>
+          <button class="btn-bulk-delete" onclick={confirmBulkDelete}>Trash Selected</button>
+        {:else if jobs.viewMode === "trash"}
+          <button class="btn-bulk-restore" onclick={confirmBulkRestore}>Restore Selected</button>
+          <button class="btn-bulk-delete" onclick={confirmBulkPermanentDelete}>Delete Forever</button>
+        {/if}
         <button class="btn-bulk-clear" onclick={() => jobs.clearSelection()}>Clear</button>
       </div>
     {/if}
     <div class="job-list">
-      {#if flatNodes.length > 0}
+      {#if displayNodes.length > 0}
         <div class="select-all-row">
           <input
             type="checkbox"
@@ -926,7 +1099,7 @@
           <span class="select-all-label">{allSelected ? "Deselect all" : "Select all"}</span>
         </div>
       {/if}
-      {#each flatNodes as node (node.job.id)}
+      {#each displayNodes as node (node.job.id)}
         {@const job = node.job}
         {@const delegation = getDelegationSummary(job)}
         {@const parentJob = getParentJob(job)}
@@ -1013,37 +1186,48 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="resize-handle" onmousedown={onResizeStart}></div>
 
-  {#if jobs.selected}
-    {@const job = jobs.selected}
+  {#if displaySelected}
+    {@const job = displaySelected}
     {@const delegation = getDelegationSummary(job)}
     {@const rootJob = getRootJob(job)}
     <div class="detail-panel">
       <div class="detail-header">
         <h3>Job Detail</h3>
         <div class="detail-actions">
-          {#if job.status === "paused"}
-            <button class="btn-start" onclick={() => resumeJob(job.id)}>Start</button>
-          {/if}
-          {#if job.status === "queued"}
-            <button class="btn-start" onclick={() => dispatchJob(job.id)}>Start</button>
-          {/if}
-          {#if job.status === "queued" || job.status === "paused"}
-            <select onchange={(e) => reprioritize(job.id, (e.target as HTMLSelectElement).value)}>
-              <option value="" disabled selected>Priority</option>
-              <option value="critical">Critical</option>
-              <option value="high">High</option>
-              <option value="normal">Normal</option>
-              <option value="low">Low</option>
-            </select>
-          {/if}
-          {#if job.status === "queued" || job.status === "running" || job.status === "paused"}
-            <button class="btn-cancel" onclick={() => cancelJob(job.id)}>Cancel</button>
-          {/if}
-          {#if job.status === "failed" || job.status === "cancelled"}
-            <button class="btn-requeue" onclick={() => requeueJob(job.id)}>Requeue</button>
-          {/if}
-          {#if canDeleteJob(job)}
-            <button class="btn-delete" onclick={() => confirmDeleteJob(job)}>Delete</button>
+          {#if jobs.viewMode === "active"}
+            {#if job.status === "paused"}
+              <button class="btn-start" onclick={() => resumeJob(job.id)}>Start</button>
+            {/if}
+            {#if job.status === "queued"}
+              <button class="btn-start" onclick={() => dispatchJob(job.id)}>Start</button>
+            {/if}
+            {#if job.status === "queued" || job.status === "paused"}
+              <select onchange={(e) => reprioritize(job.id, (e.target as HTMLSelectElement).value)}>
+                <option value="" disabled selected>Priority</option>
+                <option value="critical">Critical</option>
+                <option value="high">High</option>
+                <option value="normal">Normal</option>
+                <option value="low">Low</option>
+              </select>
+            {/if}
+            {#if job.status === "queued" || job.status === "running" || job.status === "paused"}
+              <button class="btn-cancel" onclick={() => cancelJob(job.id)}>Cancel</button>
+            {/if}
+            {#if job.status === "failed" || job.status === "cancelled"}
+              <button class="btn-requeue" onclick={() => requeueJob(job.id)}>Requeue</button>
+            {/if}
+            {#if job.status === "completed" || job.status === "failed" || job.status === "cancelled"}
+              <button class="btn-archive" onclick={() => archiveJob(job.id)}>Archive</button>
+            {/if}
+            {#if canDeleteJob(job)}
+              <button class="btn-delete" onclick={() => confirmDeleteJob(job)}>Delete</button>
+            {/if}
+          {:else if jobs.viewMode === "archived"}
+            <button class="btn-restore" onclick={() => restoreJob(job.id)}>Restore</button>
+            <button class="btn-delete" onclick={() => confirmDeleteJob(job)}>Move to Trash</button>
+          {:else if jobs.viewMode === "trash"}
+            <button class="btn-restore" onclick={() => restoreJob(job.id)}>Restore</button>
+            <button class="btn-delete" onclick={() => confirmPermanentDelete(job)}>Delete Forever</button>
           {/if}
         </div>
       </div>
@@ -1743,6 +1927,59 @@
     opacity: 0.8;
   }
   .btn-delete:hover { opacity: 1; }
+  .btn-archive {
+    padding: 4px 12px;
+    background: var(--bg-hover);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+  }
+  .btn-archive:hover { background: var(--accent); color: white; border-color: var(--accent); }
+  .btn-restore {
+    padding: 4px 12px;
+    background: var(--bg-hover);
+    color: var(--status-completed);
+    border: 1px solid var(--status-completed);
+    border-radius: var(--radius-sm);
+  }
+  .btn-restore:hover { background: var(--status-completed); color: white; }
+  .btn-bulk-archive {
+    padding: 4px 10px;
+    background: var(--bg-hover);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-sm);
+  }
+  .btn-bulk-archive:hover { background: var(--accent); color: white; border-color: var(--accent); }
+  .btn-bulk-restore {
+    padding: 4px 10px;
+    background: var(--bg-hover);
+    color: var(--status-completed);
+    border: 1px solid var(--status-completed);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-sm);
+  }
+  .btn-bulk-restore:hover { background: var(--status-completed); color: white; }
+  .view-tab {
+    border: 1px solid var(--border);
+  }
+  .view-tab.active {
+    border-color: var(--accent);
+  }
+  .view-label {
+    font-weight: 600;
+    font-size: var(--font-size-sm);
+    color: var(--text-primary);
+    padding: 0 4px;
+  }
+  .filter-divider {
+    width: 1px;
+    height: 16px;
+    background: var(--border);
+    margin: 0 2px;
+    flex-shrink: 0;
+  }
   .detail-id {
     font-family: var(--font-mono);
     font-size: 11px;

@@ -400,6 +400,13 @@ function dispatch(msg: any) {
       break;
     case "job_updated": {
       const job = msg.payload.job;
+
+      // If the job was archived or trashed, remove it from the active list
+      if (job.archivedAt || job.deletedAt) {
+        jobs.removeFromActive(job.id);
+        break;
+      }
+
       // Capture previous status BEFORE upserting so we can detect transitions
       const prevJob = jobs.all.find((j) => j.id === job.id);
       const prevStatus = prevJob?.status;

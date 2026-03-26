@@ -294,6 +294,16 @@ export const api = {
       request(`/api/jobs/${id}/dependencies/${depJobId}`, {
         method: "DELETE",
       }),
+    listArchived: (limit?: number, offset?: number) =>
+      request(`/api/jobs/archived${limit ? `?limit=${limit}&offset=${offset ?? 0}` : ""}`),
+    listTrashed: (limit?: number, offset?: number) =>
+      request(`/api/jobs/trash${limit ? `?limit=${limit}&offset=${offset ?? 0}` : ""}`),
+    archive: (id: string) =>
+      request(`/api/jobs/${id}/archive`, { method: "POST" }),
+    restore: (id: string) =>
+      request(`/api/jobs/${id}/restore`, { method: "POST" }),
+    permanentDelete: (id: string) =>
+      request(`/api/jobs/${id}/permanent`, { method: "DELETE" }),
   },
 
   agents: {

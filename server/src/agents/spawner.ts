@@ -3044,13 +3044,24 @@ function sendComplete(
   });
 }
 
+const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled"]);
+
 function broadcastJobUpdated(deps: SpawnerDeps, jobId: string) {
-  const updatedJob = deps.jobsRepo.getById(jobId);
-  if (updatedJob) {
-    deps.hub.broadcastToType("client", {
-      type: "job_updated",
-      id: newId(),
-      payload: { job: updatedJob },
-    });
+  let job = deps.jobsRepo.getById(jobId);
+  if (!job) return;
+
+  // Auto-archive training and housekeeping jobs when they reach a terminal state
+  if (TERMINAL_STATUSES.has(job.status) && !job.archivedAt) {
+    const meta = job.editorContext?.metadata as Record<string, unknown> | undefined;
+    if (meta?.coordinator_training_job === true || meta?.housekeeping === true) {
+      deps.jobsRepo.archive(jobId);
+      job = deps.jobsRepo.getById(jobId) ?? job;
+    }
   }
+
+  deps.hub.broadcastToType("client", {
+    type: "job_updated",
+    id: newId(),
+    payload: { job },
+  });
 }

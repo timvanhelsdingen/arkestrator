@@ -666,7 +666,8 @@
   function onPromptDragLeave(e: DragEvent) {
     if (!promptDropActive) return;
     const related = e.relatedTarget as Node | null;
-    if (textarea && related && textarea.contains(related)) return;
+    const container = (e.currentTarget as HTMLElement);
+    if (related && container.contains(related)) return;
     promptDropActive = false;
   }
 
@@ -702,7 +703,15 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <svelte:document onclick={handleClickOutside} />
-<div class="chat-input" style="height: {inputHeight}px;">
+<div
+  class="chat-input"
+  class:drop-active={promptDropActive}
+  style="height: {inputHeight}px;"
+  ondragenter={onPromptDragEnter}
+  ondragover={onPromptDragOver}
+  ondragleave={onPromptDragLeave}
+  ondrop={onPromptDrop}
+>
   <button
     type="button"
     class="v-resize-handle"
@@ -827,11 +836,6 @@
       bind:this={textarea}
       bind:value={promptText}
       onkeydown={handleKeydown}
-      ondragenter={onPromptDragEnter}
-      ondragover={onPromptDragOver}
-      ondragleave={onPromptDragLeave}
-      ondrop={onPromptDrop}
-      class:drop-active={promptDropActive}
       readonly={improving}
       placeholder={"Type a message or prompt... (Shift+Enter to chat, Ctrl+Shift+Enter to queue)"}
     ></textarea>
@@ -1091,7 +1095,7 @@
     line-height: 1.4;
     min-height: 0;
   }
-  .input-row textarea.drop-active {
+  .chat-input.drop-active .input-row textarea {
     border-color: var(--accent);
     box-shadow: 0 0 0 1px var(--accent);
   }
