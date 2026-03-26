@@ -70,13 +70,27 @@ class BridgeContextState {
     return result;
   }
 
-  /** Handle bridge_context_sync (full state on connect) */
+  /** Handle bridge_context_sync — merges incoming bridges into current state */
   sync(bridges: BridgeContextEntry[]) {
-    const next = new Map<string, BridgeContextEntry>();
+    const next = new Map(this.bridges);
     for (const b of bridges) {
-      next.set(b.bridgeId, b);
+      const existing = next.get(b.bridgeId);
+      if (existing) {
+        next.set(b.bridgeId, {
+          ...existing,
+          ...b,
+          editorContext: b.editorContext ?? existing.editorContext,
+          files: b.files.length > 0 ? b.files : existing.files,
+        });
+      } else {
+        next.set(b.bridgeId, b);
+      }
     }
     this.bridges = next;
+    // Clear aliases for bridges that got re-indexed
+    for (const b of bridges) {
+      this.clearBridgeAliases(b.bridgeId);
+    }
   }
 
   /** Handle bridge_context_item_add */

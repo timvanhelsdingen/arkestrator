@@ -189,6 +189,12 @@ export function handleMessage(
       case "bridge_editor_context":
         handleBridgeEditorContext(ws, msg, deps);
         break;
+      case "client_context_item_remove":
+        handleClientContextItemRemove(ws, msg, deps);
+        break;
+      case "client_context_items_clear":
+        handleClientContextItemsClear(ws, msg, deps);
+        break;
       case "client_tool_request":
         if (ws.data.type !== "client") {
           errorReply(ws, "FORBIDDEN", "Only clients can send tool requests", msg.id);
@@ -725,9 +731,10 @@ function handleBridgeContextItemAdd(
     return;
   }
 
-  deps.hub.addBridgeContextItem(ws.data.id, msg.payload.item);
+  // Server assigns the index so numbering stays sequential after removals.
+  const serverItem = deps.hub.addBridgeContextItem(ws.data.id, msg.payload.item);
 
-  // Relay to all clients with bridge identity enrichment
+  // Relay to all clients with bridge identity enrichment and server-assigned index
   deps.hub.broadcastToType("client", {
     type: "bridge_context_item_add",
     id: newId(),
@@ -735,11 +742,11 @@ function handleBridgeContextItemAdd(
       bridgeId: ws.data.id,
       bridgeName: ws.data.name ?? ws.data.id,
       program: ws.data.program,
-      item: msg.payload.item,
+      item: serverItem,
     },
   });
 
-  logger.info("handler", `Bridge context item from ${ws.data.id}: @${msg.payload.item.index} ${msg.payload.item.name}`);
+  logger.info("handler", `Bridge context item from ${ws.data.id}: @${serverItem.index} ${serverItem.name}`);
 }
 
 function handleBridgeContextClear(
@@ -764,6 +771,79 @@ function handleBridgeContextClear(
   });
 
   logger.info("handler", `Bridge context cleared: ${ws.data.id}`);
+}
+
+function handleClientContextItemRemove(
+  ws: ServerWebSocket<WsData>,
+  msg: { id: string; payload: { bridgeId: string; itemIndex: number } },
+  deps: HandlerDeps,
+) {
+  if (ws.data.type !== "client") {
+    errorReply(ws, "NOT_CLIENT", "Only clients can remove context items", msg.id);
+    return;
+  }
+
+  const updatedItems = deps.hub.removeBridgeContextItem(msg.payload.bridgeId, msg.payload.itemIndex);
+  if (!updatedItems) return;
+
+  // Broadcast re-indexed context sync to all clients
+  const bridgeWs = deps.hub.getConnection(msg.payload.bridgeId);
+  const bridgeName = bridgeWs?.data.name ?? msg.payload.bridgeId;
+  const program = bridgeWs?.data.program ?? "";
+  const ctx = deps.hub.getBridgeContext(msg.payload.bridgeId);
+
+  deps.hub.broadcastToType("client", {
+    type: "bridge_context_sync",
+    id: newId(),
+    payload: {
+      bridges: [{
+        bridgeId: msg.payload.bridgeId,
+        bridgeName,
+        program,
+        items: updatedItems,
+        editorContext: ctx?.editorContext,
+        files: ctx?.files ?? [],
+      }],
+    },
+  });
+
+  logger.info("handler", `Client removed context item @${msg.payload.itemIndex} from bridge ${msg.payload.bridgeId}`);
+}
+
+function handleClientContextItemsClear(
+  ws: ServerWebSocket<WsData>,
+  msg: { id: string; payload: { bridgeId: string } },
+  deps: HandlerDeps,
+) {
+  if (ws.data.type !== "client") {
+    errorReply(ws, "NOT_CLIENT", "Only clients can clear context items", msg.id);
+    return;
+  }
+
+  deps.hub.clearBridgeContextItems(msg.payload.bridgeId);
+
+  // Broadcast cleared state to all clients
+  const bridgeWs = deps.hub.getConnection(msg.payload.bridgeId);
+  const bridgeName = bridgeWs?.data.name ?? msg.payload.bridgeId;
+  const program = bridgeWs?.data.program ?? "";
+  const ctx = deps.hub.getBridgeContext(msg.payload.bridgeId);
+
+  deps.hub.broadcastToType("client", {
+    type: "bridge_context_sync",
+    id: newId(),
+    payload: {
+      bridges: [{
+        bridgeId: msg.payload.bridgeId,
+        bridgeName,
+        program,
+        items: [],
+        editorContext: ctx?.editorContext,
+        files: ctx?.files ?? [],
+      }],
+    },
+  });
+
+  logger.info("handler", `Client cleared context items for bridge ${msg.payload.bridgeId}`);
 }
 
 function handleBridgeEditorContext(

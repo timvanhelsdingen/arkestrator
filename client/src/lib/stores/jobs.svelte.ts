@@ -104,6 +104,39 @@ class JobsState {
     this.listStructureVersion++;
   }
 
+  // --- Archive / Trash ---
+
+  viewMode = $state<"active" | "archived" | "trash">("active");
+  archivedJobs = $state<Job[]>([]);
+  archivedTotal = $state(0);
+  trashedJobs = $state<Job[]>([]);
+  trashedTotal = $state(0);
+
+  replaceArchived(jobList: Job[], total: number) {
+    this.archivedJobs = jobList;
+    this.archivedTotal = total;
+  }
+
+  replaceTrashed(jobList: Job[], total: number) {
+    this.trashedJobs = jobList;
+    this.trashedTotal = total;
+  }
+
+  removeFromActive(jobId: string) {
+    this.all = this.all.filter((j) => j.id !== jobId);
+    this.listStructureVersion++;
+  }
+
+  removeFromArchived(jobId: string) {
+    this.archivedJobs = this.archivedJobs.filter((j) => j.id !== jobId);
+    this.archivedTotal = Math.max(0, this.archivedTotal - 1);
+  }
+
+  removeFromTrashed(jobId: string) {
+    this.trashedJobs = this.trashedJobs.filter((j) => j.id !== jobId);
+    this.trashedTotal = Math.max(0, this.trashedTotal - 1);
+  }
+
   setInterventions(jobId: string, items: JobIntervention[]) {
     this.interventionMap.set(jobId, [...items]);
     this.interventionVersion++;
