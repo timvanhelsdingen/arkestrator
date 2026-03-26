@@ -7,6 +7,7 @@ import type { UsersRepo } from "../db/users.repo.js";
 import type { ApiKeysRepo } from "../db/apikeys.repo.js";
 import type { SettingsRepo } from "../db/settings.repo.js";
 import type { WorkersRepo } from "../db/workers.repo.js";
+import type { JobsRepo } from "../db/jobs.repo.js";
 import type { WebSocketHub } from "../ws/hub.js";
 import type { Config } from "../config.js";
 import { getAuthPrincipal } from "../middleware/auth.js";
@@ -42,6 +43,7 @@ interface ChatDeps {
   apiKeysRepo: ApiKeysRepo;
   settingsRepo: SettingsRepo;
   workersRepo: WorkersRepo;
+  jobsRepo: JobsRepo;
   hub: WebSocketHub;
   config: Config;
   chatSessions: CodexChatSessionManager;
@@ -59,6 +61,7 @@ const ChatRequestSchema = z.object({
   conversationKey: z.string().trim().min(1).max(200).optional(),
   runtimeOptions: z.unknown().optional(),
   targetWorkerName: z.string().trim().optional(),
+  jobIds: z.array(z.string()).max(20).optional(),
 });
 
 export function createChatRoutes(deps: ChatDeps) {
@@ -96,6 +99,7 @@ export function createChatRoutes(deps: ChatDeps) {
         conversationKey?: string;
         runtimeOptions?: JobRuntimeOptions;
         targetWorkerName?: string;
+        jobIds?: string[];
       };
 
       const runtimeOptions = normalizeJobRuntimeOptions(body.runtimeOptions);
@@ -201,6 +205,28 @@ export function createChatRoutes(deps: ChatDeps) {
       bridgeContext = "\n\nNo bridges are currently connected.";
     }
 
+    // Build job context for recent jobs in this conversation
+    let jobContext = "";
+    if (!improveMode && Array.isArray(body.jobIds) && body.jobIds.length > 0) {
+      const summaries: string[] = [];
+      for (const jobId of body.jobIds.slice(-10)) {
+        try {
+          const job = deps.jobsRepo.getById(jobId);
+          if (!job) continue;
+          const id = `#${job.id.slice(0, 8)}`;
+          const prompt = (job.prompt ?? "").replace(/\s+/g, " ").trim().slice(0, 80);
+          const changes = Array.isArray(job.result) ? `${job.result.length} file change${job.result.length !== 1 ? "s" : ""}` : "";
+          const commands = Array.isArray(job.commands) ? `${job.commands.length} command${job.commands.length !== 1 ? "s" : ""}` : "";
+          const err = job.error ? `error: ${job.error.slice(0, 100)}` : "";
+          const parts = [id, job.status, `"${prompt}"`, changes, commands, err].filter(Boolean);
+          summaries.push(`  - ${parts.join(" | ")}`);
+        } catch { /* skip bad IDs */ }
+      }
+      if (summaries.length > 0) {
+        jobContext = `\n\nRecent jobs in this conversation:\n${summaries.join("\n")}`;
+      }
+    }
+
     switch (effectiveConfig.engine) {
       case "claude-code":
         const claudeRuntime = getClaudeRuntimeDecision();
@@ -209,7 +235,7 @@ export function createChatRoutes(deps: ChatDeps) {
           args.push(CLAUDE_SKIP_PERMISSIONS_FLAG);
         }
         if (effectiveConfig.model) args.push("--model", effectiveConfig.model);
-        args.push("--max-turns", "2", "--tools", "");
+        args.push("--max-turns", "1", "--tools", "");
         args.push(
           "--system-prompt",
           improveMode
@@ -225,8 +251,12 @@ export function createChatRoutes(deps: ChatDeps) {
               "YOUR role here is chat-only: answer conversationally, help refine prompts, suggest approaches. " +
               "Do NOT create, edit, or delete any files. Do NOT use any tools. Just respond with text. " +
               "When the user asks you to write a prompt, write it so they can copy-paste it into the prompt " +
-              "box and submit it as a job. Make prompts detailed and actionable for the agent that will execute them." +
-              bridgeContext
+              "box and submit it as a job. Make prompts detailed and actionable for the agent that will execute them. " +
+              "You can see summaries of recent jobs below. Use them to answer questions about what was done, " +
+              "whether jobs succeeded or failed, what errors occurred, what files changed, and what commands ran. " +
+              "If the user wants to send guidance to a running job, suggest they use the guidance composer in the Jobs page." +
+              bridgeContext +
+              jobContext
             ),
         );
         args.push("-p", fullPrompt);
@@ -252,7 +282,7 @@ export function createChatRoutes(deps: ChatDeps) {
             "If the user already provided task text, do not ask them to paste it again.",
             "Keep the response concise and actionable.",
           ].join(" ");
-        const codexPrompt = `${codexChatInstructions}${bridgeContext}\n\nUser request:\n${fullPrompt}`;
+        const codexPrompt = `${codexChatInstructions}${bridgeContext}${jobContext}\n\nUser request:\n${fullPrompt}`;
         args.push(
           encodeCodexPromptArg(codexPrompt),
         );
@@ -372,6 +402,10 @@ export function createChatRoutes(deps: ChatDeps) {
     if (effectiveConfig.engine === "local-oss" && ollamaHttpBaseUrl) {
       const chatModel = effectiveConfig.model ?? "llama3.2:latest";
       const chatMessages: OllamaChatMessage[] = [];
+
+      // System context with bridge/job info
+      const systemContext = `You are a chat assistant inside the Arkestrator desktop client. Answer conversationally and help the user plan work.${bridgeContext}${jobContext}`;
+      chatMessages.push({ role: "system", content: systemContext });
 
       // Include conversation history if provided
       if (body.history?.length) {

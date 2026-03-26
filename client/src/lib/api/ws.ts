@@ -452,7 +452,6 @@ function dispatch(msg: any) {
             role: "system",
             content,
             timestamp: new Date().toISOString(),
-            jobId: job.id,
           });
         }
       }
@@ -475,7 +474,6 @@ function dispatch(msg: any) {
             role: "system",
             content: `Operator note ${state}: ${intervention.text}`,
             timestamp: new Date().toISOString(),
-            jobId: msg.payload.jobId,
           });
         }
       }
