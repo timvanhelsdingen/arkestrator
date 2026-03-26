@@ -2,6 +2,7 @@
   import { chatStore, type ChatMessage } from "../../stores/chat.svelte";
   import { jobs } from "../../stores/jobs.svelte";
   import Badge from "../ui/Badge.svelte";
+  import MarkdownRenderer from "./MarkdownRenderer.svelte";
   import { timeAgo } from "../../utils/format";
 
   let { messages, jobIds }: { messages: ChatMessage[]; jobIds: string[] } = $props();
@@ -56,6 +57,19 @@
     return jobs.getLogText(jobId);
   }
 
+  // Dedup: only show a job card for the first system message with a given jobId
+  let firstJobCardMsgIds = $derived.by(() => {
+    const seen = new Set<string>();
+    const result = new Set<string>();
+    for (const msg of messages) {
+      if (msg.jobId && !seen.has(msg.jobId)) {
+        seen.add(msg.jobId);
+        result.add(msg.id);
+      }
+    }
+    return result;
+  });
+
   // Show a pulsing "Working..." indicator when any tracked job is still active
   let hasActiveJob = $derived(
     jobIds.some((id) => {
@@ -81,7 +95,7 @@
         <div class="system-line">
           <div class="system-content">
             <span class="system-text">{msg.content}</span>
-            {#if msg.jobId}
+            {#if msg.jobId && firstJobCardMsgIds.has(msg.id)}
               {@const job = getJob(msg.jobId)}
               {#if job}
                 <div class="job-status-row">
@@ -149,7 +163,7 @@
               {#if !msg.content}
                 <span class="thinking">Thinking...</span>
               {:else}
-                <pre class="assistant-text">{msg.content}</pre>
+                <MarkdownRenderer content={msg.content} />
               {/if}
             {/if}
           </div>

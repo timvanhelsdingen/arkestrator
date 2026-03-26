@@ -428,6 +428,7 @@ export const api = {
         bridgePrograms?: string[];
         conversationKey?: string;
         runtimeOptions?: JobRuntimeOptions;
+        jobIds?: string[];
       },
       onChunk: (text: string) => void,
     ): Promise<string> => {

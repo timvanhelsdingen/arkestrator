@@ -98,6 +98,7 @@
           history,
           conversationKey: tab.conversationKey,
           runtimeOptions: resolvedRuntimeOptions ?? tab.runtimeOptions,
+          jobIds: tab.jobIds.slice(-20),
         },
         (chunk) => {
           appendAssistantChunk(chunk);

@@ -183,6 +183,7 @@ export function createApp(deps: AppDeps) {
       apiKeysRepo: deps.apiKeysRepo,
       settingsRepo: deps.settingsRepo,
       workersRepo: deps.workersRepo,
+      jobsRepo: deps.jobsRepo,
       hub: deps.hub,
       config: deps.config,
       chatSessions,
