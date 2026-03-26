@@ -60,6 +60,7 @@
     && connection.isAuthenticated
     && !connection.pendingForcedSetup
     && !connection.pendingWizard
+    && wizard.isComplete
   );
 
   $effect(() => {
@@ -154,6 +155,8 @@
       // Only clear persisted session on explicit auth failures.
       if (msg.startsWith("401:") || msg.startsWith("403:")) {
         connection.clearSession();
+        // Also reset wizard so a wiped DB triggers the full first-time experience
+        wizard.reset();
         booting = false;
         return;
       }

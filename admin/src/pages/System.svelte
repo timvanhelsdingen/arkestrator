@@ -169,7 +169,7 @@
               <h4>Factory Reset</h4>
               <p>
                 Wipe all server data including jobs, sessions, API keys, agent configs, policies, workers, and audit logs.
-                Your admin account will be preserved. All other users will be deleted.
+                All users will be deleted and a default admin account will be re-created.
               </p>
             </div>
             <button class="btn-danger" onclick={() => showResetModal = true}>Factory Reset</button>
@@ -186,7 +186,7 @@
   <div class="overlay" onclick={closeModal}>
     <div class="dialog" onclick={(e) => e.stopPropagation()}>
       <h3>Factory Reset</h3>
-      <p class="warning">This action is irreversible. All server data will be permanently deleted except your admin account.</p>
+      <p class="warning">This action is irreversible. All server data will be permanently deleted. A default admin account (admin/admin) will be re-created.</p>
       <div class="form-group">
         <label>
           Admin Password

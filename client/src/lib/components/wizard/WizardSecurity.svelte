@@ -61,23 +61,30 @@
   async function autoLogin() {
     autoLoginAttempted = true;
     autoLoginError = "";
+
+    // Wait a moment for the server to fully initialize
+    await new Promise((r) => setTimeout(r, 1500));
+
+    // Set connection URL
+    connection.url = serverState.localUrl;
+
+    // Default bootstrap credentials — server creates admin/admin on first run
+    const username = "admin";
+    const password = "admin";
+
+    wizard.bootstrapUsername = username;
+    wizard.bootstrapPassword = password;
+
+    // Cache machine identity (don't let this block login)
     try {
-      // Wait a beat for the server to fully initialize
-      await new Promise((r) => setTimeout(r, 1000));
-
-      // Set connection URL
-      connection.url = serverState.localUrl;
-
-      // Read bootstrap credentials from file
-      const creds = await invoke<{ username: string; password: string }>("read_bootstrap_credentials");
-      wizard.bootstrapUsername = creds.username;
-      wizard.bootstrapPassword = creds.password;
-
-      // Cache machine identity before login
       await initMachineIdentity();
+    } catch {
+      // Non-critical — continue with login
+    }
 
-      // Login with bootstrap credentials
-      const result = await api.auth.login(creds.username, creds.password);
+    // Login with bootstrap credentials
+    try {
+      const result = await api.auth.login(username, password);
 
       // Store session
       connection.sessionToken = result.token;
@@ -100,7 +107,6 @@
       wizard.securitySubStep = "change-password";
     } catch (err: any) {
       autoLoginError = err?.message || "Auto-login failed";
-      // Still show password change — user can manually enter creds via Setup later
     }
   }
 
@@ -119,8 +125,8 @@
       passwordError = "Passwords do not match";
       return;
     }
-    if (newPassword.length < 12) {
-      passwordError = "Password must be at least 12 characters";
+    if (newPassword.length < 8) {
+      passwordError = "Password must be at least 8 characters";
       return;
     }
     passwordError = "";
@@ -128,9 +134,7 @@
     try {
       await api.auth.changePassword(wizard.bootstrapPassword, newPassword, confirmPassword);
       wizard.passwordChanged = true;
-      wizard.securitySubStep = "totp-setup";
-      // Start TOTP setup flow automatically
-      void startTotpSetup();
+      wizard.securitySubStep = "totp-prompt";
     } catch (err: any) {
       passwordError = err?.message || "Failed to change password";
     } finally {
@@ -247,7 +251,7 @@
         <input
           type="password"
           bind:value={newPassword}
-          placeholder="Min 12 characters"
+          placeholder="Min 8 characters"
           autocomplete="new-password"
           disabled={changingPassword}
         />
@@ -272,12 +276,28 @@
       </div>
     </form>
 
+  {:else if wizard.securitySubStep === "totp-prompt"}
+    <!-- 2FA choice screen -->
+    <h3>Two-Factor Authentication</h3>
+    <p class="description">
+      Would you like to set up two-factor authentication? This adds an extra layer of security to your account using an authenticator app.
+    </p>
+    <p class="description recommended">🔒 Recommended for production use</p>
+    <div class="actions totp-choice">
+      <button class="btn primary" onclick={() => { wizard.securitySubStep = "totp-setup"; void startTotpSetup(); }}>
+        Set Up 2FA
+      </button>
+      <button class="btn secondary" onclick={skipTotp}>
+        Skip for Now
+      </button>
+    </div>
+
   {:else if wizard.securitySubStep === "totp-setup"}
-    <!-- TOTP setup (optional) -->
+    <!-- TOTP setup -->
     {#if totpStep === 1}
       <h3>Two-Factor Authentication</h3>
       <p class="description">
-        Protect your account with an authenticator app. This step is optional but recommended.
+        Scan the QR code with your authenticator app (Google Authenticator, Authy, etc).
       </p>
       {#if totpLoading}
         <div class="spinner-row">
@@ -409,6 +429,20 @@
     padding: 6px 10px;
     background: rgba(244, 71, 71, 0.1);
     border-radius: var(--radius-sm);
+  }
+  .recommended {
+    color: var(--accent);
+    font-weight: 500;
+    font-size: var(--font-size-sm);
+  }
+  .totp-choice {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    margin-top: 8px;
+  }
+  .totp-choice .btn {
+    text-align: center;
   }
   .actions {
     display: flex;

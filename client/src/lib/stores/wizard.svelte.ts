@@ -10,10 +10,21 @@ interface WizardCompletion {
 export type WizardMode = "local" | "remote" | "";
 
 /** Sub-steps within the "Security" visible step (local path) */
-export type SecuritySubStep = "starting" | "logging-in" | "change-password" | "totp-setup";
+export type SecuritySubStep = "starting" | "logging-in" | "change-password" | "totp-prompt" | "totp-setup";
 
 /** Sub-steps within the "Connect" visible step (remote path) */
 export type ConnectSubStep = "url" | "login" | "totp";
+
+function readCompletionFromStorage(): boolean {
+  try {
+    const raw = localStorage.getItem(WIZARD_COMPLETE_KEY);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw) as WizardCompletion;
+    return parsed?.version === 1 && !!parsed?.completedAt;
+  } catch {
+    return false;
+  }
+}
 
 class WizardState {
   currentStep = $state(0);
@@ -35,20 +46,16 @@ class WizardState {
   /** Connect step tracking (remote path) */
   connectSubStep = $state<ConnectSubStep>("url");
 
+  /** Reactive completion flag — synced with localStorage */
+  private _complete = $state(readCompletionFromStorage());
+
   /** Backward compat */
   get isLocal(): boolean {
     return this.mode === "local";
   }
 
   get isComplete(): boolean {
-    try {
-      const raw = localStorage.getItem(WIZARD_COMPLETE_KEY);
-      if (!raw) return false;
-      const parsed = JSON.parse(raw) as WizardCompletion;
-      return parsed?.version === 1 && !!parsed?.completedAt;
-    } catch {
-      return false;
-    }
+    return this._complete;
   }
 
   get steps(): string[] {
@@ -79,6 +86,7 @@ class WizardState {
       version: 1,
     };
     localStorage.setItem(WIZARD_COMPLETE_KEY, JSON.stringify(payload));
+    this._complete = true;
     connection.pendingWizard = false;
   }
 
@@ -97,6 +105,7 @@ class WizardState {
     this.passwordChanged = false;
     this.totpSetupDone = false;
     this.connectSubStep = "url";
+    this._complete = false;
   }
 }
 

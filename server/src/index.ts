@@ -353,10 +353,7 @@ async function main() {
   const firstRun = usersRepo.isEmpty();
   if (firstRun) {
     const bootstrapUsername = process.env.BOOTSTRAP_ADMIN_USERNAME?.trim() || "admin";
-    const bootstrapPasswordEnv = process.env.BOOTSTRAP_ADMIN_PASSWORD?.trim();
-    const bootstrapPassword = bootstrapPasswordEnv && bootstrapPasswordEnv.length >= 12
-      ? bootstrapPasswordEnv
-      : generateBootstrapSecret(24);
+    const bootstrapPassword = process.env.BOOTSTRAP_ADMIN_PASSWORD?.trim() || "admin";
 
     await usersRepo.create(bootstrapUsername, bootstrapPassword, "admin");
     const credentialsPath = writeBootstrapCredentials(
@@ -370,6 +367,8 @@ async function main() {
     logger.info("server", `  Credentials written to: ${credentialsPath}`);
     logger.info("server", "Rotate this bootstrap password after first login.");
     logger.info("server", "=".repeat(60));
+    // Emit machine-readable bootstrap line for client auto-login (via logger so it matches stdout format)
+    logger.info("bootstrap", `BOOTSTRAP_CREDENTIALS:${bootstrapUsername}:${bootstrapPassword}`);
   }
 
   if (apiKeysRepo.isEmpty()) {

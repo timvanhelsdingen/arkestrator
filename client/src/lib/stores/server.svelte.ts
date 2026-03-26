@@ -68,6 +68,10 @@ class ServerState {
   dataDir = $state("");
   port = $state(loadSavedPort());
 
+  /** Bootstrap credentials captured from server stdout on first run */
+  bootstrapUsername = $state("");
+  bootstrapPassword = $state("");
+
   private child: Child | null = null;
   private maxLogLines = 500;
   private monitorTimer: ReturnType<typeof setInterval> | null = null;
@@ -185,10 +189,22 @@ class ServerState {
       }
 
       const command = import.meta.env.DEV
-        ? this.createDevCommand()
+        ? await this.createDevCommand()
         : await this.createSidecarCommand();
 
       command.stdout.on("data", (line) => {
+        // Capture bootstrap credentials from server first-run output
+        // Format: "2026-... [INFO] [bootstrap] BOOTSTRAP_CREDENTIALS:username:password"
+        const bootstrapIdx = line.indexOf("BOOTSTRAP_CREDENTIALS:");
+        if (bootstrapIdx !== -1) {
+          const payload = line.slice(bootstrapIdx + "BOOTSTRAP_CREDENTIALS:".length);
+          const colonIdx = payload.indexOf(":");
+          if (colonIdx > 0) {
+            this.bootstrapUsername = payload.slice(0, colonIdx);
+            this.bootstrapPassword = payload.slice(colonIdx + 1);
+          }
+          return; // Don't log the credentials
+        }
         this.appendLog(line);
         // Only mark as running when server is actually listening for connections
         if (this.status === "starting" && line.includes("Server listening")) {
@@ -273,10 +289,11 @@ class ServerState {
   }
 
   /** Dev mode: run server source via Bun */
-  private createDevCommand() {
+  private async createDevCommand() {
+    const dataPath = await this.ensureDataDir();
     return Command.create("bun", ["src/index.ts"], {
       cwd: __DEV_SERVER_DIR__,
-      env: { PORT: String(this.port) },
+      env: { PORT: String(this.port), DATA_DIR: dataPath + "/data" },
     });
   }
 

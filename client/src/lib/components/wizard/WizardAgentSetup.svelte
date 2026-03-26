@@ -37,45 +37,51 @@
   let cliAuth = $state<CliAuthState[]>([]);
   let selected = $state<Set<string>>(new Set());
   let loading = $state(true);
+  let loadingAuth = $state(true);
   let creating = $state(false);
   let error = $state("");
   let createdIds = $state<Set<string>>(new Set());
   let expandedTemplate = $state<string | null>(null);
 
+  function autoSelectFromAuth() {
+    const existingEngines = new Set(existingConfigs.map((c: any) => c.engine));
+    const next = new Set(selected);
+    for (const tpl of templates) {
+      if (tpl.engine === "local-oss") continue;
+      if (!existingEngines.has(tpl.engine)) {
+        const auth = cliAuth.find((a) => a.provider === tpl.engine);
+        if (auth?.authenticated) {
+          next.add(tpl.id);
+        }
+      }
+    }
+    selected = next;
+  }
+
   onMount(async () => {
     try {
+      // Load templates + existing configs first (fast)
       const [tplRes, configRes] = await Promise.all([
         api.agents.templates(),
         api.agents.list(),
       ]);
       templates = (tplRes as any)?.templates ?? tplRes ?? [];
       existingConfigs = (configRes as any)?.configs ?? configRes ?? [];
-
-      // Try fetching CLI auth status (may fail if user doesn't have manageAgents)
-      try {
-        const authRes = await api.agents.cliAuthStatus();
-        cliAuth = (authRes as any)?.providers ?? [];
-      } catch {
-        // Non-admin users won't have access — that's fine
-      }
-
-      // Pre-select templates that don't already have a config
-      const existingEngines = new Set(existingConfigs.map((c: any) => c.engine));
-      for (const tpl of templates) {
-        // Skip local model templates from auto-select
-        if (tpl.engine === "local-oss") continue;
-        if (!existingEngines.has(tpl.engine)) {
-          // Check if CLI auth says this provider is authenticated
-          const auth = cliAuth.find((a) => a.provider === tpl.engine);
-          if (auth?.authenticated) {
-            selected.add(tpl.id);
-          }
-        }
-      }
     } catch (err: any) {
       error = `Failed to load templates: ${err.message}`;
     } finally {
       loading = false;
+    }
+
+    // Fetch CLI auth status in background (slow — spawns subprocesses)
+    try {
+      const authRes = await api.agents.cliAuthStatus();
+      cliAuth = (authRes as any)?.providers ?? [];
+      autoSelectFromAuth();
+    } catch {
+      // Non-admin users won't have access — that's fine
+    } finally {
+      loadingAuth = false;
     }
   });
 
@@ -176,9 +182,11 @@
               {:else if alreadyExists}
                 <span class="badge exists">Already configured</span>
               {/if}
-              {#if auth}
+              {#if loadingAuth && tpl.engine !== "local-oss"}
+                <span class="badge checking"><span class="spinner-tiny"></span> Checking</span>
+              {:else if auth}
                 <span class="badge" class:authed={auth.authenticated} class:unauthed={!auth.authenticated}>
-                  {auth.authenticated ? "Authenticated" : "Needs login"}
+                  {auth.authenticated ? `✓ ${auth.user || "Authenticated"}` : "Needs login"}
                 </span>
               {/if}
             </div>
@@ -354,6 +362,25 @@
   .badge.unauthed {
     background: rgba(250, 204, 21, 0.15);
     color: #facc15;
+  }
+  .badge.checking {
+    background: var(--bg-hover);
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .spinner-tiny {
+    width: 10px;
+    height: 10px;
+    border: 1.5px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    flex-shrink: 0;
+  }
+  @keyframes spin {
+    to { transform: rotate(360deg); }
   }
   .expand-btn {
     font-size: 11px;
