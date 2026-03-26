@@ -334,7 +334,7 @@ export function promptRequestsDelegation(
   if (/(multi[-\s]?agent|multiple agents|multiple machin|cross[-\s]?machine|delegate|delegation|sub[-\s]?job|fanout|pipeline|parallel|simultaneous|in parallel|background|meanwhile|while)/i.test(text)) {
     return true;
   }
-  const programs = knownPrograms ?? ["godot", "blender", "houdini", "comfyui", "unity", "unreal"];
+  const programs = knownPrograms ?? ["godot", "blender", "houdini", "comfyui", "unity", "unreal", "nuke", "fusion"];
   const bridgeMentions = programs
     .filter((program) => new RegExp(`\\b${program}\\b`, "i").test(text));
   if (bridgeMentions.length >= 2) return true;

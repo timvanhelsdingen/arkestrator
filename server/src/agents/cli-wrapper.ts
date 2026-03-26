@@ -55,7 +55,7 @@ function takeOption(args, names) {
 
 function inferLanguage(target, explicit) {
   if (explicit) return explicit;
-  return { godot: "gdscript", blender: "python", houdini: "python", comfyui: "python", unreal: "python" }[target] || "python";
+  return { godot: "gdscript", blender: "python", houdini: "python", comfyui: "python", unreal: "python", nuke: "python", fusion: "python" }[target] || "python";
 }
 
 function readJsonFile(filePath) {
