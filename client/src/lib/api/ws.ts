@@ -486,6 +486,7 @@ function dispatch(msg: any) {
       break;
     case "agent_config_list_response":
       agents.all = msg.payload.configs;
+      chatStore.backfillDefaultAgent();
       break;
     case "bridge_status":
       applyBridgeStatus(msg.payload);

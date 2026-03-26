@@ -32,6 +32,15 @@
   let clearDataPassword = $state("");
   let clearDataError = $state("");
   let clearDataBusy = $state(false);
+  let wipeServerData = $state(false);
+  let exportingSnapshot = $state(false);
+  let exportSnapshotDone = $state(false);
+
+  // Only show server wipe option for local admin users
+  const isLocalAdmin = $derived(
+    connection.userRole === "admin" &&
+    (connection.serverMode === "local" || isLoopbackUrl(connection.url))
+  );
 
   // Update section
   let currentVersion = $state("");
@@ -199,6 +208,25 @@
     }
   }
 
+  async function exportServerSnapshot() {
+    exportingSnapshot = true;
+    try {
+      const snapshot = await api.settings.exportConfigSnapshot(true);
+      const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `arkestrator-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      exportSnapshotDone = true;
+    } catch (err: any) {
+      clearDataError = `Export failed: ${err?.message ?? err}`;
+    } finally {
+      exportingSnapshot = false;
+    }
+  }
+
   async function clearAllLocalData() {
     if (!clearDataPassword) {
       clearDataError = "Password is required";
@@ -213,6 +241,18 @@
       clearDataBusy = false;
       return;
     }
+
+    // Optionally wipe server data first (factory reset)
+    if (wipeServerData) {
+      try {
+        await api.settings.factoryReset(clearDataPassword);
+      } catch (err: any) {
+        clearDataError = `Server reset failed: ${err?.message ?? err}`;
+        clearDataBusy = false;
+        return;
+      }
+    }
+
     disconnect();
     const keysToRemove = [];
     for (let i = 0; i < localStorage.length; i++) {
@@ -369,7 +409,7 @@
   {#if showClearDataModal}
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="modal-overlay" onclick={() => { showClearDataModal = false; clearDataPassword = ""; clearDataError = ""; }}>
+    <div class="modal-overlay" onclick={() => { showClearDataModal = false; clearDataPassword = ""; clearDataError = ""; wipeServerData = false; exportSnapshotDone = false; }}>
       <div class="modal-dialog" onclick={(e) => e.stopPropagation()}>
         <h3>Clear All Local Data</h3>
         <p>This will permanently delete all locally stored data and sign you out. Enter your password to confirm.</p>
@@ -383,14 +423,31 @@
               onkeydown={(e) => { if (e.key === "Enter") clearAllLocalData(); }}
             />
           </label>
+          {#if isLocalAdmin}
+            <label class="wipe-server-label">
+              <input type="checkbox" bind:checked={wipeServerData} />
+              <span>Also wipe local server data (factory reset)</span>
+            </label>
+            {#if wipeServerData}
+              <p class="wipe-server-warning">⚠ This will delete all jobs, agents, settings, and users (except your account) from the server database. This cannot be undone.</p>
+              <div class="export-before-wipe">
+                <button class="btn secondary" onclick={exportServerSnapshot} disabled={exportingSnapshot || exportSnapshotDone}>
+                  {exportingSnapshot ? "Exporting..." : exportSnapshotDone ? "✓ Exported" : "Export Backup First"}
+                </button>
+                {#if exportSnapshotDone}
+                  <span class="export-hint">Backup saved to your downloads folder</span>
+                {/if}
+              </div>
+            {/if}
+          {/if}
           {#if clearDataError}
             <span class="result error-text">{clearDataError}</span>
           {/if}
         </div>
         <div class="modal-actions">
-          <button class="btn" onclick={() => { showClearDataModal = false; clearDataPassword = ""; clearDataError = ""; }}>Cancel</button>
+          <button class="btn" onclick={() => { showClearDataModal = false; clearDataPassword = ""; clearDataError = ""; wipeServerData = false; exportSnapshotDone = false; }}>Cancel</button>
           <button class="btn danger" onclick={clearAllLocalData} disabled={clearDataBusy}>
-            {clearDataBusy ? "Clearing..." : "Clear Data"}
+            {clearDataBusy ? "Clearing..." : wipeServerData ? "Clear Data & Reset Server" : "Clear Data"}
           </button>
         </div>
       </div>
@@ -585,5 +642,31 @@
   }
   @media (max-width: 1100px) {
     .prefs-grid { grid-template-columns: 1fr; }
+  }
+  .wipe-server-label {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    margin-top: 4px;
+  }
+  .export-before-wipe {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .export-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-style: italic;
+  }
+  .wipe-server-warning {
+    font-size: 11px;
+    color: var(--status-failed);
+    background: rgba(244, 71, 71, 0.08);
+    border-radius: var(--radius-sm);
+    padding: 8px 10px;
+    line-height: 1.5;
+    margin: 0;
   }
 </style>

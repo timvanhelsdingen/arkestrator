@@ -14,6 +14,7 @@ import type { HeadlessProgramsRepo } from "../db/headless-programs.repo.js";
 import type { WebSocketHub } from "../ws/hub.js";
 import { requireAdmin, requirePermission, getClientIp, getAuthenticatedUser } from "../middleware/auth.js";
 import { errorResponse } from "../utils/errors.js";
+import { logger } from "../utils/logger.js";
 import { newId } from "../utils/id.js";
 import {
   filterCoordinatorSourcePathsByProgram,
@@ -3806,12 +3807,22 @@ export function createSettingsSnapshotsRoutes(deps: SettingsRouteDeps) {
       for (const table of tablesToClear) {
         db.exec(`DELETE FROM ${table}`);
       }
-      // Delete all users except the one performing the reset
-      db.prepare("DELETE FROM users WHERE id != ?").run(user.id);
+      // Delete ALL users (including the requesting admin)
+      db.exec("DELETE FROM users");
       db.exec("COMMIT");
     } catch (err: any) {
       db.exec("ROLLBACK");
       return errorResponse(c, 500, `Factory reset failed: ${err?.message ?? err}`, "INTERNAL_ERROR");
+    }
+
+    // Re-create bootstrap admin with default credentials so first-run flow works
+    const bootstrapUsername = process.env.BOOTSTRAP_ADMIN_USERNAME?.trim() || "admin";
+    const bootstrapPassword = process.env.BOOTSTRAP_ADMIN_PASSWORD?.trim() || "admin";
+    try {
+      await usersRepo.create(bootstrapUsername, bootstrapPassword, "admin");
+    } catch (err: any) {
+      // Non-fatal — user table is empty, next server restart will seed it
+      logger.warn("factory-reset", `Failed to re-create bootstrap user: ${err?.message ?? err}`);
     }
 
     return c.json({ ok: true });

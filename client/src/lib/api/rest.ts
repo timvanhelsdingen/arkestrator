@@ -630,6 +630,11 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ snapshot, includeServerFiles }),
       }),
+    factoryReset: (password: string) =>
+      request("/api/settings/factory-reset", {
+        method: "POST",
+        body: JSON.stringify({ password, confirmation: "RESET" }),
+      }),
     getCoordinatorScripts: () => request("/api/settings/coordinator-scripts"),
     setCoordinatorScript: (program: string, content: string) =>
       request(`/api/settings/coordinator-scripts/${program}`, {

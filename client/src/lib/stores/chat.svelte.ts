@@ -6,6 +6,7 @@ import type {
   RuntimeReasoningLevel,
   RuntimeVerificationMode,
 } from "@arkestrator/protocol";
+import { agents } from "./agents.svelte";
 
 // --- Types ---
 
@@ -72,6 +73,14 @@ function loadTabs(): { tabs: ChatTab[]; activeTabId: string } | null {
 
 // --- Store ---
 
+/** Pick the default agent: highest priority (lowest number = highest priority), or first available */
+function getDefaultAgentId(): string {
+  const all = agents.all;
+  if (all.length === 0) return "";
+  const sorted = [...all].sort((a, b) => (a.priority ?? 999) - (b.priority ?? 999));
+  return sorted[0].id;
+}
+
 function createTab(name: string): ChatTab {
   return {
     id: crypto.randomUUID(),
@@ -79,7 +88,7 @@ function createTab(name: string): ChatTab {
     name,
     messages: [],
     jobIds: [],
-    agentConfigId: "",
+    agentConfigId: getDefaultAgentId(),
     priority: "normal",
     startPaused: false,
     selectedWorkerNames: [],
@@ -335,6 +344,23 @@ class ChatState {
     const tab = this.activeTab;
     if (tab) {
       tab.agentConfigId = configId;
+      this.tabs = [...this.tabs];
+      this.persist();
+    }
+  }
+
+  /** Backfill tabs that have no agent selected with the highest-priority agent */
+  backfillDefaultAgent() {
+    const defaultId = getDefaultAgentId();
+    if (!defaultId) return;
+    let changed = false;
+    for (const tab of this.tabs) {
+      if (!tab.agentConfigId) {
+        tab.agentConfigId = defaultId;
+        changed = true;
+      }
+    }
+    if (changed) {
       this.tabs = [...this.tabs];
       this.persist();
     }
