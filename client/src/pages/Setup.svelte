@@ -2,7 +2,6 @@
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { connection } from "../lib/stores/connection.svelte";
-  import { wizard } from "../lib/stores/wizard.svelte";
   import { connect } from "../lib/api/ws";
   import { api } from "../lib/api/rest";
   import {
@@ -261,12 +260,7 @@
     if (result.apiKey) {
       connect(connection.url, result.apiKey);
     }
-    // Trigger first-time wizard if setup hasn't been completed
-    if (!wizard.isComplete) {
-      wizard.reset();
-      wizard.isLocal = connection.serverMode === "local";
-      connection.pendingWizard = true;
-    }
+    // Note: first-time wizard is handled by BootstrapWizard (before Setup is shown)
   }
 
   function openRestorePicker() {

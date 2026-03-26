@@ -1,16 +1,23 @@
 # Arkestrator
 
+## Recent Update (2026-03-26)
+
+- **Unified Bootstrap Wizard**: Complete first-time onboarding flow that merges server connection, authentication, and setup into one seamless wizard. Replaces the old split Setup→StartupWizard flow.
+  - **Local server** (5 steps): Welcome → Security (auto-start server + auto-login with bootstrap credentials + mandatory password change + optional 2FA) → Agents → Bridges → Ready
+  - **Remote server** (4 steps): Welcome → Connect (URL entry + login + optional TOTP) → Bridges → Ready
+  - New Tauri command `read_bootstrap_credentials` reads bootstrap-admin.txt automatically — no manual copy-paste
+  - Password change is mandatory on first local setup (min 12 chars)
+  - 2FA setup is optional but recommended, with inline QR code + recovery codes
+  - Agent setup loading now shows "may take a moment while server starts up" hint
+  - Setup.svelte now only handles returning-user reconnection
+  - New files: `BootstrapWizard.svelte`, `WizardChooseMode.svelte`, `WizardSecurity.svelte`, `WizardConnectRemote.svelte`
+  - `NEXT_SESSION.md` and `LESSONS.md` added to `.gitignore` (removed from tracking)
+
 ## Recent Update (2026-03-25)
 
-- **First-Time Startup Wizard**: Post-login onboarding flow for new users. Two-mode design based on server type:
-  - **Local server** (4 steps): Welcome → Agent Setup (template selection, CLI auth status, one-click config creation) → Bridge Plugins (auto-detect DCCs, batch install) → Ready
-  - **Remote server** (3 steps): Welcome → Bridge Plugins → Ready (skips agent setup — server admin's domain)
-  - `pendingWizard` flag on connection store blocks main app while wizard is active (same pattern as `pendingForcedSetup` for 2FA)
-  - `setupComplete` persisted to localStorage (`arkestrator-setup-complete-v1`) so wizard only shows once
-  - Each step skippable; "Skip Setup" bypasses entire wizard
+- **First-Time Startup Wizard (v1)**: Initial post-login onboarding (now superseded by unified BootstrapWizard above)
   - Agent setup step fetches server templates + CLI auth status, shows selectable cards with onboarding instructions
   - Bridge step auto-fetches registry from GitHub + auto-detects all DCC install paths, batch installs selected
-  - New files: `wizard.svelte.ts` store, `StartupWizard.svelte` page, `wizard/` component directory (Welcome, AgentSetup, Bridges, Done)
   - Client REST API: added `agents.templates()` and `agents.cliAuthStatus()` methods
 
 ## Recent Update (2026-03-24)

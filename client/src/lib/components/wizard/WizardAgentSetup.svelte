@@ -139,7 +139,10 @@
   <p class="subtitle">Select which AI providers you have access to. Agent configs will be created on the server.</p>
 
   {#if loading}
-    <div class="loading">Loading templates...</div>
+    <div class="loading">
+      <p>Loading agent templates...</p>
+      <p class="loading-hint">This may take a moment while the server finishes starting up.</p>
+    </div>
   {:else if error && templates.length === 0}
     <div class="error">{error}</div>
   {:else}
@@ -251,6 +254,15 @@
     color: var(--text-muted);
     text-align: center;
     padding: 24px 0;
+  }
+  .loading p {
+    margin: 0 0 4px;
+  }
+  .loading-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-style: italic;
+    opacity: 0.7;
   }
   .error {
     font-size: 12px;

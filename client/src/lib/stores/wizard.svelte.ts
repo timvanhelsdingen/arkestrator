@@ -7,13 +7,38 @@ interface WizardCompletion {
   version: number;
 }
 
+export type WizardMode = "local" | "remote" | "";
+
+/** Sub-steps within the "Security" visible step (local path) */
+export type SecuritySubStep = "starting" | "logging-in" | "change-password" | "totp-setup";
+
+/** Sub-steps within the "Connect" visible step (remote path) */
+export type ConnectSubStep = "url" | "login" | "totp";
+
 class WizardState {
   currentStep = $state(0);
-  isLocal = $state(false);
+  mode = $state<WizardMode>("");
 
   /** Summary counts set by individual wizard steps */
   agentsCreated = $state(0);
   bridgesInstalled = $state(0);
+
+  /** Bootstrap credentials (auto-read for local path) */
+  bootstrapUsername = $state("");
+  bootstrapPassword = $state("");
+
+  /** Security step tracking */
+  securitySubStep = $state<SecuritySubStep>("starting");
+  passwordChanged = $state(false);
+  totpSetupDone = $state(false);
+
+  /** Connect step tracking (remote path) */
+  connectSubStep = $state<ConnectSubStep>("url");
+
+  /** Backward compat */
+  get isLocal(): boolean {
+    return this.mode === "local";
+  }
 
   get isComplete(): boolean {
     try {
@@ -27,9 +52,9 @@ class WizardState {
   }
 
   get steps(): string[] {
-    return this.isLocal
-      ? ["Welcome", "Agent Setup", "Bridge Plugins", "Ready"]
-      : ["Welcome", "Bridge Plugins", "Ready"];
+    return this.mode === "local"
+      ? ["Welcome", "Security", "Agents", "Bridges", "Ready"]
+      : ["Welcome", "Connect", "Bridges", "Ready"];
   }
 
   get totalSteps(): number {
@@ -63,8 +88,15 @@ class WizardState {
 
   reset() {
     this.currentStep = 0;
+    this.mode = "";
     this.agentsCreated = 0;
     this.bridgesInstalled = 0;
+    this.bootstrapUsername = "";
+    this.bootstrapPassword = "";
+    this.securitySubStep = "starting";
+    this.passwordChanged = false;
+    this.totpSetupDone = false;
+    this.connectSubStep = "url";
   }
 }
 

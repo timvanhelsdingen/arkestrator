@@ -40,6 +40,10 @@ server/.mcp.json
 .claude/settings.local.json
 *.arkestrator-codex-prompt-*.txt
 
+# Session context files (local dev only)
+NEXT_SESSION.md
+LESSONS.md
+
 # Worktrees
 .claude/worktrees/
 nul
