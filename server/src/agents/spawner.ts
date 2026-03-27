@@ -3053,7 +3053,10 @@ function broadcastJobUpdated(deps: SpawnerDeps, jobId: string) {
   // Auto-archive training and housekeeping jobs when they reach a terminal state
   if (TERMINAL_STATUSES.has(job.status) && !job.archivedAt) {
     const meta = job.editorContext?.metadata as Record<string, unknown> | undefined;
-    if (meta?.coordinator_training_job === true || meta?.housekeeping === true) {
+    const isTraining = meta?.coordinator_training_job === true;
+    const isHousekeeping = meta?.housekeeping === true;
+    if (isTraining || isHousekeeping) {
+      logger.info("spawner", `Auto-archiving ${isTraining ? "training" : "housekeeping"} job ${jobId} (status=${job.status})`);
       deps.jobsRepo.archive(jobId);
       job = deps.jobsRepo.getById(jobId) ?? job;
     }

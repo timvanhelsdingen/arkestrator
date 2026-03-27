@@ -298,9 +298,21 @@ function resolveTrainingAgentId(
   return agents[0].id;
 }
 
+const TRAINING_TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled"]);
+
 function broadcastJobUpdated(hub: WebSocketHub, jobsRepo: JobsRepo, jobId: string): void {
-  const job = jobsRepo.getById(jobId);
+  let job = jobsRepo.getById(jobId);
   if (!job) return;
+
+  // Auto-archive training and housekeeping jobs when they reach a terminal state
+  if (TRAINING_TERMINAL_STATUSES.has(job.status) && !job.archivedAt) {
+    const meta = job.editorContext?.metadata as Record<string, unknown> | undefined;
+    if (meta?.coordinator_training_job === true || meta?.housekeeping === true) {
+      jobsRepo.archive(jobId);
+      job = jobsRepo.getById(jobId) ?? job;
+    }
+  }
+
   hub.broadcastToType("client", {
     type: "job_updated",
     id: newId(),
