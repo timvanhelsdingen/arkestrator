@@ -79,6 +79,18 @@
   let detailSkill = $state<SkillEntry | null>(null);
   let playbookContent = $state<Array<{ path: string; content: string | null; error?: string }>>([]);
   let loadingPlaybooks = $state(false);
+  let expandedPlaybooks = $state<Set<string>>(new Set());
+
+  function togglePlaybook(path: string) {
+    const next = new Set(expandedPlaybooks);
+    if (next.has(path)) next.delete(path);
+    else next.add(path);
+    expandedPlaybooks = next;
+  }
+
+  function formatPlaybookContent(raw: string): string {
+    try { return JSON.stringify(JSON.parse(raw), null, 2); } catch { return raw; }
+  }
 
   // Delete confirm
   let confirmDelete = $state<SkillEntry | null>(null);
@@ -340,6 +352,7 @@
 
   async function openDetail(skill: SkillEntry) {
     playbookContent = [];
+    expandedPlaybooks = new Set();
     // Fetch full skill detail (list endpoint returns summary without content/playbooks)
     try {
       const data = await api.skills.get(skill.slug, skill.program || undefined);
@@ -553,24 +566,28 @@
     {#if detailSkill.playbooks?.length > 0}
       <div class="detail-section">
         <strong>Playbook References ({detailSkill.playbooks.length})</strong>
-        <div class="playbook-list">
-          {#each detailSkill.playbooks as pb}
-            <div class="playbook-entry mono">{pb}</div>
-          {/each}
-        </div>
         {#if loadingPlaybooks}
           <p class="muted">Loading playbook content...</p>
         {:else if playbookContent.length > 0}
           {#each playbookContent as pb}
-            <div class="playbook-preview">
-              <div class="playbook-path mono">{pb.path}</div>
+            <div class="playbook-entry">
+              <button class="playbook-toggle" onclick={() => togglePlaybook(pb.path)}>
+                <span class="playbook-arrow">{expandedPlaybooks.has(pb.path) ? "v" : ">"}</span>
+                <span class="mono">{pb.path}</span>
+              </button>
               {#if pb.error}
                 <div class="playbook-error">{pb.error}</div>
-              {:else if pb.content}
-                <textarea rows="10" value={pb.content.slice(0, 4000)} readonly class="content-viewer"></textarea>
+              {:else if expandedPlaybooks.has(pb.path) && pb.content}
+                <pre class="playbook-content-view">{formatPlaybookContent(pb.content)}</pre>
               {/if}
             </div>
           {/each}
+        {:else}
+          <div class="playbook-list">
+            {#each detailSkill.playbooks as pb}
+              <div class="playbook-entry mono">{pb}</div>
+            {/each}
+          </div>
         {/if}
       </div>
     {/if}
@@ -768,9 +785,11 @@
   .detail-section { margin-bottom: 12px; }
   .detail-section strong { display: block; margin-bottom: 6px; color: var(--text-secondary); font-size: var(--font-size-sm); }
   .playbook-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
-  .playbook-entry { font-size: var(--font-size-sm); padding: 4px 8px; background: var(--bg-elevated); border-radius: var(--radius-sm); }
-  .playbook-preview { margin-top: 8px; }
-  .playbook-path { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
+  .playbook-entry { font-size: var(--font-size-sm); margin-bottom: 4px; }
+  .playbook-toggle { display: flex; align-items: center; gap: 6px; background: none; border: none; color: var(--link, #6bb8ff); cursor: pointer; padding: 2px 0; text-align: left; width: 100%; font-size: var(--font-size-sm); }
+  .playbook-toggle:hover { text-decoration: underline; }
+  .playbook-arrow { font-family: var(--font-mono); font-size: 0.75em; width: 10px; flex-shrink: 0; color: var(--text-muted); }
+  .playbook-content-view { white-space: pre-wrap; font-family: var(--font-mono); font-size: 0.8em; max-height: 400px; overflow-y: auto; padding: 8px; background: var(--bg-elevated, rgba(0,0,0,0.2)); border-radius: var(--radius-sm); margin-top: 4px; }
   .playbook-error { color: #e05555; font-size: var(--font-size-sm); }
   .related-skills { display: flex; flex-wrap: wrap; gap: 6px; }
   .registry-list { display: flex; flex-direction: column; gap: 8px; max-height: 400px; overflow-y: auto; margin-bottom: 12px; }
