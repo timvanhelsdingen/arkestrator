@@ -257,16 +257,10 @@ export function createChatRoutes(deps: ChatDeps) {
           args.push(CLAUDE_SKIP_PERMISSIONS_FLAG);
         }
 
-        // Use stream-json for structured output + session_id capture
-        args.push("--output-format", "stream-json");
         args.push("--max-turns", "1");
 
-        if (existingClaudeSession?.threadId) {
-          // Resume existing conversation — Claude retains context
-          args.push("--resume", existingClaudeSession.threadId);
-          logger.info("chat", `Resuming Claude session: ${existingClaudeSession.threadId.slice(0, 12)}...`);
-        } else {
-          // First message — set model and system prompt
+        {
+          // TODO: Add --resume session support once stream-json format is verified
           if (effectiveConfig.model) args.push("--model", effectiveConfig.model);
           args.push(
             "--system-prompt",
@@ -528,7 +522,9 @@ export function createChatRoutes(deps: ChatDeps) {
     }
 
     const CHAT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
-    const isClaudeJsonChat = effectiveConfig.engine === "claude-code";
+    // Only parse as stream-json when resuming a Claude session (first message uses plain text)
+    const isClaudeJsonChat = effectiveConfig.engine === "claude-code"
+      && !!existingClaudeSession?.threadId;
 
     return streamSSE(c, async (stream) => {
       let proc: ReturnType<typeof Bun.spawn> | null = null;
