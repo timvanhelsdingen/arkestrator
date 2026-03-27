@@ -1465,23 +1465,10 @@ export async function spawnAgent(
         ? deps.skillEffectivenessRepo.getStatsForSkills(skillIds)
         : new Map<string, { successRate: number; totalUsed: number }>();
 
-      const { results: ranked, autoDisable } = deps.skillIndex.rankForJob(job.prompt, jobProgram, {
+      const { results: ranked } = deps.skillIndex.rankForJob(job.prompt, jobProgram, {
         effectivenessScores,
       });
       relevant = ranked.map((r) => r.skill);
-
-      // Auto-disable skills that consistently correlate with failure
-      if (autoDisable.length > 0 && deps.skillsRepo) {
-        for (const skill of autoDisable) {
-          try {
-            deps.skillsRepo.update(skill.slug, { enabled: false }, skill.program);
-            logger.warn(
-              "skill-ranking",
-              `Auto-disabled skill "${skill.title || skill.slug}" [${skill.program}]: <15% success over 20+ uses`,
-            );
-          } catch { /* ignore update failures */ }
-        }
-      }
 
       // Log ranking decisions for observability
       const promptPreview = job.prompt.length > 80 ? job.prompt.slice(0, 80) + "..." : job.prompt;

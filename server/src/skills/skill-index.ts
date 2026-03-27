@@ -259,9 +259,11 @@ export class SkillIndex {
    * Returns the top-N most relevant skills for injection into agent context.
    *
    * AutoFetch skills (coordinators, bridge scripts) are always included regardless of score.
-   * Low-effectiveness skills get a soft penalty (score floor 0.05) so they can still match
-   * if nothing else is relevant. Skills with <15% success over 20+ uses are flagged for
-   * auto-disable via the returned `autoDisable` list.
+   * Effectiveness scoring uses a graduated confidence model:
+   * - New skills (< 5 uses) get an exploration bonus to prove themselves.
+   * - As usage grows, the score blends toward the actual success rate.
+   * - Established skills (20+ uses) with low success rate are penalized but
+   *   never hard-disabled — a strong prompt match can still surface them.
    */
   rankForJob(
     prompt: string,
@@ -270,7 +272,7 @@ export class SkillIndex {
       limit?: number;
       effectivenessScores?: Map<string, SkillEffectivenessInfo>;
     },
-  ): { results: SkillRankResult[]; autoDisable: Skill[] } {
+  ): { results: SkillRankResult[] } {
     this.ensureFresh();
 
     const limit = opts?.limit ?? 8;
@@ -281,7 +283,6 @@ export class SkillIndex {
 
     const autoFetchResults: SkillRankResult[] = [];
     const ranked: Array<{ index: number; score: number }> = [];
-    const autoDisable: Skill[] = [];
 
     for (let i = 0; i < this.skills.length; i++) {
       const skill = this.skills[i];
@@ -299,12 +300,6 @@ export class SkillIndex {
 
       const eff = effectivenessMap.get(skill.id);
 
-      // Flag for auto-disable: <15% success over 20+ uses — consistently harmful
-      if (eff && eff.totalUsed >= 20 && eff.successRate < 0.15) {
-        autoDisable.push(skill);
-        continue;
-      }
-
       // Lexical score: fraction of query tokens that hit this skill
       let lexicalHits = 0;
       for (const token of queryTokens) {
@@ -316,12 +311,25 @@ export class SkillIndex {
       // Semantic score: cosine similarity
       const semScore = Math.max(0, semanticSimilarity(queryVector, this.vectors[i]));
 
-      // Effectiveness score: success rate when we have enough data, else neutral
-      // Low-performing skills get a floor of 0.05 (not zero) so they can still
-      // surface as a last resort if nothing else matches the prompt well.
-      let effScore = 0.5; // neutral default for new skills
-      if (eff && eff.totalUsed >= 3) {
-        effScore = Math.max(0.05, eff.successRate);
+      // Effectiveness score: graduated based on usage confidence.
+      // - New skills (< 5 uses): exploration bonus — slightly above neutral so
+      //   they get a fair chance to prove themselves.
+      // - Moderate use (5-20): blend between neutral and actual success rate,
+      //   letting the signal build up gradually.
+      // - Established (20+): full trust in the success rate, but floor at 0.10
+      //   so even poorly performing skills can still appear if the prompt match
+      //   is strong enough (no hard auto-disable).
+      let effScore: number;
+      if (!eff || eff.totalUsed < 5) {
+        // Exploration phase: slightly optimistic to encourage discovery
+        effScore = 0.6;
+      } else if (eff.totalUsed < 20) {
+        // Transition phase: blend neutral toward actual rate as confidence grows
+        const confidence = (eff.totalUsed - 5) / 15; // 0 → 1 over 5..20 uses
+        effScore = 0.5 * (1 - confidence) + eff.successRate * confidence;
+      } else {
+        // Established: trust the data, with a floor so skills aren't fully killed
+        effScore = Math.max(0.10, eff.successRate);
       }
 
       // Combined score: lexical 50%, semantic 30%, effectiveness 20%
@@ -343,7 +351,6 @@ export class SkillIndex {
     // AutoFetch first, then ranked by relevance
     return {
       results: [...autoFetchResults, ...topRanked],
-      autoDisable,
     };
   }
 
