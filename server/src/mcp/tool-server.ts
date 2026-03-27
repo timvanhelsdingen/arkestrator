@@ -438,22 +438,32 @@ export function createMcpServer(deps: McpDeps): McpServer {
       const effectiveTarget = target || callerJob?.bridgeProgram || "";
       const effectiveWorker = workerName || callerJob?.targetWorkerName;
 
-      let targetWs: import("bun").ServerWebSocket<import("../ws/hub.js").WsData> | undefined;
+      // Resolve target: try bridges first, then fall back to any connected client
+      let targetId: string | undefined;
+
       if (effectiveTarget) {
         const resolution = resolveBridgeTargets(deps.hub, effectiveTarget, "program", effectiveWorker);
-        targetWs = resolution.targets[0];
+        targetId = resolution.targets[0]?.data.id;
       }
-      if (!targetWs) {
-        // Fallback: try any connected bridge
+      if (!targetId) {
+        // Try any connected bridge
         const bridges = deps.hub.getBridges();
-        if (effectiveWorker) {
-          targetWs = bridges.find((b) => (b.workerName ?? "").toLowerCase() === effectiveWorker.toLowerCase());
-        }
-        targetWs ??= bridges[0];
+        const match = effectiveWorker
+          ? bridges.find((b) => (b.workerName ?? "").toLowerCase() === effectiveWorker.toLowerCase())
+          : bridges[0];
+        targetId = match?.id;
       }
-      if (!targetWs) {
+      if (!targetId) {
+        // Fall back to any connected client (Tauri app) — it can also read local files
+        const clients = deps.hub.getClients();
+        const match = effectiveWorker
+          ? clients.find((c) => (c.workerName ?? "").toLowerCase() === effectiveWorker.toLowerCase())
+          : clients[0];
+        targetId = match?.id;
+      }
+      if (!targetId) {
         return {
-          content: [{ type: "text" as const, text: "Error: No bridge connected. Cannot read client files without a bridge connection." }],
+          content: [{ type: "text" as const, text: "Error: No bridge or client connected. Cannot read files without a connection to the client machine." }],
           isError: true,
         };
       }
@@ -463,11 +473,11 @@ export function createMcpServer(deps: McpDeps): McpServer {
       const timeoutMs = 30_000;
       const resultPromise = deps.hub.registerPendingCommand(correlationId, timeoutMs);
 
-      targetWs.send(JSON.stringify({
+      deps.hub.send(targetId, {
         type: "bridge_file_read_request",
         id: newId(),
         payload: { paths: [filePath], correlationId },
-      }));
+      });
 
       try {
         const response = await resultPromise as {
@@ -1121,6 +1131,10 @@ export function createMcpServer(deps: McpDeps): McpServer {
       const skill = deps.skillIndex.get(slug, program || undefined);
       if (!skill) {
         return { content: [{ type: "text" as const, text: `Skill not found: ${slug}` }], isError: true };
+      }
+      // Record usage for effectiveness tracking
+      if (deps.skillEffectivenessRepo && deps.callerJobId) {
+        deps.skillEffectivenessRepo.recordUsage(skill.id, deps.callerJobId);
       }
       // Resolve template variables using live bridge state
       let content = skill.content;

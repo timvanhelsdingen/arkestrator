@@ -361,6 +361,40 @@ async function requestInitialData() {
   }
 }
 
+async function handleBridgeFileReadRequest(msg: any) {
+  const correlationId = String(msg.payload?.correlationId ?? "").trim();
+  const paths: string[] = msg.payload?.paths ?? [];
+  if (!correlationId || paths.length === 0) return;
+
+  const results: Array<{ path: string; content: string; encoding: string; size: number; error?: string }> = [];
+
+  for (const filePath of paths) {
+    try {
+      const base64Content = await invoke<string>("fs_read_file_base64", { path: filePath });
+      // Detect if text file (try to decode and check for binary chars)
+      const isText = /\.(txt|md|json|yaml|yml|toml|ini|cfg|py|gd|cs|js|ts|html|css|svg|xml|obj|mtl|usda|vex|log|csv)$/i.test(filePath);
+      if (isText) {
+        try {
+          const text = atob(base64Content);
+          results.push({ path: filePath, content: text, encoding: "utf8", size: text.length });
+          continue;
+        } catch { /* fall through to base64 */ }
+      }
+      // Binary (images, etc.) — keep as base64
+      const sizeBytes = Math.floor(base64Content.length * 3 / 4);
+      results.push({ path: filePath, content: base64Content, encoding: "base64", size: sizeBytes });
+    } catch (err: any) {
+      results.push({ path: filePath, content: "", encoding: "utf8", size: 0, error: String(err?.message ?? err) });
+    }
+  }
+
+  sendMessage({
+    type: "bridge_file_read_response",
+    id: crypto.randomUUID(),
+    payload: { correlationId, files: results },
+  });
+}
+
 async function handleWorkerHeadlessCommand(payload: any) {
   const correlationId = String(payload?.correlationId ?? "").trim();
   const program = String(payload?.program ?? "").trim();
@@ -503,6 +537,9 @@ function dispatch(msg: any) {
       applyWorkerStatus(msg.payload);
       break;
     case "bridge_command_result":
+      break;
+    case "bridge_file_read_request":
+      void handleBridgeFileReadRequest(msg);
       break;
     case "worker_headless_command":
       void handleWorkerHeadlessCommand(msg.payload);
