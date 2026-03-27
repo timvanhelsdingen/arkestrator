@@ -157,7 +157,7 @@
       <button
         class="btn primary"
         disabled={saving || saved}
-        onclick={saveSettings}
+        onclick={saveSchedule}
       >
         {saving ? "Saving..." : saved ? "Saved!" : "Save Training Settings"}
       </button>

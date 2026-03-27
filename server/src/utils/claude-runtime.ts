@@ -61,7 +61,7 @@ function hasRunuserBinary(): boolean {
 export function getClaudeRuntimeDecision(
   options: ClaudeRuntimeDetectionOptions = {},
 ): ClaudeRuntimeDecision {
-  const currentUid = options.currentUid ?? getCurrentUid();
+  const currentUid = "currentUid" in options ? options.currentUid : getCurrentUid();
   if (currentUid === undefined || currentUid !== 0) {
     return { allowSkipPermissionsFlag: true };
   }
