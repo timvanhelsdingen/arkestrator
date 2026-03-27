@@ -9,9 +9,12 @@ import type { DependenciesRepo } from "../db/dependencies.repo.js";
 import type { JobInterventionsRepo } from "../db/job-interventions.repo.js";
 import type { Config } from "../config.js";
 import type { ProcessTracker } from "../agents/process-tracker.js";
-import type { WorkerResourceLeaseManager } from "../agents/resource-control.js";
+import { resolveBridgeTargets, type WorkerResourceLeaseManager } from "../agents/resource-control.js";
 import { executeBridgeCommand, listConnectedBridges, runHeadlessCheck } from "../routes/bridge-commands.js";
 import { newId } from "../utils/id.js";
+import { mkdirSync, writeFileSync } from "fs";
+import { join } from "path";
+import { tmpdir } from "os";
 import { principalHasPermission, type AuthPrincipal } from "../middleware/auth.js";
 import type { UserPermissionKey } from "../utils/user-permissions.js";
 
@@ -411,6 +414,106 @@ export function createMcpServer(deps: McpDeps): McpServer {
       return {
         content: [{ type: "text" as const, text: parts.join("\n\n") }],
       };
+    },
+  );
+
+  // Tool: read_client_file — read files from the client machine via bridge
+  server.tool(
+    "read_client_file",
+    "Read a file from the client machine where a bridge is running. " +
+      "Use this to analyze renders, project files, textures, or any file on the client's disk. " +
+      "For images (png, jpg, exr, etc.), the file is saved locally and you can Read it visually. " +
+      "For text files, the content is returned directly.",
+    {
+      path: z.string().describe("Absolute path to the file on the client machine"),
+      target: z.string().optional().describe('Bridge program name (e.g. "blender") or bridge ID. Defaults to any connected bridge.'),
+      targetWorkerName: z.string().optional().describe("Specific worker/machine name if multiple are connected"),
+    },
+    async ({ path: filePath, target, targetWorkerName: workerName }) => {
+      const denied = checkPermission("executeCommands");
+      if (denied) return denied;
+
+      // Resolve target bridge
+      const callerJob = deps.callerJobId ? deps.jobsRepo.getById(deps.callerJobId) : null;
+      const effectiveTarget = target || callerJob?.bridgeProgram || "";
+      const effectiveWorker = workerName || callerJob?.targetWorkerName;
+
+      let targetWs: import("bun").ServerWebSocket<import("../ws/hub.js").WsData> | undefined;
+      if (effectiveTarget) {
+        const resolution = resolveBridgeTargets(deps.hub, effectiveTarget, "program", effectiveWorker);
+        targetWs = resolution.targets[0];
+      }
+      if (!targetWs) {
+        // Fallback: try any connected bridge
+        const bridges = deps.hub.getBridges();
+        if (effectiveWorker) {
+          targetWs = bridges.find((b) => (b.workerName ?? "").toLowerCase() === effectiveWorker.toLowerCase());
+        }
+        targetWs ??= bridges[0];
+      }
+      if (!targetWs) {
+        return {
+          content: [{ type: "text" as const, text: "Error: No bridge connected. Cannot read client files without a bridge connection." }],
+          isError: true,
+        };
+      }
+
+      // Send file read request via correlation pattern
+      const correlationId = newId();
+      const timeoutMs = 30_000;
+      const resultPromise = deps.hub.registerPendingCommand(correlationId, timeoutMs);
+
+      targetWs.send(JSON.stringify({
+        type: "bridge_file_read_request",
+        id: newId(),
+        payload: { paths: [filePath], correlationId },
+      }));
+
+      try {
+        const response = await resultPromise as {
+          files: Array<{ path: string; content: string; encoding: string; size: number; error?: string }>;
+        };
+
+        if (!response?.files?.length) {
+          return { content: [{ type: "text" as const, text: `Error: No response for file ${filePath}` }], isError: true };
+        }
+
+        const file = response.files[0];
+        if (file.error) {
+          return { content: [{ type: "text" as const, text: `Error reading ${filePath}: ${file.error}` }], isError: true };
+        }
+
+        // For binary/image files: write to temp dir so agent can use Read tool to see them visually
+        const imageExts = [".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif", ".exr", ".hdr", ".webp", ".gif"];
+        const ext = filePath.toLowerCase().replace(/^.*(\.[^.]+)$/, "$1");
+        if (file.encoding === "base64" || imageExts.includes(ext)) {
+          const dir = join(tmpdir(), "arkestrator-client-files", deps.callerJobId ?? "shared");
+          mkdirSync(dir, { recursive: true });
+          const safeName = filePath.replace(/[^a-zA-Z0-9._-]/g, "_").replace(/^_+/, "");
+          const localPath = join(dir, safeName);
+          const buf = Buffer.from(file.content, "base64");
+          writeFileSync(localPath, buf);
+          return {
+            content: [{
+              type: "text" as const,
+              text: `File saved to: ${localPath}\nSize: ${file.size} bytes\nUse the Read tool to view this file.`,
+            }],
+          };
+        }
+
+        // Text file: return content directly
+        return {
+          content: [{
+            type: "text" as const,
+            text: `File: ${filePath} (${file.size} bytes)\n\n${file.content}`,
+          }],
+        };
+      } catch (err: any) {
+        const msg = err?.message?.includes("timed out")
+          ? `Timed out reading ${filePath} — bridge may not support file reading. Ensure bridge plugin is updated.`
+          : `Error reading ${filePath}: ${err?.message ?? err}`;
+        return { content: [{ type: "text" as const, text: msg }], isError: true };
+      }
     },
   );
 

@@ -1479,5 +1479,14 @@ function buildBridgeOrchestrationPrompt(
     const dir = defaultProjectDir || getDefaultProjectDir() || "(not configured)";
     result = result.replaceAll("{DEFAULT_PROJECT_DIR}", dir);
   }
+
+  // Add file access hint when bridges are available
+  if (bridgeListLines.length > 0) {
+    result += "\n\n## Reading Client Files\n" +
+      "You can read files from the client machine (renders, project files, textures) using the " +
+      "`read_client_file` MCP tool. This reads files via the bridge connection — no file syncing needed. " +
+      "For images, the file is saved locally and you can then use the Read tool to view it visually.";
+  }
+
   return result;
 }

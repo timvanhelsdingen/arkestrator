@@ -522,6 +522,40 @@ export type ClientJobCancelMessage = z.infer<typeof ClientJobCancelMessage>;
 
 // --- File Delivery (cross-machine asset transfer) ---
 
+// --- Bridge File Read (agent reads files on the client via bridge) ---
+
+export const BridgeFileReadRequestMessage = makeMessage(
+  "bridge_file_read_request",
+  z.object({
+    /** File paths to read on the client machine. */
+    paths: z.array(z.string()).min(1),
+    /** Correlation ID for matching request to response. */
+    correlationId: z.string(),
+  }),
+);
+export type BridgeFileReadRequestMessage = z.infer<typeof BridgeFileReadRequestMessage>;
+
+export const BridgeFileReadResponseMessage = makeMessage(
+  "bridge_file_read_response",
+  z.object({
+    /** Correlation ID matching the request. */
+    correlationId: z.string(),
+    /** File read results. */
+    files: z.array(
+      z.object({
+        path: z.string(),
+        content: z.string(),
+        encoding: z.enum(["utf8", "base64"]),
+        size: z.number().int().nonnegative(),
+        error: z.string().optional(),
+      }),
+    ),
+  }),
+);
+export type BridgeFileReadResponseMessage = z.infer<typeof BridgeFileReadResponseMessage>;
+
+// --- File Deliver ---
+
 export const FileDeliverMessage = makeMessage(
   "file_deliver",
   z.object({
@@ -591,6 +625,8 @@ export const Message = z.discriminatedUnion("type", [
   ClientJobLogMessage,
   ClientJobCompleteMessage,
   ClientJobCancelMessage,
+  BridgeFileReadRequestMessage,
+  BridgeFileReadResponseMessage,
   FileDeliverMessage,
   ErrorMessage,
 ]);
