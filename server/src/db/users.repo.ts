@@ -10,6 +10,8 @@ export type UserRole = "admin" | "user" | "viewer";
 
 export type TokenLimitPeriod = "daily" | "monthly" | "unlimited";
 
+export type ChatPersonalityPreset = "default" | "professional" | "casual" | "mentor" | "pirate" | "custom";
+
 export interface User {
   id: string;
   username: string;
@@ -23,6 +25,8 @@ export interface User {
   tokenLimitInput: number | null;
   tokenLimitOutput: number | null;
   tokenLimitPeriod: TokenLimitPeriod;
+  chatPersonality: ChatPersonalityPreset;
+  chatPersonalityCustom: string | null;
 }
 
 interface UserRow {
@@ -42,6 +46,8 @@ interface UserRow {
   token_limit_input: number | null;
   token_limit_output: number | null;
   token_limit_period: string | null;
+  chat_personality: string | null;
+  chat_personality_custom: string | null;
 }
 
 function rowToUser(row: UserRow): User {
@@ -68,6 +74,8 @@ function rowToUser(row: UserRow): User {
     tokenLimitInput: row.token_limit_input ?? null,
     tokenLimitOutput: row.token_limit_output ?? null,
     tokenLimitPeriod: (row.token_limit_period as TokenLimitPeriod) ?? "monthly",
+    chatPersonality: (row.chat_personality as ChatPersonalityPreset) ?? "default",
+    chatPersonalityCustom: row.chat_personality_custom ?? null,
   };
 }
 
@@ -316,6 +324,16 @@ export class UsersRepo {
     const result = this.db
       .prepare(`UPDATE users SET require_2fa = ?, updated_at = ? WHERE id = ?`)
       .run(enabled ? 1 : 0, now, userId);
+    return result.changes > 0;
+  }
+
+  setChatPersonality(userId: string, personality: ChatPersonalityPreset, customPrompt?: string | null): boolean {
+    const now = new Date().toISOString();
+    const result = this.db
+      .prepare(
+        `UPDATE users SET chat_personality = ?, chat_personality_custom = ?, updated_at = ? WHERE id = ?`,
+      )
+      .run(personality, customPrompt ?? null, now, userId);
     return result.changes > 0;
   }
 

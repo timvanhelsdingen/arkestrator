@@ -338,6 +338,9 @@ const COLUMN_ADDITIONS = [
   // Knowledge graph: skills reference vault playbooks and link to related skills
   `ALTER TABLE skills ADD COLUMN playbooks TEXT NOT NULL DEFAULT '[]'`,
   `ALTER TABLE skills ADD COLUMN related_skills TEXT NOT NULL DEFAULT '[]'`,
+  // Per-user chat personality preference
+  `ALTER TABLE users ADD COLUMN chat_personality TEXT NOT NULL DEFAULT 'default'`,
+  `ALTER TABLE users ADD COLUMN chat_personality_custom TEXT`,
 ];
 
 // Reset any jobs stuck in 'running' state (server crashed while they were active)

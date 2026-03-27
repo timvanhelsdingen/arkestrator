@@ -227,6 +227,13 @@ export const api = {
       }),
     me: () => request("/api/auth/me"),
     logout: () => request("/api/auth/logout", { method: "POST" }),
+    getChatPersonality: () => request("/api/auth/chat-personality"),
+    getChatPersonalityPresets: () => request("/api/auth/chat-personality/presets"),
+    setChatPersonality: (personality: string, customPrompt?: string) =>
+      request("/api/auth/chat-personality", {
+        method: "PUT",
+        body: JSON.stringify({ personality, customPrompt }),
+      }),
   },
 
   jobs: {

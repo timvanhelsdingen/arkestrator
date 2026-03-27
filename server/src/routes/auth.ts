@@ -8,6 +8,7 @@ import { getAuthenticatedUser, getClientIp } from "../middleware/auth.js";
 import { readSharedConfig, writeSharedConfig } from "../utils/shared-config.js";
 import { loadConfig } from "../config.js";
 import { logger } from "../utils/logger.js";
+import { listPersonalityPresets } from "../chat/personalities.js";
 import { generateRandomHex } from "../utils/crypto.js";
 import { errorResponse } from "../utils/errors.js";
 import {
@@ -575,6 +576,54 @@ export function createAuthRoutes(
       canEditCoordinator: canManageCoordinator(user, settingsRepo),
       clientCoordinationEnabled: enabled,
     });
+  });
+
+  // Chat personality presets
+  router.get("/chat-personality/presets", (c) => {
+    const user = getAuthenticatedUser(c, usersRepo);
+    if (!user) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+    return c.json({ presets: listPersonalityPresets() });
+  });
+
+  // Get current user's chat personality
+  router.get("/chat-personality", (c) => {
+    const user = getAuthenticatedUser(c, usersRepo);
+    if (!user) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+    return c.json({
+      personality: user.chatPersonality,
+      customPrompt: user.chatPersonalityCustom,
+    });
+  });
+
+  // Set current user's chat personality
+  router.put("/chat-personality", async (c) => {
+    const user = getAuthenticatedUser(c, usersRepo);
+    if (!user) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+
+    let body: any;
+    try {
+      body = await c.req.json();
+    } catch {
+      return errorResponse(c, 400, "Invalid JSON body", "INVALID_JSON");
+    }
+
+    const VALID_PRESETS = ["default", "professional", "casual", "mentor", "pirate", "custom"];
+    const personality = String(body.personality ?? "").trim();
+    if (!VALID_PRESETS.includes(personality)) {
+      return errorResponse(c, 400, `personality must be one of: ${VALID_PRESETS.join(", ")}`, "INVALID_INPUT");
+    }
+
+    const customPrompt = personality === "custom"
+      ? String(body.customPrompt ?? "").trim() || null
+      : null;
+
+    if (personality === "custom" && !customPrompt) {
+      return errorResponse(c, 400, "customPrompt is required when personality is 'custom'", "INVALID_INPUT");
+    }
+
+    usersRepo.setChatPersonality(user.id, personality as any, customPrompt);
+
+    return c.json({ ok: true, personality, customPrompt });
   });
 
   // Change own password

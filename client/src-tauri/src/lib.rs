@@ -22,6 +22,8 @@ use uuid::Uuid;
 const TRAY_ID: &str = "arkestrator-tray";
 const TRAY_MENU_SHOW: &str = "show";
 const TRAY_MENU_HIDE: &str = "hide";
+const TRAY_MENU_DASHBOARD: &str = "dashboard";
+const TRAY_MENU_STOP_SERVER: &str = "stop_server";
 const TRAY_MENU_QUIT: &str = "quit";
 const BRIDGE_RELAY_HOST: &str = "127.0.0.1";
 const BRIDGE_RELAY_START_PORT: u16 = 17800;
@@ -1188,6 +1190,65 @@ fn show_main_window(app: &tauri::AppHandle) {
     }
 }
 
+/// Read the server base URL from shared config (~/.arkestrator/config.json).
+/// Falls back to http://localhost:4800 if not configured.
+fn get_server_base_url() -> String {
+    if let Ok(path) = shared_config_path() {
+        let config = read_shared_config_json(&path);
+        if let Some(url) = config.get("serverUrl").and_then(|v| v.as_str()) {
+            let trimmed = url.trim().trim_end_matches('/');
+            if !trimmed.is_empty() {
+                return trimmed.to_string();
+            }
+        }
+        if let Some(port) = config.get("port").and_then(|v| v.as_u64()) {
+            return format!("http://localhost:{port}");
+        }
+    }
+    "http://localhost:4800".to_string()
+}
+
+/// Open the admin dashboard in the user's default browser.
+fn open_dashboard() {
+    let base = get_server_base_url();
+    let url = format!("{base}/admin");
+    #[cfg(target_os = "macos")]
+    { let _ = Command::new("open").arg(&url).spawn(); }
+    #[cfg(target_os = "windows")]
+    { let _ = Command::new("cmd").args(["/C", "start", &url]).spawn(); }
+    #[cfg(target_os = "linux")]
+    { let _ = Command::new("xdg-open").arg(&url).spawn(); }
+}
+
+/// Send a shutdown request to the running server.
+fn stop_server() {
+    let base = get_server_base_url();
+    let url = format!("{base}/api/server/shutdown");
+    // Fire-and-forget on a background thread so we don't block the tray
+    thread::spawn(move || {
+        // Simple HTTP POST using a raw TCP socket (avoid adding reqwest dependency)
+        if let Ok(parsed) = url::Url::parse(&url) {
+            let host = parsed.host_str().unwrap_or("localhost");
+            let port = parsed.port().unwrap_or(4800);
+            if let Ok(mut stream) = TcpStream::connect_timeout(
+                &format!("{host}:{port}").parse().unwrap_or_else(|_| {
+                    std::net::SocketAddr::from(([127, 0, 0, 1], port))
+                }),
+                Duration::from_secs(3),
+            ) {
+                let request = format!(
+                    "POST {} HTTP/1.1\r\nHost: {}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                    parsed.path(),
+                    host,
+                );
+                use std::io::Write;
+                let _ = stream.write_all(request.as_bytes());
+                let _ = stream.shutdown(Shutdown::Write);
+            }
+        }
+    });
+}
+
 /// Resolve the user's full login shell PATH by spawning their default shell
 /// with the login flag. This captures PATH entries added by .zprofile,
 /// .bash_profile, .profile, nvm, Homebrew, etc.
@@ -1311,6 +1372,9 @@ pub fn run() {
                 .item(&MenuItemBuilder::with_id(TRAY_MENU_SHOW, "Show Arkestrator").build(app)?)
                 .item(&MenuItemBuilder::with_id(TRAY_MENU_HIDE, "Hide Arkestrator").build(app)?)
                 .separator()
+                .item(&MenuItemBuilder::with_id(TRAY_MENU_DASHBOARD, "Open Dashboard").build(app)?)
+                .item(&MenuItemBuilder::with_id(TRAY_MENU_STOP_SERVER, "Stop Server").build(app)?)
+                .separator()
                 .item(&MenuItemBuilder::with_id(TRAY_MENU_QUIT, "Quit").build(app)?)
                 .build()?;
 
@@ -1340,6 +1404,8 @@ pub fn run() {
                             let _ = window.hide();
                         }
                     }
+                    TRAY_MENU_DASHBOARD => open_dashboard(),
+                    TRAY_MENU_STOP_SERVER => stop_server(),
                     TRAY_MENU_QUIT => {
                         comfyui::shutdown_comfyui();
                         app.exit(0);

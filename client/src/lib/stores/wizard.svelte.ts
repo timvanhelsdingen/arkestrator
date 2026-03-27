@@ -57,7 +57,7 @@ class WizardState {
 
   get steps(): string[] {
     return this.mode === "local"
-      ? ["Welcome", "Security", "Agents", "Bridges", "Ready"]
+      ? ["Welcome", "Security", "Agents", "Skills", "Bridges", "Ready"]
       : ["Welcome", "Connect", "Bridges", "Ready"];
   }
 

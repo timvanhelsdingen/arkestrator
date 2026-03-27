@@ -36,12 +36,25 @@
   let existingConfigs = $state<any[]>([]);
   let cliAuth = $state<CliAuthState[]>([]);
   let selected = $state<Set<string>>(new Set());
+  /** Which template is marked as the default (chat) agent */
+  let defaultAgentId = $state<string>("");
   let loading = $state(true);
   let loadingAuth = $state(true);
   let creating = $state(false);
   let error = $state("");
   let createdIds = $state<Set<string>>(new Set());
   let expandedTemplate = $state<string | null>(null);
+
+  // Personality
+  interface PersonalityPreset {
+    id: string;
+    name: string;
+    description: string;
+  }
+  let personalityPresets = $state<PersonalityPreset[]>([]);
+  let selectedPersonality = $state("default");
+  let customPrompt = $state("");
+  let personalitySaved = $state(false);
 
   function autoSelectFromAuth() {
     const existingEngines = new Set(existingConfigs.map((c: any) => c.engine));
@@ -56,17 +69,27 @@
       }
     }
     selected = next;
+
+    // Auto-pick default: prefer claude-code, then first authenticated
+    if (!defaultAgentId) {
+      const claudeTpl = templates.find(
+        (t) => t.engine === "claude-code" && next.has(t.id),
+      );
+      defaultAgentId = claudeTpl?.id ?? [...next][0] ?? "";
+    }
   }
 
   onMount(async () => {
     try {
-      // Load templates + existing configs first (fast)
-      const [tplRes, configRes] = await Promise.all([
+      // Load templates + existing configs + personality presets (fast)
+      const [tplRes, configRes, presetsRes] = await Promise.all([
         api.agents.templates(),
         api.agents.list(),
+        api.auth.getChatPersonalityPresets().catch(() => ({ presets: [] })),
       ]);
       templates = (tplRes as any)?.templates ?? tplRes ?? [];
       existingConfigs = (configRes as any)?.configs ?? configRes ?? [];
+      personalityPresets = (presetsRes as any)?.presets ?? [];
     } catch (err: any) {
       error = `Failed to load templates: ${err.message}`;
     } finally {
@@ -126,12 +149,21 @@
           args: tpl.args,
           model: tpl.model || undefined,
           maxTurns: tpl.maxTurns,
-          priority: tpl.priority,
+          // Default agent gets highest priority (0), others keep template priority
+          priority: tpl.id === defaultAgentId ? 0 : tpl.priority,
         });
         createdIds.add(tpl.id);
         count++;
       }
       wizard.agentsCreated = count;
+      // Save personality preference alongside agent setup
+      try {
+        await api.auth.setChatPersonality(
+          selectedPersonality,
+          selectedPersonality === "custom" ? customPrompt.trim() || undefined : undefined,
+        );
+        personalitySaved = true;
+      } catch { /* non-critical */ }
     } catch (err: any) {
       error = `Failed to create agent config: ${err.message}`;
     } finally {
@@ -224,6 +256,63 @@
         </div>
       {/each}
     </div>
+
+    {#if selected.size > 1}
+      <div class="default-picker">
+        <span class="default-label">Default agent for chat:</span>
+        <div class="default-options">
+          {#each templates.filter((t) => selected.has(t.id)) as tpl (tpl.id)}
+            <label class="default-option" class:active={defaultAgentId === tpl.id}>
+              <input
+                type="radio"
+                name="defaultAgent"
+                value={tpl.id}
+                checked={defaultAgentId === tpl.id}
+                onchange={() => { defaultAgentId = tpl.id; }}
+              />
+              <span>{tpl.name}</span>
+            </label>
+          {/each}
+        </div>
+      </div>
+    {/if}
+
+    <!-- Chat Personality -->
+    {#if personalityPresets.length > 0}
+      <div class="personality-section">
+        <span class="personality-heading">Chat personality</span>
+        <span class="personality-hint">How should Arkestrator talk to you? (personal preference — other users can pick their own)</span>
+        <div class="personality-grid">
+          {#each personalityPresets as preset (preset.id)}
+            <button
+              class="personality-card"
+              class:active={selectedPersonality === preset.id}
+              onclick={() => { selectedPersonality = preset.id; }}
+            >
+              <span class="pname">{preset.name}</span>
+              <span class="pdesc">{preset.description}</span>
+            </button>
+          {/each}
+          <button
+            class="personality-card"
+            class:active={selectedPersonality === "custom"}
+            onclick={() => { selectedPersonality = "custom"; }}
+          >
+            <span class="pname">Custom</span>
+            <span class="pdesc">Write your own</span>
+          </button>
+        </div>
+        {#if selectedPersonality === "custom"}
+          <textarea
+            class="custom-prompt"
+            placeholder="Describe how Arkestrator should talk to you..."
+            rows="2"
+            value={customPrompt}
+            oninput={(e) => { customPrompt = (e.target as HTMLTextAreaElement).value; }}
+          ></textarea>
+        {/if}
+      </div>
+    {/if}
 
     {#if error}
       <div class="error">{error}</div>
@@ -449,6 +538,123 @@
   .links a:hover {
     text-decoration: underline;
   }
+  /* Personality picker */
+  .personality-section {
+    margin-top: 14px;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-base);
+  }
+  .personality-heading {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    display: block;
+    margin-bottom: 2px;
+  }
+  .personality-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    display: block;
+    margin-bottom: 10px;
+    line-height: 1.3;
+  }
+  .personality-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 5px;
+  }
+  .personality-card {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 6px 8px;
+    background: var(--bg-surface);
+    cursor: pointer;
+    transition: all 0.15s;
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .personality-card:hover {
+    border-color: var(--text-muted);
+  }
+  .personality-card.active {
+    border-color: var(--accent);
+    background: rgba(99, 102, 241, 0.1);
+  }
+  .pname {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .personality-card.active .pname {
+    color: var(--accent);
+  }
+  .pdesc {
+    font-size: 10px;
+    color: var(--text-muted);
+    line-height: 1.2;
+  }
+  .custom-prompt {
+    width: 100%;
+    margin-top: 8px;
+    font-size: 12px;
+    font-family: inherit;
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    resize: vertical;
+    min-height: 50px;
+  }
+
+  /* Default agent picker */
+  .default-picker {
+    margin-top: 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-base);
+  }
+  .default-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    display: block;
+    margin-bottom: 8px;
+  }
+  .default-options {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .default-option {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .default-option:hover {
+    border-color: var(--text-muted);
+  }
+  .default-option.active {
+    border-color: var(--accent);
+    background: rgba(99, 102, 241, 0.1);
+    color: var(--accent);
+  }
+  .default-option input {
+    margin: 0;
+  }
+
   .actions {
     display: flex;
     align-items: center;

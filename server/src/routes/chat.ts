@@ -24,7 +24,8 @@ import type { OllamaChatMessage } from "../local-models/ollama.js";
 import { resolveWorkerLocalLlmEndpoint, resolveAnyAvailableWorkerLlm } from "../local-models/distributed.js";
 import { resolveAutoAgentByPriority } from "../agents/auto-routing.js";
 import { getClaudeRuntimeDecision } from "../utils/claude-runtime.js";
-import { mkdirSync } from "node:fs";
+import { getPersonalityPrompt } from "../chat/personalities.js";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -150,6 +151,11 @@ export function createChatRoutes(deps: ChatDeps) {
         : "selected bridge(s)";
       const agentLabel = `${effectiveConfig.name} (${effectiveConfig.engine})`;
 
+      // Per-user chat personality
+      const personalityPrompt = principal.kind === "user"
+        ? getPersonalityPrompt(principal.user.chatPersonality as any, principal.user.chatPersonalityCustom)
+        : getPersonalityPrompt("default");
+
     // Build a chat-only prompt with optional conversation history.
     // Codex chat is kept stateless because transcript stitching can degrade
     // prompt-following quality for short one-shot exec calls.
@@ -206,10 +212,8 @@ export function createChatRoutes(deps: ChatDeps) {
       ? deps.chatSessions.get(claudeSessionKey)
       : null;
 
-    // Skip history when resuming a Claude session (Claude maintains its own context)
-    if (existingClaudeSession?.threadId) {
-      useHistory = false;
-    }
+    // Claude chat uses plain text + history passthrough (no --resume).
+    // Session resumption via stream-json was tested but adds too much overhead.
 
     // Build dynamic context about connected bridges for the system prompt
     const bridges = deps.hub.getBridges();
@@ -257,22 +261,29 @@ export function createChatRoutes(deps: ChatDeps) {
           args.push(CLAUDE_SKIP_PERMISSIONS_FLAG);
         }
 
-        args.push("--max-turns", "1");
+        args.push("--max-turns", "0");
+        // Skip MCP server init — chat doesn't need tools. Without this,
+        // Claude loads ~/.claude/settings.json MCP servers which can hang
+        // if they point to unreachable hosts (adding 30+ seconds).
+        {
+          const chatTmpDir = join(tmpdir(), "arkestrator-claude-chat");
+          mkdirSync(chatTmpDir, { recursive: true });
+          const emptyMcpPath = join(chatTmpDir, ".mcp-empty.json");
+          writeFileSync(emptyMcpPath, '{"mcpServers":{}}', "utf-8");
+          args.push("--mcp-config", emptyMcpPath);
+        }
 
         {
-          // TODO: Add --resume session support once stream-json format is verified
+          // Note: --resume + stream-json was tested but adds ~8-10s tool-init overhead
+          // per message due to --verbose requirement. Plain text + history passthrough
+          // is much faster for chat-only mode with --max-turns 1.
           if (effectiveConfig.model) args.push("--model", effectiveConfig.model);
           args.push(
             "--system-prompt",
             improveMode
               ? improveSystemPrompt
               : (
-                "You are Arkestrator — a sharp, dry-witted AI assistant built for creative and technical professionals " +
-                "who work in DCC pipelines (Houdini, Blender, Godot, Unreal, etc.). " +
-                "You talk like a senior dev on a creative team: concise, technically deep, light humor when it fits, " +
-                "but always to the point. You don't waste people's time with fluff or over-explain obvious things. " +
-                "A bit of dry wit and sarcasm is welcome — you're a colleague, not a corporate chatbot. " +
-                "But the work always comes first. Never let personality get in the way of being useful.\n\n" +
+                personalityPrompt + "\n\n" +
                 "CONTEXT: The user is chatting inside the Arkestrator desktop client to brainstorm, refine prompts, and plan work. " +
                 "The client has three actions: 'Send' (chat with you), 'Add to Queue' (submit a paused job), " +
                 "and 'Queue and Start' (submit and run immediately). " +
@@ -347,7 +358,6 @@ export function createChatRoutes(deps: ChatDeps) {
     }
 
     const spawnArgv = [command, ...args];
-    logger.info("chat", `Spawning chat: ${spawnArgv.join(" ")} (engine: ${effectiveConfig.engine})`);
     logger.debug("chat", `Chat spawn argv: ${JSON.stringify(spawnArgv)}`);
     const isCodexJsonChat = effectiveConfig.engine === "codex";
 
@@ -371,12 +381,17 @@ export function createChatRoutes(deps: ChatDeps) {
       delete cleanEnv.CODEX_INTERNAL_ORIGINATOR_OVERRIDE;
     }
 
+    // Spawn chat CLIs from a temp dir to avoid picking up project-local MCP configs
+    // (which add ~8s of MCP server init overhead for Claude Code).
     const spawnCwd = effectiveConfig.engine === "codex"
       ? join(tmpdir(), "arkestrator-codex-chat")
-      : process.cwd();
-    if (effectiveConfig.engine === "codex") {
+      : effectiveConfig.engine === "claude-code"
+        ? join(tmpdir(), "arkestrator-claude-chat")
+        : process.cwd();
+    if (effectiveConfig.engine === "codex" || effectiveConfig.engine === "claude-code") {
       mkdirSync(spawnCwd, { recursive: true });
     }
+    logger.info("chat", `Spawning chat: cwd=${spawnCwd} engine=${effectiveConfig.engine}`);
 
     // Distributed Ollama endpoint resolution for local-oss chat
     let ollamaHttpBaseUrl: string | null = null;
@@ -539,9 +554,8 @@ export function createChatRoutes(deps: ChatDeps) {
     }
 
     const CHAT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
-    // Only parse as stream-json when resuming a Claude session (first message uses plain text)
-    const isClaudeJsonChat = effectiveConfig.engine === "claude-code"
-      && !!existingClaudeSession?.threadId;
+    // Claude chat uses plain text output (stream-json + --verbose adds ~10s tool-init overhead)
+    const isClaudeJsonChat = false;
 
     return streamSSE(c, async (stream) => {
       let proc: ReturnType<typeof Bun.spawn> | null = null;

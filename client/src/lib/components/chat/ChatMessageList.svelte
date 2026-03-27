@@ -225,6 +225,7 @@
                   <MarkdownRenderer content={parsed.text} />
                 {/if}
                 {#each parsed.proposals as proposal, i}
+                  {@const proposalKey = `${msg.id}:${i}`}
                   <div class="job-proposal-card">
                     <div class="job-proposal-header">
                       <span class="job-proposal-icon">&#9881;</span>
@@ -236,7 +237,6 @@
                       {/if}
                     </div>
                     <pre class="job-proposal-prompt">{proposal.prompt}</pre>
-                    {@const proposalKey = `${msg.id}:${i}`}
                     <div class="job-proposal-actions">
                       <button
                         class="btn-submit-job"

@@ -27,6 +27,53 @@
   let defaultProjectDirResult = $state("");
   let defaultProjectDirLoaded = false;
 
+  // Chat personality
+  interface PersonalityPreset {
+    id: string;
+    name: string;
+    description: string;
+  }
+  let personalityPresets = $state<PersonalityPreset[]>([]);
+  let currentPersonality = $state("default");
+  let personalityCustomPrompt = $state("");
+  let personalityLoaded = $state(false);
+  let personalitySaving = $state(false);
+
+  $effect(() => {
+    if (connection.isAuthenticated && !personalityLoaded) {
+      personalityLoaded = true;
+      void loadPersonality();
+    }
+  });
+
+  async function loadPersonality() {
+    try {
+      const [presetsRes, currentRes] = await Promise.all([
+        api.auth.getChatPersonalityPresets(),
+        api.auth.getChatPersonality(),
+      ]);
+      personalityPresets = (presetsRes as any)?.presets ?? [];
+      currentPersonality = (currentRes as any)?.personality ?? "default";
+      personalityCustomPrompt = (currentRes as any)?.customPrompt ?? "";
+    } catch { /* defaults fine */ }
+  }
+
+  async function setPersonality(preset: string) {
+    currentPersonality = preset;
+    if (preset !== "custom") {
+      personalitySaving = true;
+      try { await api.auth.setChatPersonality(preset); } catch { /* ignore */ }
+      personalitySaving = false;
+    }
+  }
+
+  async function saveCustomPersonality() {
+    if (!personalityCustomPrompt.trim()) return;
+    personalitySaving = true;
+    try { await api.auth.setChatPersonality("custom", personalityCustomPrompt.trim()); } catch { /* ignore */ }
+    personalitySaving = false;
+  }
+
   // Clear local data
   let showClearDataModal = $state(false);
   let clearDataPassword = $state("");
@@ -365,6 +412,48 @@
         </div>
       </div>
     </div>
+
+    {#if connection.isAuthenticated && personalityPresets.length > 0}
+      <div class="pref-card" style="grid-column: 1 / -1;">
+        <div class="pref-card-header">Chat Personality</div>
+        <p class="desc">How Arkestrator talks to you in chat. This is your personal preference — other users can pick their own.</p>
+        <div class="personality-grid">
+          {#each personalityPresets as preset (preset.id)}
+            <button
+              class="pers-card"
+              class:active={currentPersonality === preset.id}
+              disabled={personalitySaving}
+              onclick={() => setPersonality(preset.id)}
+            >
+              <span class="pers-name">{preset.name}</span>
+              <span class="pers-desc">{preset.description}</span>
+            </button>
+          {/each}
+          <button
+            class="pers-card"
+            class:active={currentPersonality === "custom"}
+            disabled={personalitySaving}
+            onclick={() => setPersonality("custom")}
+          >
+            <span class="pers-name">Custom</span>
+            <span class="pers-desc">Write your own personality</span>
+          </button>
+        </div>
+        {#if currentPersonality === "custom"}
+          <div class="custom-personality-row">
+            <textarea
+              placeholder="Describe how Arkestrator should talk to you..."
+              rows="3"
+              value={personalityCustomPrompt}
+              oninput={(e) => { personalityCustomPrompt = (e.target as HTMLTextAreaElement).value; }}
+            ></textarea>
+            <button class="btn" onclick={saveCustomPersonality} disabled={personalitySaving || !personalityCustomPrompt.trim()}>
+              {personalitySaving ? "Saving..." : "Save"}
+            </button>
+          </div>
+        {/if}
+      </div>
+    {/if}
   </div>
 </section>
 
@@ -640,6 +729,63 @@
     justify-content: flex-end;
     margin-top: 12px;
   }
+  /* Personality picker */
+  .personality-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+  .pers-card {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 8px 10px;
+    background: var(--bg-surface);
+    cursor: pointer;
+    transition: all 0.15s;
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .pers-card:hover { border-color: var(--text-muted); }
+  .pers-card.active {
+    border-color: var(--accent);
+    background: rgba(99, 102, 241, 0.1);
+  }
+  .pers-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .pers-card.active .pers-name { color: var(--accent); }
+  .pers-desc {
+    font-size: 10px;
+    color: var(--text-muted);
+    line-height: 1.3;
+  }
+  .custom-personality-row {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .custom-personality-row textarea {
+    font-size: 12px;
+    font-family: inherit;
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    resize: vertical;
+    min-height: 60px;
+  }
+  .custom-personality-row .btn {
+    align-self: flex-end;
+  }
+
   @media (max-width: 1100px) {
     .prefs-grid { grid-template-columns: 1fr; }
   }

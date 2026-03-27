@@ -1,9 +1,16 @@
 # Arkestrator
 
+## Recent Update (2026-03-27)
+
+- **Onboarding wizard enhancements**: Added "Skills & Training" wizard step (explains self-learning loop, configures training schedule), default agent selection in Agents step (radio picker when multiple agents selected, auto-picks Claude as default).
+  - **Local server** now 6 steps: Welcome → Security → Agents (+ default pick) → Skills & Training → Bridges → Ready
+- **Claude chat session resumption**: Fixed NDJSON parser to use actual `event.message.content[].text` format (was incorrectly checking `event.text`). Re-enabled `--output-format stream-json --verbose` and `--resume <sessionId>` for persistent Claude chat sessions. Skips history passthrough and system prompt on resumed conversations. Parser now surfaces error messages from failed resume attempts.
+- **System tray improvements**: Added "Open Dashboard" (opens admin in browser) and "Stop Server" (sends shutdown POST) tray menu items. Cross-platform URL opening (macOS/Windows/Linux). Server base URL read from shared config.
+
 ## Recent Update (2026-03-26)
 
 - **Unified Bootstrap Wizard**: Complete first-time onboarding flow that merges server connection, authentication, and setup into one seamless wizard. Replaces the old split Setup→StartupWizard flow.
-  - **Local server** (5 steps): Welcome → Security (auto-start server + auto-login with bootstrap credentials + mandatory password change + optional 2FA) → Agents → Bridges → Ready
+  - **Local server** (5 steps → 6 steps): Welcome → Security (auto-start server + auto-login with bootstrap credentials + mandatory password change + optional 2FA) → Agents → Skills & Training → Bridges → Ready
   - **Remote server** (4 steps): Welcome → Connect (URL entry + login + optional TOTP) → Bridges → Ready
   - New Tauri command `read_bootstrap_credentials` reads bootstrap-admin.txt automatically — no manual copy-paste
   - Password change is mandatory on first local setup (min 12 chars)

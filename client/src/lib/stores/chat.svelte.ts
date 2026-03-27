@@ -349,13 +349,14 @@ class ChatState {
     }
   }
 
-  /** Backfill tabs that have no agent selected with the highest-priority agent */
+  /** Backfill tabs that have no agent selected (or a stale/invalid agent) with the highest-priority agent */
   backfillDefaultAgent() {
     const defaultId = getDefaultAgentId();
     if (!defaultId) return;
+    const validIds = new Set(agents.all.map((a) => a.id));
     let changed = false;
     for (const tab of this.tabs) {
-      if (!tab.agentConfigId) {
+      if (!tab.agentConfigId || !validIds.has(tab.agentConfigId)) {
         tab.agentConfigId = defaultId;
         changed = true;
       }
