@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import type { Job, JobInterventionSupport } from "@arkestrator/protocol";
   import { jobs } from "../lib/stores/jobs.svelte";
   import { workersStore } from "../lib/stores/workers.svelte";
@@ -9,6 +10,11 @@
   import ConfirmDialog from "../lib/components/ui/ConfirmDialog.svelte";
   import { timeAgo, truncate } from "../lib/utils/format";
   import { agents } from "../lib/stores/agents.svelte";
+
+  // Refresh job list when page mounts to catch any missed WS broadcasts
+  onMount(() => {
+    refreshJobs();
+  });
 
   function getAgentLabel(job: Job): { short: string; full: string } | null {
     const configId = job.actualAgentConfigId ?? job.agentConfigId;

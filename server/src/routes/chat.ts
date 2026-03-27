@@ -255,12 +255,11 @@ export function createChatRoutes(deps: ChatDeps) {
 
     switch (effectiveConfig.engine) {
       case "claude-code": {
-        const claudeRuntime = getClaudeRuntimeDecision();
-        runAsUser = claudeRuntime.runAsUser;
-        if (claudeRuntime.allowSkipPermissionsFlag) {
-          args.push(CLAUDE_SKIP_PERMISSIONS_FLAG);
-        }
-
+        // Chat mode uses --max-turns 0 (no tool use), so we do NOT need
+        // --dangerously-skip-permissions and do NOT need to drop privileges.
+        // Dropping to a non-root user via runuser causes Claude CLI to silently
+        // produce zero output in Docker (credentials ownership mismatch).
+        // Jobs (spawner.ts) still use the full runtime decision with runAsUser.
         args.push("--max-turns", "0");
         // Skip MCP server init — chat doesn't need tools. Without this,
         // Claude loads ~/.claude/settings.json MCP servers which can hang

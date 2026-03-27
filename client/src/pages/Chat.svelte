@@ -245,6 +245,7 @@
       dependsOn?: string[];
       runtimeOptions?: JobRuntimeOptions;
       jobName?: string;
+      uploadedFiles?: Array<{ path: string; content: string }>;
     },
   ) {
     let editorContext: any = undefined;
@@ -267,6 +268,11 @@
 
       files.push(...entry.files);
       contextItems.push(...bridgeContextStore.getItemsForJob(bridgeId));
+    }
+
+    // Include user-uploaded files (images, text) from chat attachments
+    if (opts.uploadedFiles?.length) {
+      files.push(...opts.uploadedFiles);
     }
 
     const uniquePrograms = resolveTargetPrograms(targetWorkerNames, bridgeIds);
@@ -330,7 +336,7 @@
     };
   }
 
-  async function handleSubmit(prompt: string, resolvedRuntimeOptions?: JobRuntimeOptions) {
+  async function handleSubmit(prompt: string, resolvedRuntimeOptions?: JobRuntimeOptions, files?: Array<{ path: string; content: string }>) {
     if (!tab || !prompt.trim()) return;
 
     if (!connection.isAuthenticated && !connection.apiKey) {
@@ -393,6 +399,7 @@
       projectId: tab.projectId,
       runtimeOptions: resolvedRuntimeOptions ?? tab.runtimeOptions,
       jobName: tab.jobName,
+      uploadedFiles: files,
       ...(tab.dependsOnJobId ? { dependsOn: [tab.dependsOnJobId] } : {}),
     });
 

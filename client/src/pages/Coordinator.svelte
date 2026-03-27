@@ -222,6 +222,7 @@
   let skillViewPlaybooks = $state<Array<{ path: string; content: string | null; error?: string }>>([]);
   let skillViewEffectiveness = $state<{ totalUsed: number; successRate: number } | null>(null);
   let skillViewLoading = $state(false);
+  let expandedPlaybooks = $state<Set<string>>(new Set());
   let skillCreateOpen = $state(false);
   let skillCreateName = $state("");
   let skillCreateSlug = $state("");
@@ -1191,6 +1192,18 @@
     skillViewData = null;
     skillViewPlaybooks = [];
     skillViewEffectiveness = null;
+    expandedPlaybooks = new Set();
+  }
+
+  function togglePlaybook(path: string) {
+    const next = new Set(expandedPlaybooks);
+    if (next.has(path)) next.delete(path);
+    else next.add(path);
+    expandedPlaybooks = next;
+  }
+
+  function formatPlaybookContent(raw: string): string {
+    try { return JSON.stringify(JSON.parse(raw), null, 2); } catch { return raw; }
   }
 
   async function createSkill() {
@@ -1508,11 +1521,14 @@
                   <strong>Playbooks ({skillViewPlaybooks.length}):</strong>
                   {#each skillViewPlaybooks as pb}
                     <div class="playbook-entry">
-                      <span class="mono mini">{pb.path}</span>
-                      {#if pb.content}
-                        <pre class="playbook-preview">{pb.content.slice(0, 500)}{pb.content.length > 500 ? "..." : ""}</pre>
-                      {:else if pb.error}
+                      <button class="playbook-toggle" onclick={() => togglePlaybook(pb.path)}>
+                        <span class="playbook-arrow">{expandedPlaybooks.has(pb.path) ? "v" : ">"}</span>
+                        <span class="mono mini">{pb.path}</span>
+                      </button>
+                      {#if pb.error}
                         <span class="muted">{pb.error}</span>
+                      {:else if expandedPlaybooks.has(pb.path) && pb.content}
+                        <pre class="playbook-preview expanded">{formatPlaybookContent(pb.content)}</pre>
                       {/if}
                     </div>
                   {/each}
@@ -2181,7 +2197,11 @@
   .skill-detail-desc { font-size: var(--font-size-sm); color: var(--text-secondary); margin-bottom: 10px; padding: 6px 8px; background: var(--bg-deep, rgba(0,0,0,0.15)); border-radius: 4px; }
   .skill-detail-section { margin-bottom: 10px; font-size: var(--font-size-sm); }
   .skill-detail-section strong { display: block; margin-bottom: 4px; color: var(--text-secondary); }
-  .playbook-entry { margin-bottom: 6px; }
+  .playbook-entry { margin-bottom: 4px; }
+  .playbook-toggle { display: flex; align-items: center; gap: 6px; background: none; border: none; color: var(--link, #6bb8ff); cursor: pointer; padding: 2px 0; text-align: left; width: 100%; }
+  .playbook-toggle:hover { text-decoration: underline; }
+  .playbook-arrow { font-family: var(--font-mono); font-size: 0.75em; width: 10px; flex-shrink: 0; color: var(--text-muted, #888); }
   .playbook-preview { white-space: pre-wrap; font-family: var(--font-mono); font-size: 0.8em; max-height: 150px; overflow-y: auto; padding: 6px; background: var(--bg-deep, rgba(0,0,0,0.2)); border-radius: 4px; margin-top: 2px; }
+  .playbook-preview.expanded { max-height: 400px; }
   .skill-content { white-space: pre-wrap; font-family: var(--font-mono); font-size: 0.85em; max-height: 400px; overflow-y: auto; padding: 8px; background: var(--bg-deep, rgba(0,0,0,0.2)); border-radius: 4px; }
 </style>

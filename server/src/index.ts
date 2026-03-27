@@ -51,7 +51,7 @@ import {
   findStaleLoopbackWorkerIds,
   resolveCanonicalLoopbackWorkerName,
 } from "./utils/local-worker.js";
-import { copyFileSync, existsSync, mkdirSync, readdirSync, writeFileSync } from "fs";
+import { chmodSync, chownSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "fs";
 import { dirname, join, resolve } from "path";
 import {
   evaluateNetworkAccess,
@@ -305,11 +305,68 @@ function migrateLegacyCoordinatorData(config: Config): void {
   }
 }
 
+/**
+ * Docker fix: when the server runs as root but spawns Claude CLI / jobs as a
+ * non-root user (bun/node), the CLI credentials created by `claude /login`
+ * (run as root) are 0600 root:root. Claude CLI silently fails if the
+ * credentials file isn't owned by the running user.
+ * Detect the drop-user (bun/node) and chown the .claude dir so spawned
+ * subprocesses can authenticate. Only runs when uid === 0 (Docker); no-op
+ * on local machines.
+ */
+function fixClaudeCredentialsPerms() {
+  const getuid = (process as NodeJS.Process & { getuid?: () => number }).getuid;
+  if (typeof getuid !== "function" || getuid() !== 0) return;
+
+  const home = process.env.HOME ?? "/root";
+  const claudeDir = join(home, ".claude");
+  if (!existsSync(claudeDir)) return;
+
+  // Find the non-root user we'll drop to for subprocesses
+  const dropUsers = ["bun", "node", "nobody"];
+  let dropUid: number | undefined;
+  let dropGid: number | undefined;
+  try {
+    const passwd = readFileSync("/etc/passwd", "utf-8");
+    for (const user of dropUsers) {
+      const line = passwd.split(/\r?\n/).find((l) => l.startsWith(`${user}:`));
+      if (line) {
+        const parts = line.split(":");
+        dropUid = parseInt(parts[2], 10);
+        dropGid = parseInt(parts[3], 10);
+        break;
+      }
+    }
+  } catch { /* no /etc/passwd — skip */ }
+
+  if (dropUid === undefined) return;
+
+  try {
+    // Recursively fix ownership of .claude dir so the drop user owns it
+    const fixOwnership = (path: string) => {
+      const st = statSync(path);
+      if (st.uid !== dropUid) {
+        chownSync(path, dropUid!, dropGid ?? dropUid!);
+      }
+      if (st.isDirectory()) {
+        for (const entry of readdirSync(path)) {
+          fixOwnership(join(path, entry));
+        }
+      }
+    };
+    fixOwnership(claudeDir);
+    logger.info("server", `Fixed Claude config ownership (uid=${dropUid}) for non-root subprocess access`);
+  } catch (err) {
+    logger.warn("server", `Could not fix Claude credentials ownership: ${err}`);
+  }
+}
+
 async function main() {
   // 1. Load config
   const config = loadConfig();
   setLogLevel(config.logLevel);
   logger.info("server", "Starting Arkestrator server...");
+  fixClaudeCredentialsPerms();
   migrateLegacyCoordinatorData(config);
 
   // 2. Initialize database

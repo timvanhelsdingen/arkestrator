@@ -410,8 +410,10 @@ function rebuildApiKeysTableIfNeeded(db: Database) {
       revoked_at  TEXT
     )`);
     const oldCols = db.prepare(`PRAGMA table_info(api_keys)`).all() as { name: string }[];
-    const colNames = oldCols.map((c) => c.name);
-    const selectCols = colNames.join(", ");
+    const newCols = db.prepare(`PRAGMA table_info(api_keys_new)`).all() as { name: string }[];
+    const newColSet = new Set(newCols.map((c) => c.name));
+    const commonCols = oldCols.map((c) => c.name).filter((n) => newColSet.has(n));
+    const selectCols = commonCols.join(", ");
     db.exec(`INSERT INTO api_keys_new (${selectCols}) SELECT ${selectCols} FROM api_keys`);
     db.exec(`DROP TABLE api_keys`);
     db.exec(`ALTER TABLE api_keys_new RENAME TO api_keys`);
@@ -451,8 +453,10 @@ function rebuildPoliciesTableIfNeeded(db: Database) {
       updated_at  TEXT NOT NULL
     )`);
     const oldCols = db.prepare(`PRAGMA table_info(policies)`).all() as { name: string }[];
-    const colNames = oldCols.map((c) => c.name);
-    const selectCols = colNames.join(", ");
+    const newCols = db.prepare(`PRAGMA table_info(policies_new)`).all() as { name: string }[];
+    const newColSet = new Set(newCols.map((c) => c.name));
+    const commonCols = oldCols.map((c) => c.name).filter((n) => newColSet.has(n));
+    const selectCols = commonCols.join(", ");
     db.exec(`INSERT INTO policies_new (${selectCols}) SELECT ${selectCols} FROM policies`);
     db.exec(`DROP TABLE policies`);
     db.exec(`ALTER TABLE policies_new RENAME TO policies`);
@@ -501,8 +505,10 @@ function rebuildSkillsTableIfNeeded(db: Database) {
       UNIQUE(slug, program)
     )`);
     const oldCols = db.prepare(`PRAGMA table_info(skills)`).all() as { name: string }[];
-    const colNames = oldCols.map((c) => c.name);
-    const selectCols = colNames.join(", ");
+    const newCols = db.prepare(`PRAGMA table_info(skills_new)`).all() as { name: string }[];
+    const newColSet = new Set(newCols.map((c) => c.name));
+    const commonCols = oldCols.map((c) => c.name).filter((n) => newColSet.has(n));
+    const selectCols = commonCols.join(", ");
     db.exec(`INSERT INTO skills_new (${selectCols}) SELECT ${selectCols} FROM skills`);
     db.exec(`DROP TABLE skills`);
     db.exec(`ALTER TABLE skills_new RENAME TO skills`);
@@ -611,10 +617,12 @@ function rebuildJobsTableIfNeeded(db: Database) {
       parent_job_id   TEXT REFERENCES jobs(id) ON DELETE SET NULL,
       used_bridges    TEXT NOT NULL DEFAULT '[]'
     )`);
-    // Copy existing columns (bridge_program may not exist yet in old table)
+    // Copy only columns common to both tables (old DB may have extra/missing columns)
     const oldCols = db.prepare(`PRAGMA table_info(jobs)`).all() as { name: string }[];
-    const colNames = oldCols.map((c) => c.name);
-    const selectCols = colNames.join(", ");
+    const newCols = db.prepare(`PRAGMA table_info(jobs_new)`).all() as { name: string }[];
+    const newColSet = new Set(newCols.map((c) => c.name));
+    const commonCols = oldCols.map((c) => c.name).filter((n) => newColSet.has(n));
+    const selectCols = commonCols.join(", ");
     db.exec(`INSERT INTO jobs_new (${selectCols}) SELECT ${selectCols} FROM jobs`);
     db.exec(`DROP TABLE jobs`);
     db.exec(`ALTER TABLE jobs_new RENAME TO jobs`);
