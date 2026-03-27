@@ -34,7 +34,7 @@
     selectedWorkerNames: string[];
     dependencyJobId: string;
     runtimeOptions?: JobRuntimeOptions;
-    onsubmit: (prompt: string, resolvedRuntimeOptions?: JobRuntimeOptions) => void;
+    onsubmit: (prompt: string, resolvedRuntimeOptions?: JobRuntimeOptions, files?: Array<{ path: string; content: string }>) => void;
     onchat: (prompt: string, resolvedRuntimeOptions?: JobRuntimeOptions) => void;
   } = $props();
 
@@ -190,6 +190,8 @@
   let promptText = $state("");
   let syncedDraftPrompt = $state<string | null>(null);
   let improving = $state(false);
+  // Store raw file data alongside metadata for uploading with job
+  let attachmentFiles = $state<Map<string, File>>(new Map());
   let attachments = $state<Array<{
     id: string;
     name: string;
@@ -439,17 +441,38 @@
     onchat(preparedPrompt, resolveRuntimeOptionsForPrompt(preparedPrompt, "chat"));
     promptText = "";
     attachments = [];
+    attachmentFiles = new Map();
   }
 
-  function submitJob(paused: boolean) {
+  async function submitJob(paused: boolean) {
     if (improving) return;
     if (!promptText.trim()) return;
     const tab = chatStore.activeTab;
     if (tab) tab.startPaused = paused;
     const preparedPrompt = buildPromptWithAttachments(promptText.trim());
-    onsubmit(preparedPrompt, resolveRuntimeOptionsForPrompt(preparedPrompt, "job"));
+
+    // Read attachment files into FileAttachment format for server upload
+    const filePayloads: Array<{ path: string; content: string }> = [];
+    for (const att of attachments) {
+      const file = attachmentFiles.get(att.id);
+      if (!file) continue;
+      if (att.kind === "image") {
+        // Base64-encode images so the server can write them to disk for the agent
+        const buf = await file.arrayBuffer();
+        const base64 = btoa(
+          new Uint8Array(buf).reduce((s, b) => s + String.fromCharCode(b), ""),
+        );
+        filePayloads.push({ path: file.name, content: `data:${file.type};base64,${base64}` });
+      } else if (att.kind === "text") {
+        const text = await file.text();
+        filePayloads.push({ path: file.name, content: text });
+      }
+    }
+
+    onsubmit(preparedPrompt, resolveRuntimeOptionsForPrompt(preparedPrompt, "job"), filePayloads);
     promptText = "";
     attachments = [];
+    attachmentFiles = new Map();
   }
 
   function isLikelyTextFile(file: File): boolean {
@@ -475,6 +498,7 @@
     for (const file of files) {
       const id = crypto.randomUUID();
       if (isLikelyTextFile(file)) {
+        attachmentFiles.set(id, file);
         next.push({
           id,
           name: file.name,
@@ -484,6 +508,7 @@
         continue;
       }
       if (file.type.startsWith("image/")) {
+        attachmentFiles.set(id, file);
         next.push({
           id,
           name: file.name,
@@ -505,6 +530,7 @@
 
   function removeAttachment(id: string) {
     attachments = attachments.filter((item) => item.id !== id);
+    attachmentFiles.delete(id);
   }
 
   function buildPromptWithAttachments(basePrompt: string): string {

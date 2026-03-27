@@ -25,6 +25,29 @@ import type { WorkersRepo } from "../db/workers.repo.js";
 import type { HeadlessProgramsRepo } from "../db/headless-programs.repo.js";
 import type { WebSocketHub } from "../ws/hub.js";
 
+/**
+ * Write a base64-encoded image attachment to a temp directory so the agent
+ * can read it with the Read tool. Returns the absolute path on success.
+ */
+function writeImageAttachment(jobId: string, filename: string, dataUrl: string): string | null {
+  try {
+    const match = dataUrl.match(/^data:image\/[^;]+;base64,(.+)$/);
+    if (!match) return null;
+    const dir = join(tmpdir(), "arkestrator-job-attachments", jobId);
+    mkdirSync(dir, { recursive: true });
+    // Sanitize filename
+    const safe = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const path = join(dir, safe);
+    const buf = Buffer.from(match[1], "base64");
+    writeFileSync(path, buf);
+    logger.info("engines", `Wrote image attachment ${safe} (${buf.length} bytes) for job ${jobId}`);
+    return path;
+  } catch (err) {
+    logger.warn("engines", `Failed to write image attachment: ${err}`);
+    return null;
+  }
+}
+
 export interface CommandSpec {
   command: string;
   args: string[];
@@ -152,13 +175,25 @@ function buildPrompt(
   if (workspace?.mode === "command") {
     // Include attached file contents as context in the prompt
     if (job.files && job.files.length > 0) {
-      const fileContext = job.files
-        .map(
-          (f: FileAttachment) =>
-            `--- File: ${f.path} ---\n${f.content}\n--- End ---`,
-        )
-        .join("\n\n");
-      prompt = `${prompt}\n\nHere are the relevant project files for context:\n\n${fileContext}`;
+      const textFiles: string[] = [];
+      const imageFiles: string[] = [];
+      for (const f of job.files as FileAttachment[]) {
+        if (f.content.startsWith("data:image/")) {
+          // Base64-encoded image — write to temp dir so agent can Read it
+          const savedPath = writeImageAttachment(job.id, f.path, f.content);
+          if (savedPath) {
+            imageFiles.push(`Image saved to: ${savedPath}\nUse the Read tool to view this image file for visual reference.`);
+          }
+        } else {
+          textFiles.push(`--- File: ${f.path} ---\n${f.content}\n--- End ---`);
+        }
+      }
+      if (textFiles.length > 0) {
+        prompt = `${prompt}\n\nHere are the relevant project files for context:\n\n${textFiles.join("\n\n")}`;
+      }
+      if (imageFiles.length > 0) {
+        prompt = `${prompt}\n\n## Attached Images\n${imageFiles.join("\n\n")}`;
+      }
     }
   }
 
