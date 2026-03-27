@@ -672,11 +672,13 @@ All messages use `{ type, id, payload }` envelope. The `id` is a UUID for reques
 | `bridge_context_clear` | `{}` | Clear all context items for this bridge |
 | `bridge_editor_context` | `{ editorContext }` | Update editor state (active file, selections, etc.) |
 | `bridge_command_result` | `{ requestId, success, result }` | Response to a command sent by the agent |
+| `bridge_file_read_response` | `{ correlationId, files[] }` | File contents read from client disk (base64 for binary, utf8 for text) |
 
 ### Server â†’ Bridge
 | Type | Payload | Description |
 |------|---------|-------------|
 | `bridge_command` | `{ requestId, script, language }` | Execute a command inside the DCC app |
+| `bridge_file_read_request` | `{ correlationId, paths[] }` | Read files from client disk (agent reads via `read_client_file` MCP tool) |
 
 ### Server â†’ Bridge + Clients
 | Type | Payload | Description |
