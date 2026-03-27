@@ -1223,6 +1223,26 @@ fn show_main_window(app: &tauri::AppHandle) {
     }
 }
 
+/// Resolve the user's full login shell PATH by spawning their default shell
+/// with the login flag. This captures PATH entries added by .zprofile,
+/// .bash_profile, .profile, nvm, Homebrew, etc.
+#[cfg(not(target_os = "windows"))]
+fn resolve_user_shell_path() -> String {
+    // Determine the user's default shell
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    let result = Command::new(&shell)
+        .args(["-l", "-c", "echo $PATH"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output();
+    match result {
+        Ok(output) if output.status.success() => {
+            String::from_utf8_lossy(&output.stdout).trim().to_string()
+        }
+        _ => String::new(),
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Fix WebKit GPU compositing crash on Wayland
@@ -1233,19 +1253,35 @@ pub fn run() {
         }
     }
 
-    // Ensure bun and cargo/rustup are on PATH (Tauri's shell inherits a minimal env)
+    // On macOS/Linux, GUI apps launched from Finder/desktop inherit a minimal
+    // PATH from launchd that excludes Homebrew, nvm, npm global, pnpm, bun,
+    // cargo, and other user-installed tool directories. Resolve the user's
+    // actual login shell PATH so the sidecar (and its spawned CLI agents like
+    // claude, codex, gemini) can find everything the user has installed.
     #[cfg(not(target_os = "windows"))]
     {
-        if let Ok(home) = std::env::var("HOME") {
+        let shell_path = resolve_user_shell_path();
+        if !shell_path.is_empty() {
+            std::env::set_var("PATH", &shell_path);
+            log::info!("Resolved user shell PATH ({} entries)", shell_path.split(':').count());
+        } else if let Ok(home) = std::env::var("HOME") {
+            // Fallback: manually prepend common tool directories
             let current = std::env::var("PATH").unwrap_or_default();
-            let bun_bin = format!("{}/.bun/bin", home);
-            let cargo_bin = format!("{}/.cargo/bin", home);
+            let extra_dirs = [
+                format!("{}/.bun/bin", home),
+                format!("{}/.cargo/bin", home),
+                "/opt/homebrew/bin".to_string(),
+                "/usr/local/bin".to_string(),
+                format!("{}/.local/bin", home),
+                format!("{}/.nvm/current/bin", home),
+                format!("{}/.npm-global/bin", home),
+                format!("{}/.pnpm", home),
+            ];
             let mut new_path = current.clone();
-            if !current.split(':').any(|p| p == bun_bin) {
-                new_path = format!("{}:{}", bun_bin, new_path);
-            }
-            if !current.split(':').any(|p| p == cargo_bin) {
-                new_path = format!("{}:{}", cargo_bin, new_path);
+            for dir in &extra_dirs {
+                if !current.split(':').any(|p| p == dir.as_str()) {
+                    new_path = format!("{}:{}", dir, new_path);
+                }
             }
             std::env::set_var("PATH", new_path);
         }
@@ -1314,8 +1350,14 @@ pub fn run() {
                 .item(&MenuItemBuilder::with_id(TRAY_MENU_QUIT, "Quit").build(app)?)
                 .build()?;
 
+            let tray_icon = app.default_window_icon().cloned()
+                .expect("default window icon must be set in tauri.conf.json");
+
             TrayIconBuilder::with_id(TRAY_ID)
+                .icon(tray_icon)
+                .icon_as_template(true) // macOS: use template rendering (monochrome in menu bar)
                 .menu(&tray_menu)
+                .tooltip("Arkestrator")
                 .show_menu_on_left_click(false)
                 .on_tray_icon_event(|tray, event| {
                     if let TrayIconEvent::Click {
