@@ -1455,140 +1455,65 @@ export async function spawnAgent(
   if (deps.skillsRepo) {
     const jobProgram = (job.bridgeProgram ?? "").trim().toLowerCase();
 
-    // Determine which skills to inject — ranked by relevance or fallback to program filter
-    let relevant: import("../db/skills.repo.js").Skill[];
-    if (deps.skillIndex) {
-      // Fetch effectiveness scores for ranking
-      const allEnabled = deps.skillsRepo.listAll({ enabled: true });
-      const skillIds = allEnabled.map((s) => s.id);
-      const effectivenessScores = deps.skillEffectivenessRepo
-        ? deps.skillEffectivenessRepo.getStatsForSkills(skillIds)
-        : new Map<string, { successRate: number; totalUsed: number }>();
+    // Only inject auto-fetch skills (coordinators, bridge scripts) into the
+    // system prompt. These are small and always relevant. All other skills
+    // are available on-demand via search_skills/get_skill MCP tools — the
+    // coordinator agent should pull them during execution when needed.
+    const allEnabled = deps.skillsRepo.listAll({ enabled: true });
+    const autoFetchSkills = allEnabled.filter((s) => s.autoFetch);
+    const rankedSkillCount = allEnabled.filter((s) => {
+      if (s.autoFetch) return false;
+      const sp = s.program.trim().toLowerCase();
+      return !sp || sp === "global" || sp === jobProgram;
+    }).length;
 
-      const { results: ranked } = deps.skillIndex.rankForJob(job.prompt, jobProgram, {
-        effectivenessScores,
-      });
-      relevant = ranked.map((r) => r.skill);
-
-      // Log ranking decisions for observability
-      const promptPreview = job.prompt.length > 80 ? job.prompt.slice(0, 80) + "..." : job.prompt;
-      const rankedNames = ranked
-        .map((r) => `${r.skill.title || r.skill.slug}(${r.score.toFixed(2)},${r.reason})`)
-        .join(", ");
-      logger.info(
-        "skill-ranking",
-        `Job ${job.id} [${jobProgram || "global"}] "${promptPreview}" → ${ranked.length} skills: ${rankedNames}`,
-      );
-    } else {
-      // Fallback: program filter only (no ranking index available)
-      const allEnabled = deps.skillsRepo.listAll({ enabled: true });
-      relevant = allEnabled.filter((skill) => {
-        const sp = skill.program.trim().toLowerCase();
-        if (!sp || sp === "global") return true;
-        if (jobProgram && sp === jobProgram) return true;
-        return false;
-      });
-    }
-
-    if (relevant.length > 0) {
-      const skillLines: string[] = ["## Learned Skills & Knowledge"];
-      const MAX_SKILL_CONTENT_TOTAL = 30_000; // Cap total injected skill content
+    if (autoFetchSkills.length > 0) {
+      const skillLines: string[] = ["## Coordinator Knowledge"];
+      const MAX_SKILL_CONTENT_TOTAL = 15_000;
       let totalInjected = 0;
-      for (const skill of relevant) {
+      for (const skill of autoFetchSkills) {
         if (totalInjected >= MAX_SKILL_CONTENT_TOTAL) break;
         const header = skill.title || skill.name || skill.slug;
         const tag = skill.program && skill.program !== "global" ? ` [${skill.program}]` : "";
         skillLines.push(`### ${header}${tag}`);
         if (skill.description) skillLines.push(skill.description);
-        // Load referenced playbook artifacts instead of using embedded content
-        let playbookLoaded = false;
-        if (skill.playbooks?.length > 0 && deps.config.coordinatorPlaybooksDir) {
-          for (const pbPath of skill.playbooks) {
-            if (totalInjected >= MAX_SKILL_CONTENT_TOTAL) break;
-            const fullPath = join(deps.config.coordinatorPlaybooksDir, pbPath);
-            try {
-              if (existsSync(fullPath)) {
-                const raw = readFileSync(fullPath, "utf-8").trim();
-                if (raw) {
-                  // For JSON artifacts, extract the key analysis fields
-                  if (pbPath.endsWith(".json")) {
-                    try {
-                      const artifact = JSON.parse(raw);
-                      const parts: string[] = [];
-                      // Include project summaries
-                      if (artifact.summaries?.length) {
-                        parts.push("#### Project Analysis");
-                        for (const s of artifact.summaries) {
-                          parts.push(`**${s.name}** (${s.path})`);
-                          if (s.summary) parts.push(s.summary);
-                        }
-                      }
-                      // Include project details (node graphs, params, VEX, etc.)
-                      if (artifact.projects?.length) {
-                        for (const proj of artifact.projects) {
-                          if (proj.notesExcerpt) {
-                            parts.push(`#### ${proj.projectName} — Analysis Notes`);
-                            parts.push(proj.notesExcerpt);
-                          }
-                          if (proj.config?.prompt) {
-                            parts.push(`#### ${proj.projectName} — Conventions`);
-                            parts.push(String(proj.config.prompt));
-                          }
-                        }
-                      }
-                      // Include pipeline notes
-                      if (artifact.notes?.length) {
-                        parts.push("#### Notes");
-                        parts.push(artifact.notes.join("\n"));
-                      }
-                      const extracted = parts.join("\n\n").trim();
-                      if (extracted) {
-                        const capped = extracted.slice(0, MAX_SKILL_CONTENT_TOTAL - totalInjected);
-                        skillLines.push(capped);
-                        totalInjected += capped.length;
-                        playbookLoaded = true;
-                      }
-                    } catch {
-                      // JSON parse failed — inject raw (capped)
-                      const capped = raw.slice(0, Math.min(8000, MAX_SKILL_CONTENT_TOTAL - totalInjected));
-                      skillLines.push(capped);
-                      totalInjected += capped.length;
-                      playbookLoaded = true;
-                    }
-                  } else {
-                    // Markdown or other text — inject as-is (capped)
-                    const capped = raw.slice(0, Math.min(8000, MAX_SKILL_CONTENT_TOTAL - totalInjected));
-                    skillLines.push(capped);
-                    totalInjected += capped.length;
-                    playbookLoaded = true;
-                  }
-                }
-              }
-            } catch {
-              // File read failed — fall through to content fallback
-            }
-          }
-        }
-        // Fall back to embedded content if no playbooks loaded
-        if (!playbookLoaded && skill.content) {
+        if (skill.content) {
           const capped = skill.content.slice(0, Math.min(4000, MAX_SKILL_CONTENT_TOTAL - totalInjected));
           skillLines.push(capped);
           totalInjected += capped.length;
         }
         skillLines.push("");
       }
+
+      // Tell the agent about on-demand skills it can pull
+      if (rankedSkillCount > 0) {
+        skillLines.push(`## Available Skills (${rankedSkillCount} learned skills)`);
+        skillLines.push(
+          "Use the `search_skills` and `get_skill` MCP tools to find and load relevant " +
+          "learned skills when you need specific knowledge about techniques, patterns, or " +
+          "project conventions. Do NOT guess — search first if you're unsure how to approach something.",
+        );
+      }
+
       const skillBlock = skillLines.join("\n").trim();
       orchestratorPromptOverride = orchestratorPromptOverride
         ? `${orchestratorPromptOverride}\n\n${skillBlock}`
         : skillBlock;
 
-      // Record skill usage for effectiveness tracking
+      // Record auto-fetch skill usage for effectiveness tracking
       if (deps.skillEffectivenessRepo) {
-        for (const skill of relevant) {
+        for (const skill of autoFetchSkills) {
           deps.skillEffectivenessRepo.recordUsage(skill.id, job.id);
         }
       }
     }
+
+    // Log for observability
+    const promptPreview = job.prompt.length > 80 ? job.prompt.slice(0, 80) + "..." : job.prompt;
+    logger.info(
+      "skill-ranking",
+      `Job ${job.id} [${jobProgram || "global"}] "${promptPreview}" → ${autoFetchSkills.length} auto-fetch, ${rankedSkillCount} on-demand skills available`,
+    );
   }
 
   const clientPromptOverrideBlock = buildCoordinatorClientPromptOverrideBlock(job);
