@@ -153,10 +153,8 @@ export function createChatRoutes(deps: ChatDeps) {
     // Build a chat-only prompt with optional conversation history.
     // Codex chat is kept stateless because transcript stitching can degrade
     // prompt-following quality for short one-shot exec calls.
-      // Skip history passthrough when resuming a session (engine maintains its own context)
-      const useHistory = effectiveConfig.engine !== "codex"
-        && !(effectiveConfig.engine === "claude-code" && existingClaudeSession?.threadId)
-        && !improveMode;
+      // Whether to skip history is determined after session lookup (see below)
+      let useHistory = effectiveConfig.engine !== "codex" && !improveMode;
       let fullPrompt = "";
       if (useHistory && body.history && body.history.length > 0) {
         const historyText = body.history
@@ -207,6 +205,11 @@ export function createChatRoutes(deps: ChatDeps) {
     const existingClaudeSession = claudeSessionKey
       ? deps.chatSessions.get(claudeSessionKey)
       : null;
+
+    // Skip history when resuming a Claude session (Claude maintains its own context)
+    if (existingClaudeSession?.threadId) {
+      useHistory = false;
+    }
 
     // Build dynamic context about connected bridges for the system prompt
     const bridges = deps.hub.getBridges();
