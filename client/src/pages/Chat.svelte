@@ -69,24 +69,28 @@
     chatStore.addMessage(userMsg);
     chatStore.setDraftPrompt("");
 
-    // Create a placeholder message for streaming response
+    // Don't add the assistant message yet — show the thinking indicator first.
+    // The message card only appears once the first text chunk arrives.
     const responseMsg: ChatMessage = {
       id: crypto.randomUUID(),
       role: "assistant",
       content: "",
       timestamp: new Date().toISOString(),
     };
-    chatStore.addMessage(responseMsg);
+    let responseMsgAdded = false;
     chatStreaming = true;
 
     const appendAssistantChunk = (text: string) => {
       if (!text) return;
       const currentTab = chatStore.activeTab;
       if (!currentTab) return;
+      if (!responseMsgAdded) {
+        chatStore.addMessage(responseMsg);
+        responseMsgAdded = true;
+      }
       const msg = currentTab.messages.find((m) => m.id === responseMsg.id);
       if (!msg) return;
       msg.content += text;
-      // Cheap reactivity: bump version counter instead of spreading tabs array
       chatStore.streamVersion++;
     };
 
@@ -108,6 +112,10 @@
       toast.error(`Chat error: ${err.message}`);
       const currentTab = chatStore.activeTab;
       if (currentTab) {
+        if (!responseMsgAdded) {
+          chatStore.addMessage(responseMsg);
+          responseMsgAdded = true;
+        }
         const msg = currentTab.messages.find((m) => m.id === responseMsg.id);
         if (msg && !msg.content) {
           msg.content = `Error: ${err.message}`;
