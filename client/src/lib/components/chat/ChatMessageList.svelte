@@ -12,6 +12,9 @@
     onSubmitJob?: (prompt: string, bridges: string[]) => void;
   } = $props();
 
+  /** Track submitted proposals so the button can be disabled after clicking */
+  let submittedProposals = $state(new Set<string>());
+
   /** Parse :::job-proposal blocks from assistant message content */
   function parseJobProposals(content: string): { text: string; proposals: { prompt: string; bridges: string[] }[] } {
     const proposals: { prompt: string; bridges: string[] }[] = [];
@@ -233,12 +236,18 @@
                       {/if}
                     </div>
                     <pre class="job-proposal-prompt">{proposal.prompt}</pre>
+                    {@const proposalKey = `${msg.id}:${i}`}
                     <div class="job-proposal-actions">
                       <button
                         class="btn-submit-job"
-                        onclick={() => onSubmitJob?.(proposal.prompt, proposal.bridges)}
+                        class:submitted={submittedProposals.has(proposalKey)}
+                        disabled={submittedProposals.has(proposalKey)}
+                        onclick={() => {
+                          submittedProposals = new Set([...submittedProposals, proposalKey]);
+                          onSubmitJob?.(proposal.prompt, proposal.bridges);
+                        }}
                       >
-                        Submit Job
+                        {submittedProposals.has(proposalKey) ? "Submitted" : "Submit Job"}
                       </button>
                     </div>
                   </div>
@@ -524,7 +533,12 @@
     border: none;
     cursor: pointer;
   }
-  .btn-submit-job:hover {
+  .btn-submit-job:hover:not(:disabled) {
     filter: brightness(1.1);
+  }
+  .btn-submit-job.submitted {
+    background: var(--bg-hover);
+    color: var(--text-muted);
+    cursor: default;
   }
 </style>
