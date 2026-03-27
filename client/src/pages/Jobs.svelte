@@ -159,6 +159,15 @@
   let workerFilter = $state(ALL_OPTION);
   let bridgeFilter = $state(ALL_OPTION);
   let userFilter = $state(ALL_OPTION);
+  let sourceFilter = $state(ALL_OPTION);
+
+  /** Classify a job's source type from its metadata */
+  function getJobSourceType(job: any): string {
+    if (job.editorContext?.metadata?.coordinator_training_job) return "training";
+    if (job.editorContext?.metadata?.housekeeping) return "housekeeping";
+    if (job.parentJobId) return "sub-job";
+    return "user";
+  }
 
   function isActiveJobStatus(status: Job["status"]): boolean {
     return status === "queued" || status === "running" || status === "paused";
@@ -305,6 +314,7 @@
     workerFilter = ALL_OPTION;
     bridgeFilter = ALL_OPTION;
     userFilter = ALL_OPTION;
+    sourceFilter = ALL_OPTION;
   }
 
   function programIcon(program?: string): string {
@@ -656,6 +666,7 @@
       if (workerFilter !== ALL_OPTION && !workers.includes(workerFilter)) return false;
       if (bridgeFilter !== ALL_OPTION && !bridges.includes(bridgeFilter)) return false;
       if (userFilter !== ALL_OPTION && submittedBy !== userFilter) return false;
+      if (sourceFilter !== ALL_OPTION && getJobSourceType(job) !== sourceFilter) return false;
 
       if (queryTokens.length === 0) return true;
       const haystack = [
@@ -1062,6 +1073,13 @@
           {#each userOptions as user}
             <option value={user.value}>{user.label}</option>
           {/each}
+        </select>
+        <select class="filter-select" bind:value={sourceFilter}>
+          <option value={ALL_OPTION}>All Types</option>
+          <option value="user">User Jobs</option>
+          <option value="training">Training</option>
+          <option value="housekeeping">Housekeeping</option>
+          <option value="sub-job">Sub-jobs</option>
         </select>
         <button class="btn-clear-filters" onclick={clearAdvancedFilters}>Clear</button>
         <span class="filter-count">{filteredJobs.length} shown</span>
