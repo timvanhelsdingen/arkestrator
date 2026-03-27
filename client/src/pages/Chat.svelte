@@ -420,7 +420,7 @@
   <div class="chat-body">
     <div class="chat-main">
       {#if tab}
-        <ChatMessageList messages={tab.messages} jobIds={tab.jobIds} />
+        <ChatMessageList messages={tab.messages} jobIds={tab.jobIds} streaming={chatStreaming} />
         {#if hasMessages}
           <div class="clear-bar">
             <button class="btn-clear" onclick={() => chatStore.clearChat()} title="Clear chat messages">

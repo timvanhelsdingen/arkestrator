@@ -5,7 +5,39 @@
   import MarkdownRenderer from "./MarkdownRenderer.svelte";
   import { timeAgo } from "../../utils/format";
 
-  let { messages, jobIds }: { messages: ChatMessage[]; jobIds: string[] } = $props();
+  let { messages, jobIds, streaming = false }: { messages: ChatMessage[]; jobIds: string[]; streaming?: boolean } = $props();
+
+  // Fun thinking phrases
+  const thinkingPhrases = [
+    "Thinking...",
+    "Having a geez...",
+    "Hard yakka...",
+    "Unraveling...",
+    "Percolating...",
+    "Noodling on it...",
+    "Doing the thing...",
+    "Cooking up something...",
+    "Connecting dots...",
+    "Simmering...",
+    "Crunching away...",
+    "On it...",
+    "Brewing...",
+    "Cranking the gears...",
+  ];
+  let thinkingPhrase = $state(thinkingPhrases[0]);
+  let phraseTimer: ReturnType<typeof setInterval> | undefined;
+
+  $effect(() => {
+    if (streaming) {
+      thinkingPhrase = thinkingPhrases[Math.floor(Math.random() * thinkingPhrases.length)];
+      phraseTimer = setInterval(() => {
+        thinkingPhrase = thinkingPhrases[Math.floor(Math.random() * thinkingPhrases.length)];
+      }, 3000);
+    } else {
+      if (phraseTimer) clearInterval(phraseTimer);
+    }
+    return () => { if (phraseTimer) clearInterval(phraseTimer); };
+  });
 
   // Subscribe to stream version for cheap re-renders during chat streaming
   let _streamVersion = $derived(chatStore.streamVersion);
@@ -160,9 +192,7 @@
             {#if msg.role === "user"}
               <pre class="user-prompt">{msg.content}</pre>
             {:else}
-              {#if !msg.content}
-                <span class="thinking">Thinking...</span>
-              {:else}
+              {#if msg.content}
                 <MarkdownRenderer content={msg.content} />
               {/if}
             {/if}
@@ -170,9 +200,19 @@
         </div>
       {/if}
     {/each}
-    {#if hasActiveJob}
-      <div class="thinking-row">
-        <span class="thinking">Working...</span>
+    {#if streaming}
+      <div class="thinking-bar">
+        <div class="thinking-dots">
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        </div>
+        <span class="thinking-phrase">{thinkingPhrase}</span>
+      </div>
+    {:else if hasActiveJob}
+      <div class="thinking-bar">
+        <div class="thinking-dots">
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        </div>
+        <span class="thinking-phrase">Working...</span>
       </div>
     {/if}
   {/if}
@@ -253,6 +293,40 @@
     margin: 0;
     line-height: 1.5;
   }
+  .thinking-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    width: fit-content;
+  }
+  .thinking-dots {
+    display: flex;
+    gap: 3px;
+    align-items: center;
+  }
+  .dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: bounce 1.4s ease-in-out infinite;
+  }
+  .dot:nth-child(2) { animation-delay: 0.16s; }
+  .dot:nth-child(3) { animation-delay: 0.32s; }
+  @keyframes bounce {
+    0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+    40% { transform: scale(1); opacity: 1; }
+  }
+  .thinking-phrase {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-style: italic;
+  }
+  /* Inline thinking for job status (kept for "Working..." inside job cards) */
   .thinking {
     color: var(--text-muted);
     font-size: var(--font-size-sm);
@@ -348,8 +422,5 @@
     color: var(--status-failed);
     font-size: var(--font-size-sm);
     margin-top: 6px;
-  }
-  .thinking-row {
-    padding: 4px 12px;
   }
 </style>
