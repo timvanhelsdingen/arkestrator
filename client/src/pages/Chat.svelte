@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { JobRuntimeOptions } from "@arkestrator/protocol";
+  import { onMount } from "svelte";
   import { chatStore, type ChatMessage, type ChatProjectSelection } from "../lib/stores/chat.svelte";
   import { bridgeContextStore } from "../lib/stores/bridgeContext.svelte";
   import { connection } from "../lib/stores/connection.svelte";
@@ -420,6 +421,130 @@
     chatStore.setDraftPrompt("");
   }
 
+  /** Submit a job proposed by the chat agent via :::job-proposal block */
+  async function submitProposedJob(prompt: string, bridges: string[]) {
+    if (!tab || !prompt.trim()) return;
+
+    if (!connection.isAuthenticated && !connection.apiKey) {
+      toast.error("Log in or connect with an API key to submit jobs");
+      return;
+    }
+
+    if (!tab.agentConfigId) {
+      toast.error("Please select an agent configuration");
+      return;
+    }
+
+    // Build a minimal job payload using the proposed prompt
+    const coordinationMode: "server" | "client" =
+      connection.allowClientCoordination && connection.clientCoordinationEnabled
+      && clientCoordination.isCapable ? "client" : "server";
+
+    const payload = buildJobPayload(prompt, [], [], {
+      agentConfigId: tab.agentConfigId,
+      priority: tab.priority,
+      startPaused: false, // Agent-proposed jobs start immediately
+      coordinationMode,
+      projectSelection: tab.projectSelection,
+      projectId: tab.projectId,
+      runtimeOptions: tab.runtimeOptions,
+    });
+
+    // If bridges were specified, add them as metadata hint
+    if (bridges.length > 0 && payload.contextItems === undefined) {
+      // The bridge targeting is handled by the spawner based on connected bridges
+    }
+
+    try {
+      const job = await api.jobs.create(payload);
+      chatStore.trackJob(job.id);
+      chatStore.addMessage({
+        id: crypto.randomUUID(),
+        role: "system",
+        content: `Job submitted (#${job.id.slice(0, 8)}) \u2014 ${job.status}`,
+        timestamp: new Date().toISOString(),
+        jobId: job.id,
+      });
+    } catch (err: any) {
+      toast.error(`Failed to submit job: ${err.message}`);
+      chatStore.addMessage({
+        id: crypto.randomUUID(),
+        role: "system",
+        content: `Failed to submit: ${err.message}`,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  }
+
+  /** Auto-report job results in chat when a tracked job completes */
+  async function reportJobCompletion(job: any) {
+    const currentTab = chatStore.activeTab;
+    if (!currentTab || !currentTab.agentConfigId) return;
+    if (chatStreaming) return; // Don't interrupt active chat
+
+    const label = job.name ?? `#${job.id.slice(0, 8)}`;
+    const fileChanges = Array.isArray(job.result) ? job.result.length : 0;
+    const commands = Array.isArray(job.commands) ? job.commands.length : 0;
+    const errorText = job.error ? `Error: ${job.error}` : "No errors.";
+
+    const summary = [
+      `[JOB ${job.status.toUpperCase()}] Job ${label} just finished.`,
+      `Status: ${job.status}.`,
+      fileChanges > 0 ? `${fileChanges} file change${fileChanges !== 1 ? "s" : ""}.` : "No file changes.",
+      commands > 0 ? `${commands} command${commands !== 1 ? "s" : ""} ran.` : "",
+      errorText,
+      "Briefly tell the user what was accomplished or what went wrong.",
+    ].filter(Boolean).join(" ");
+
+    chatStreaming = true;
+    const responseMsg: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: "assistant",
+      content: "",
+      timestamp: new Date().toISOString(),
+    };
+    let responseMsgAdded = false;
+
+    try {
+      await api.chat.stream(
+        {
+          prompt: summary,
+          agentConfigId: currentTab.agentConfigId,
+          conversationKey: currentTab.conversationKey,
+          runtimeOptions: currentTab.runtimeOptions,
+          jobIds: currentTab.jobIds.slice(-20),
+        },
+        (chunk) => {
+          if (!chunk) return;
+          if (!responseMsgAdded) {
+            chatStore.addMessage(responseMsg);
+            responseMsgAdded = true;
+          }
+          const msg = currentTab.messages.find((m) => m.id === responseMsg.id);
+          if (msg) {
+            msg.content += chunk;
+            chatStore.streamVersion++;
+          }
+        },
+      );
+    } catch {
+      // Silently fail — the system message already shows the status
+    } finally {
+      chatStreaming = false;
+    }
+  }
+
+  onMount(() => {
+    function onJobCompleted(e: Event) {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.job && detail?.tabId === chatStore.activeTab?.id) {
+        reportJobCompletion(detail.job);
+      }
+    }
+    window.addEventListener("arkestrator:job-completed", onJobCompleted);
+    return () => window.removeEventListener("arkestrator:job-completed", onJobCompleted);
+  });
+
   let hasMessages = $derived((tab?.messages.length ?? 0) > 0);
 </script>
 
@@ -428,7 +553,7 @@
   <div class="chat-body">
     <div class="chat-main">
       {#if tab}
-        <ChatMessageList messages={tab.messages} jobIds={tab.jobIds} streaming={chatStreaming} />
+        <ChatMessageList messages={tab.messages} jobIds={tab.jobIds} streaming={chatStreaming} onSubmitJob={submitProposedJob} />
         {#if hasMessages}
           <div class="clear-bar">
             <button class="btn-clear" onclick={() => chatStore.clearChat()} title="Clear chat messages">

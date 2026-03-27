@@ -454,6 +454,14 @@ function dispatch(msg: any) {
             timestamp: new Date().toISOString(),
           });
         }
+
+        // Notify chat page when a tracked job reaches a terminal state
+        // so it can trigger a follow-up agent narration
+        if (justReachedTerminal && !isSubJob) {
+          window.dispatchEvent(new CustomEvent("arkestrator:job-completed", {
+            detail: { job, tabId: ownerTab.id },
+          }));
+        }
       }
       break;
     }

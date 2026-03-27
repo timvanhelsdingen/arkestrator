@@ -5,7 +5,31 @@
   import MarkdownRenderer from "./MarkdownRenderer.svelte";
   import { timeAgo } from "../../utils/format";
 
-  let { messages, jobIds, streaming = false }: { messages: ChatMessage[]; jobIds: string[]; streaming?: boolean } = $props();
+  let { messages, jobIds, streaming = false, onSubmitJob }: {
+    messages: ChatMessage[];
+    jobIds: string[];
+    streaming?: boolean;
+    onSubmitJob?: (prompt: string, bridges: string[]) => void;
+  } = $props();
+
+  /** Parse :::job-proposal blocks from assistant message content */
+  function parseJobProposals(content: string): { text: string; proposals: { prompt: string; bridges: string[] }[] } {
+    const proposals: { prompt: string; bridges: string[] }[] = [];
+    const text = content.replace(/:::job-proposal\s*\n([\s\S]*?):::/g, (_match, body: string) => {
+      const promptMatch = body.match(/prompt:\s*(.+?)(?:\n|$)/s);
+      const bridgesMatch = body.match(/bridges:\s*(.+?)(?:\n|$)/);
+      if (promptMatch) {
+        proposals.push({
+          prompt: promptMatch[1].trim(),
+          bridges: bridgesMatch
+            ? bridgesMatch[1].split(",").map((b: string) => b.trim().toLowerCase()).filter(Boolean)
+            : [],
+        });
+      }
+      return ""; // Remove the block from rendered text
+    });
+    return { text: text.trim(), proposals };
+  }
 
   // Fun thinking phrases
   const thinkingPhrases = [
@@ -193,7 +217,32 @@
               <pre class="user-prompt">{msg.content}</pre>
             {:else}
               {#if msg.content}
-                <MarkdownRenderer content={msg.content} />
+                {@const parsed = parseJobProposals(msg.content)}
+                {#if parsed.text}
+                  <MarkdownRenderer content={parsed.text} />
+                {/if}
+                {#each parsed.proposals as proposal, i}
+                  <div class="job-proposal-card">
+                    <div class="job-proposal-header">
+                      <span class="job-proposal-icon">&#9881;</span>
+                      <span class="job-proposal-label">Proposed Job</span>
+                      {#if proposal.bridges.length > 0}
+                        {#each proposal.bridges as bridge}
+                          <span class="source-badge source-{bridge}">{bridge}</span>
+                        {/each}
+                      {/if}
+                    </div>
+                    <pre class="job-proposal-prompt">{proposal.prompt}</pre>
+                    <div class="job-proposal-actions">
+                      <button
+                        class="btn-submit-job"
+                        onclick={() => onSubmitJob?.(proposal.prompt, proposal.bridges)}
+                      >
+                        Submit Job
+                      </button>
+                    </div>
+                  </div>
+                {/each}
               {/if}
             {/if}
           </div>
@@ -422,5 +471,60 @@
     color: var(--status-failed);
     font-size: var(--font-size-sm);
     margin-top: 6px;
+  }
+
+  /* Job proposal cards */
+  .job-proposal-card {
+    margin-top: 10px;
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-sm);
+    background: rgba(var(--accent-rgb, 59, 130, 246), 0.06);
+    overflow: hidden;
+  }
+  .job-proposal-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  .job-proposal-icon {
+    font-size: 13px;
+  }
+  .job-proposal-label {
+    flex: 1;
+  }
+  .job-proposal-prompt {
+    margin: 0;
+    padding: 10px;
+    font-family: var(--font-sans);
+    font-size: var(--font-size-sm);
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--text-primary);
+    line-height: 1.5;
+    background: transparent;
+  }
+  .job-proposal-actions {
+    padding: 6px 10px 8px;
+    display: flex;
+    justify-content: flex-end;
+  }
+  .btn-submit-job {
+    padding: 6px 16px;
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    background: var(--accent);
+    color: var(--text-on-accent);
+    border: none;
+    cursor: pointer;
+  }
+  .btn-submit-job:hover {
+    filter: brightness(1.1);
   }
 </style>
