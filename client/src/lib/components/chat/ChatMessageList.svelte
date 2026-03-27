@@ -108,11 +108,19 @@
     };
   }
 
+  // Reactive job lookup: re-evaluates when jobs.all changes (status, tokens, etc.)
+  let jobMap = $derived(new Map(jobs.all.map((j) => [j.id, j])));
+
   function getJob(jobId: string) {
-    return jobs.all.find((j) => j.id === jobId);
+    return jobMap.get(jobId);
   }
 
+  // Force reactivity on log updates by reading the version counter
+  // This makes the template re-render when any job log changes
+  let _logTick = $derived(jobs.logVersion);
+
   function getJobLogs(jobId: string): string {
+    void _logTick; // subscribe to log changes
     return jobs.getLogText(jobId);
   }
 
