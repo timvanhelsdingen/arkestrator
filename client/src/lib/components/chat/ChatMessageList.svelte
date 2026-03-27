@@ -185,7 +185,7 @@
         <!-- User and assistant messages: full cards -->
         <div class="message message-{msg.role}">
           <div class="message-header">
-            <span class="message-role">{msg.role === "user" ? "You" : "Assistant"}</span>
+            <span class="message-role">{msg.role === "user" ? "You" : "Arkestrator"}</span>
             <span class="message-time">{timeAgo(msg.timestamp)}</span>
           </div>
           <div class="message-content">

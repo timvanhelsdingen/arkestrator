@@ -68,10 +68,6 @@ class ServerState {
   dataDir = $state("");
   port = $state(loadSavedPort());
 
-  /** Bootstrap credentials captured from server stdout on first run */
-  bootstrapUsername = $state("");
-  bootstrapPassword = $state("");
-
   private child: Child | null = null;
   private maxLogLines = 500;
   private monitorTimer: ReturnType<typeof setInterval> | null = null;
@@ -93,13 +89,6 @@ class ServerState {
 
   get isRunning() {
     return this.status === "running";
-  }
-
-  get bootstrapCredentialsPath() {
-    if (!this.dataDir) return "";
-    const normalized = this.dataDir.replace(/[\\\/]+$/, "");
-    const sep = normalized.includes("\\") ? "\\" : "/";
-    return `${normalized}${sep}data${sep}db${sep}bootstrap-admin.txt`;
   }
 
   get canStart() {
@@ -193,18 +182,6 @@ class ServerState {
         : await this.createSidecarCommand();
 
       command.stdout.on("data", (line) => {
-        // Capture bootstrap credentials from server first-run output
-        // Format: "2026-... [INFO] [bootstrap] BOOTSTRAP_CREDENTIALS:username:password"
-        const bootstrapIdx = line.indexOf("BOOTSTRAP_CREDENTIALS:");
-        if (bootstrapIdx !== -1) {
-          const payload = line.slice(bootstrapIdx + "BOOTSTRAP_CREDENTIALS:".length);
-          const colonIdx = payload.indexOf(":");
-          if (colonIdx > 0) {
-            this.bootstrapUsername = payload.slice(0, colonIdx);
-            this.bootstrapPassword = payload.slice(colonIdx + 1);
-          }
-          return; // Don't log the credentials
-        }
         this.appendLog(line);
         // Only mark as running when server is actually listening for connections
         if (this.status === "starting" && line.includes("Server listening")) {

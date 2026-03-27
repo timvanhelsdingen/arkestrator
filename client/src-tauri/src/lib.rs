@@ -447,41 +447,6 @@ fn ensure_app_data_dir(app: tauri::AppHandle) -> Result<String, String> {
     Ok(data_dir.to_string_lossy().to_string())
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct BootstrapCredentials {
-    username: String,
-    password: String,
-}
-
-#[tauri::command]
-fn read_bootstrap_credentials(app: tauri::AppHandle) -> Result<BootstrapCredentials, String> {
-    let data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Failed to resolve app data dir: {e}"))?;
-    let bootstrap_path = data_dir.join("data").join("db").join("bootstrap-admin.txt");
-    let content = std::fs::read_to_string(&bootstrap_path)
-        .map_err(|e| format!("Cannot read bootstrap file: {e}"))?;
-    let mut username = String::new();
-    let mut password = String::new();
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with('#') || trimmed.is_empty() {
-            continue;
-        }
-        if let Some(val) = trimmed.strip_prefix("username=") {
-            username = val.to_string();
-        } else if let Some(val) = trimmed.strip_prefix("password=") {
-            password = val.to_string();
-        }
-    }
-    if username.is_empty() || password.is_empty() {
-        return Err("Bootstrap file missing username or password".to_string());
-    }
-    Ok(BootstrapCredentials { username, password })
-}
-
 /// Resolve the Tauri-bundled admin-dist resource directory path.
 /// Returns the path string if it exists, or an empty string if not found.
 #[tauri::command]
@@ -1308,7 +1273,6 @@ pub fn run() {
             read_shared_config,
             write_shared_config,
             ensure_app_data_dir,
-            read_bootstrap_credentials,
             resolve_admin_dist_path,
             get_machine_identity,
             get_local_hardware_capability,

@@ -53,17 +53,10 @@
   let showForcedTotpSetup = $state(false);
   let deferredLoginResult: any = $state(null);
 
-  async function ensureLocalBootstrapPath() {
-    try {
-      await serverState.ensureDataDir();
-    } catch {
-      // Leave the hint hidden if the desktop app cannot resolve local app data.
-    }
-  }
-
   onMount(() => {
+    // Ensure data dir is resolved for local server display
     if (isLoopbackUrl(serverUrl)) {
-      void ensureLocalBootstrapPath();
+      serverState.ensureDataDir().catch(() => {});
     }
   });
 
@@ -95,7 +88,7 @@
       connection.url = serverUrl;
       await api.health();
       if (isLoopbackUrl(serverUrl)) {
-        void ensureLocalBootstrapPath();
+        void serverState.ensureDataDir().catch(() => {});
       }
       mode = "login";
     } catch {
@@ -111,7 +104,7 @@
       localStarting = false;
       connection.url = serverState.localUrl;
       serverUrl = serverState.localUrl;
-      void ensureLocalBootstrapPath();
+      void serverState.ensureDataDir().catch(() => {});
       mode = "login";
     }
   });
@@ -119,7 +112,7 @@
   $effect(() => {
     const activeUrl = connection.url || serverUrl;
     if (mode === "local" || ((mode === "login" || mode === "totp") && isLoopbackUrl(activeUrl))) {
-      void ensureLocalBootstrapPath();
+      void serverState.ensureDataDir().catch(() => {});
     }
   });
 
@@ -439,12 +432,6 @@
         </label>
         {#if loginError}
           <div class="error">{loginError}</div>
-        {/if}
-        {#if serverState.bootstrapCredentialsPath}
-          <div class="login-hint">
-            First run: bootstrap admin credentials were written to
-            <code>{serverState.bootstrapCredentialsPath}</code>
-          </div>
         {/if}
         <label class="toggle-label">
           <input type="checkbox" bind:checked={restoreIncludeServerFiles} />

@@ -72,9 +72,6 @@
     const username = "admin";
     const password = "admin";
 
-    wizard.bootstrapUsername = username;
-    wizard.bootstrapPassword = password;
-
     // Cache machine identity (don't let this block login)
     try {
       await initMachineIdentity();
@@ -132,7 +129,7 @@
     passwordError = "";
     changingPassword = true;
     try {
-      await api.auth.changePassword(wizard.bootstrapPassword, newPassword, confirmPassword);
+      await api.auth.changePassword("admin", newPassword, confirmPassword);
       wizard.passwordChanged = true;
       wizard.securitySubStep = "totp-prompt";
     } catch (err: any) {

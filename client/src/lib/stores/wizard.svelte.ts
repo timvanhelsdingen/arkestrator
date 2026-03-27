@@ -34,9 +34,6 @@ class WizardState {
   agentsCreated = $state(0);
   bridgesInstalled = $state(0);
 
-  /** Bootstrap credentials (auto-read for local path) */
-  bootstrapUsername = $state("");
-  bootstrapPassword = $state("");
 
   /** Security step tracking */
   securitySubStep = $state<SecuritySubStep>("starting");
@@ -99,8 +96,6 @@ class WizardState {
     this.mode = "";
     this.agentsCreated = 0;
     this.bridgesInstalled = 0;
-    this.bootstrapUsername = "";
-    this.bootstrapPassword = "";
     this.securitySubStep = "starting";
     this.passwordChanged = false;
     this.totpSetupDone = false;

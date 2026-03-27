@@ -226,21 +226,6 @@ function generateBootstrapSecret(length = 32): string {
   return Array.from(bytes, (b) => (b % 36).toString(36)).join("");
 }
 
-function writeBootstrapCredentials(dbPath: string, username: string, password: string): string {
-  const outDir = dirname(dbPath);
-  const outPath = join(outDir, "bootstrap-admin.txt");
-  mkdirSync(outDir, { recursive: true });
-  const content = [
-    "# Arkestrator bootstrap credentials",
-    "# Rotate immediately after first login.",
-    `username=${username}`,
-    `password=${password}`,
-    `generatedAt=${new Date().toISOString()}`,
-    "",
-  ].join("\n");
-  writeFileSync(outPath, content, { mode: 0o600 });
-  return outPath;
-}
 
 function directoryHasEntries(path: string): boolean {
   if (!existsSync(path)) return false;
@@ -352,23 +337,8 @@ async function main() {
   // 4. Seed defaults on first run
   const firstRun = usersRepo.isEmpty();
   if (firstRun) {
-    const bootstrapUsername = process.env.BOOTSTRAP_ADMIN_USERNAME?.trim() || "admin";
-    const bootstrapPassword = process.env.BOOTSTRAP_ADMIN_PASSWORD?.trim() || "admin";
-
-    await usersRepo.create(bootstrapUsername, bootstrapPassword, "admin");
-    const credentialsPath = writeBootstrapCredentials(
-      config.dbPath,
-      bootstrapUsername,
-      bootstrapPassword,
-    );
-    logger.info("server", "=".repeat(60));
-    logger.info("server", "First run detected. Created bootstrap admin user:");
-    logger.info("server", `  Username: ${bootstrapUsername}`);
-    logger.info("server", `  Credentials written to: ${credentialsPath}`);
-    logger.info("server", "Rotate this bootstrap password after first login.");
-    logger.info("server", "=".repeat(60));
-    // Emit machine-readable bootstrap line for client auto-login (via logger so it matches stdout format)
-    logger.info("bootstrap", `BOOTSTRAP_CREDENTIALS:${bootstrapUsername}:${bootstrapPassword}`);
+    await usersRepo.create("admin", "admin", "admin");
+    logger.info("server", "First run detected. Created default admin user (admin/admin).");
   }
 
   if (apiKeysRepo.isEmpty()) {
