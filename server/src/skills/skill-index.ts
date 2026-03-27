@@ -260,9 +260,9 @@ export class SkillIndex {
    *
    * AutoFetch skills (coordinators, bridge scripts) are always included regardless of score.
    * Effectiveness scoring uses a graduated confidence model:
-   * - New skills (< 5 uses) get an exploration bonus to prove themselves.
-   * - As usage grows, the score blends toward the actual success rate.
-   * - Established skills (20+ uses) with low success rate are penalized but
+   * - New skills (< 15 uses) get an exploration bonus to prove themselves.
+   * - Moderate use (15-50): gradually blends toward actual success rate.
+   * - Established skills (50+ uses) with low success rate are penalized but
    *   never hard-disabled — a strong prompt match can still surface them.
    */
   rankForJob(
@@ -312,23 +312,23 @@ export class SkillIndex {
       const semScore = Math.max(0, semanticSimilarity(queryVector, this.vectors[i]));
 
       // Effectiveness score: graduated based on usage confidence.
-      // - New skills (< 5 uses): exploration bonus — slightly above neutral so
+      // - New skills (< 15 uses): exploration bonus — slightly above neutral so
       //   they get a fair chance to prove themselves.
-      // - Moderate use (5-20): blend between neutral and actual success rate,
+      // - Moderate use (15-50): blend between neutral and actual success rate,
       //   letting the signal build up gradually.
-      // - Established (20+): full trust in the success rate, but floor at 0.10
+      // - Established (50+): full trust in the success rate, but floor at 0.10
       //   so even poorly performing skills can still appear if the prompt match
       //   is strong enough (no hard auto-disable).
       let effScore: number;
-      if (!eff || eff.totalUsed < 5) {
+      if (!eff || eff.totalUsed < 15) {
         // Exploration phase: slightly optimistic to encourage discovery
         effScore = 0.6;
-      } else if (eff.totalUsed < 20) {
+      } else if (eff.totalUsed < 50) {
         // Transition phase: blend neutral toward actual rate as confidence grows
-        const confidence = (eff.totalUsed - 5) / 15; // 0 → 1 over 5..20 uses
+        const confidence = (eff.totalUsed - 15) / 35; // 0 → 1 over 15..50 uses
         effScore = 0.5 * (1 - confidence) + eff.successRate * confidence;
       } else {
-        // Established: trust the data, with a floor so skills aren't fully killed
+        // Established (50+ uses): trust the data, with a floor so skills aren't fully killed
         effScore = Math.max(0.10, eff.successRate);
       }
 
