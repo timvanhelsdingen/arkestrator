@@ -291,7 +291,20 @@ function buildClaudeCommand(
   const systemPrompt = instructionPrompt.text;
 
   if (systemPrompt) {
-    args.push("--system-prompt", systemPrompt);
+    // OS ARG_MAX is ~262KB on macOS, ~2MB on Linux. When the system prompt
+    // (skills + playbooks + coordinator + bridge context) exceeds a safe
+    // threshold, write it to CLAUDE.md in the job's cwd so the CLI picks
+    // it up automatically as project instructions — no --system-prompt needed.
+    const SYSTEM_PROMPT_ARG_SAFE = 100_000; // ~100KB safe threshold
+    if (Buffer.byteLength(systemPrompt, "utf-8") > SYSTEM_PROMPT_ARG_SAFE) {
+      mkdirSync(cwd, { recursive: true });
+      const claudeMdPath = join(cwd, "CLAUDE.md");
+      writeFileSync(claudeMdPath, systemPrompt, "utf-8");
+      env.__ARKESTRATOR_SYSTEM_PROMPT_FILE = claudeMdPath;
+      logger.info("engines", `System prompt too large for CLI args (${Buffer.byteLength(systemPrompt, "utf-8")} bytes), wrote to ${claudeMdPath}`);
+    } else {
+      args.push("--system-prompt", systemPrompt);
+    }
   }
 
   for (const arg of config.args) {
