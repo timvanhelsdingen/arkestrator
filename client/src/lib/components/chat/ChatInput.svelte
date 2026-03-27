@@ -2,7 +2,7 @@
   import type {
     JobRuntimeOptions,
   } from "@arkestrator/protocol";
-  import { tick } from "svelte";
+  import { tick, onMount, onDestroy } from "svelte";
   import { chatStore } from "../../stores/chat.svelte";
   import { agents } from "../../stores/agents.svelte";
   import { jobs } from "../../stores/jobs.svelte";
@@ -606,6 +606,20 @@
       bridgeDropdownOpen = false;
     }
   }
+
+  // Listen for click-to-insert events from ChatContextPanel
+  function onInsertContextRef(e: Event) {
+    const detail = (e as CustomEvent).detail;
+    if (detail?.reference) {
+      insertAtCursor(detail.reference);
+    }
+  }
+  onMount(() => {
+    window.addEventListener("arkestrator:insert-context-ref", onInsertContextRef);
+  });
+  onDestroy(() => {
+    window.removeEventListener("arkestrator:insert-context-ref", onInsertContextRef);
+  });
 
   function hasContextDragData(dataTransfer: DataTransfer | null): boolean {
     if (!dataTransfer) return false;

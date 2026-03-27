@@ -91,6 +91,20 @@
     return `@${item.index}`;
   }
 
+  function formatClickReference(bridgeId: string, program: string, item: ContextItem): string {
+    const name = bridgeContextStore.getItemName(bridgeId, item).trim();
+    const index = item.index;
+    if (program && name) return `@${index} [${program}:${name}]`;
+    if (name) return `@${index} [${name}]`;
+    return `@${index}`;
+  }
+
+  /** Click-to-insert: dispatches a custom event that ChatInput listens for */
+  function onContextItemClick(bridgeId: string, program: string, item: ContextItem) {
+    const reference = formatClickReference(bridgeId, program, item);
+    window.dispatchEvent(new CustomEvent("arkestrator:insert-context-ref", { detail: { reference } }));
+  }
+
   function onContextItemDragStart(
     e: DragEvent,
     bridgeId: string,
@@ -225,10 +239,11 @@
                                 draggable={editingItemKey !== rowKey ? "true" : "false"}
                                 role="button"
                                 tabindex="-1"
-                                title="Drag into prompt"
+                                title="Click to insert into prompt, or drag"
                                 ondragstart={(e) => onContextItemDragStart(e, bridge.id, bridge.program ?? "", item)}
+                                onclick={() => onContextItemClick(bridge.id, bridge.program ?? "", item)}
                               >
-                                <span class="drag-item-btn">drag</span>
+                                <span class="drag-item-btn">+</span>
                                 <span class="item-index">@{item.index}</span>
                                 <span class="item-type">{item.type}</span>
                                 {#if editingItemKey === rowKey}
