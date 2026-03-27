@@ -177,6 +177,9 @@ export function handleMessage(
       case "bridge_command_result":
         handleBridgeCommandResult(ws, msg, deps);
         break;
+      case "bridge_file_read_response":
+        handleBridgeFileReadResponse(ws, msg, deps);
+        break;
       case "worker_headless_result":
         handleWorkerHeadlessResult(ws, msg, deps);
         break;
@@ -655,6 +658,20 @@ function handleBridgeCommandResult(
   });
 
   logger.info("handler", `Bridge command result from ${ws.data.id} forwarded to ${senderId}`);
+}
+
+function handleBridgeFileReadResponse(
+  ws: ServerWebSocket<WsData>,
+  msg: { id: string; payload: { correlationId: string; files: Array<{ path: string; content: string; encoding: string; size: number; error?: string }> } },
+  deps: HandlerDeps,
+) {
+  const { correlationId } = msg.payload;
+  if (!correlationId) return;
+
+  const resolved = deps.hub.resolvePendingCommand(correlationId, msg.payload);
+  if (resolved) {
+    logger.info("handler", `File read response from ${ws.data.id} resolved pending command ${correlationId} (${msg.payload.files.length} file(s))`);
+  }
 }
 
 function handleWorkerHeadlessResult(
