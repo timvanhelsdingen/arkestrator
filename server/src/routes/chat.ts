@@ -28,12 +28,17 @@ import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  buildCodexChatSessionKey,
+  buildChatSessionKey,
   CodexChatSessionManager,
   createCodexJsonStreamState,
   consumeCodexJsonChunk,
   flushCodexJsonChunk,
 } from "../chat/codex-sessions.js";
+import {
+  createClaudeJsonStreamState,
+  consumeClaudeJsonChunk,
+  flushClaudeJsonChunk,
+} from "../chat/claude-sessions.js";
 
 const CLAUDE_SKIP_PERMISSIONS_FLAG = "--dangerously-skip-permissions";
 
@@ -148,7 +153,10 @@ export function createChatRoutes(deps: ChatDeps) {
     // Build a chat-only prompt with optional conversation history.
     // Codex chat is kept stateless because transcript stitching can degrade
     // prompt-following quality for short one-shot exec calls.
-      const useHistory = effectiveConfig.engine !== "codex" && !improveMode;
+      // Skip history passthrough when resuming a session (engine maintains its own context)
+      const useHistory = effectiveConfig.engine !== "codex"
+        && !(effectiveConfig.engine === "claude-code" && existingClaudeSession?.threadId)
+        && !improveMode;
       let fullPrompt = "";
       if (useHistory && body.history && body.history.length > 0) {
         const historyText = body.history
@@ -170,23 +178,34 @@ export function createChatRoutes(deps: ChatDeps) {
     const command = effectiveConfig.command || "claude";
     const args: string[] = [];
     let runAsUser: { username: string; preserveEnvironment?: boolean } | undefined;
-    const canReuseCodexSession =
-      effectiveConfig.engine === "codex"
-      && !improveMode
-      && typeof body.conversationKey === "string"
+    // Session management — reuse conversation context across messages
+    const hasConversationKey = typeof body.conversationKey === "string"
       && body.conversationKey.trim().length > 0;
-    const codexSessionKey = canReuseCodexSession
-      ? buildCodexChatSessionKey({
-          principalKey,
-          conversationKey: body.conversationKey!.trim(),
-          agentConfigId: effectiveConfig.id,
-          command,
-          model: effectiveConfig.model,
-          runtimeOptions,
-        })
-      : null;
+
+    const canReuseCodexSession = effectiveConfig.engine === "codex"
+      && !improveMode && hasConversationKey;
+    const canReuseClaudeSession = effectiveConfig.engine === "claude-code"
+      && !improveMode && hasConversationKey;
+
+    const sessionKeyInput = hasConversationKey ? {
+      principalKey,
+      conversationKey: body.conversationKey!.trim(),
+      agentConfigId: effectiveConfig.id,
+      command,
+      model: effectiveConfig.model,
+      runtimeOptions,
+    } : null;
+
+    const codexSessionKey = canReuseCodexSession && sessionKeyInput
+      ? buildChatSessionKey(sessionKeyInput) : null;
+    const claudeSessionKey = canReuseClaudeSession && sessionKeyInput
+      ? `claude:${buildChatSessionKey(sessionKeyInput)}` : null;
+
     const existingCodexSession = codexSessionKey
       ? deps.chatSessions.get(codexSessionKey)
+      : null;
+    const existingClaudeSession = claudeSessionKey
+      ? deps.chatSessions.get(claudeSessionKey)
       : null;
 
     // Build dynamic context about connected bridges for the system prompt
@@ -228,39 +247,51 @@ export function createChatRoutes(deps: ChatDeps) {
     }
 
     switch (effectiveConfig.engine) {
-      case "claude-code":
+      case "claude-code": {
         const claudeRuntime = getClaudeRuntimeDecision();
         runAsUser = claudeRuntime.runAsUser;
         if (claudeRuntime.allowSkipPermissionsFlag) {
           args.push(CLAUDE_SKIP_PERMISSIONS_FLAG);
         }
-        if (effectiveConfig.model) args.push("--model", effectiveConfig.model);
-        args.push("--max-turns", "1", "--tools", "");
-        args.push(
-          "--system-prompt",
-          improveMode
-            ? improveSystemPrompt
-            : (
-              "You are a chat assistant inside the Arkestrator desktop client. " +
-              "The user is chatting with you to brainstorm, refine prompts, and plan work before submitting jobs. " +
-              "The client has three actions: 'Send' (chat with you), 'Add to Queue' (submit a paused job), " +
-              "and 'Queue and Start' (submit and run immediately). " +
-              "When jobs are submitted, they are run by an AI agent (like you) that HAS full tool access — " +
-              "it can edit files, run scripts, and interact with connected DCC applications via bridge plugins. " +
-              "The user selects which bridges to target in the bridge dropdown before submitting. " +
-              "YOUR role here is chat-only: answer conversationally, help refine prompts, suggest approaches. " +
-              "Do NOT create, edit, or delete any files. Do NOT use any tools. Just respond with text. " +
-              "When the user asks you to write a prompt, write it so they can copy-paste it into the prompt " +
-              "box and submit it as a job. Make prompts detailed and actionable for the agent that will execute them. " +
-              "You can see summaries of recent jobs below. Use them to answer questions about what was done, " +
-              "whether jobs succeeded or failed, what errors occurred, what files changed, and what commands ran. " +
-              "If the user wants to send guidance to a running job, suggest they use the guidance composer in the Jobs page." +
-              bridgeContext +
-              jobContext
-            ),
-        );
+
+        // Use stream-json for structured output + session_id capture
+        args.push("--output-format", "stream-json");
+        args.push("--max-turns", "1");
+
+        if (existingClaudeSession?.threadId) {
+          // Resume existing conversation — Claude retains context
+          args.push("--resume", existingClaudeSession.threadId);
+          logger.info("chat", `Resuming Claude session: ${existingClaudeSession.threadId.slice(0, 12)}...`);
+        } else {
+          // First message — set model and system prompt
+          if (effectiveConfig.model) args.push("--model", effectiveConfig.model);
+          args.push(
+            "--system-prompt",
+            improveMode
+              ? improveSystemPrompt
+              : (
+                "You are a chat assistant inside the Arkestrator desktop client. " +
+                "The user is chatting with you to brainstorm, refine prompts, and plan work before submitting jobs. " +
+                "The client has three actions: 'Send' (chat with you), 'Add to Queue' (submit a paused job), " +
+                "and 'Queue and Start' (submit and run immediately). " +
+                "When jobs are submitted, they are run by an AI agent (like you) that HAS full tool access — " +
+                "it can edit files, run scripts, and interact with connected DCC applications via bridge plugins. " +
+                "The user selects which bridges to target in the bridge dropdown before submitting. " +
+                "YOUR role here is chat-only: answer conversationally, help refine prompts, suggest approaches. " +
+                "Do NOT create, edit, or delete any files. Do NOT use any tools. Just respond with text. " +
+                "When the user asks you to write a prompt, write it so they can copy-paste it into the prompt " +
+                "box and submit it as a job. Make prompts detailed and actionable for the agent that will execute them. " +
+                "You can see summaries of recent jobs below. Use them to answer questions about what was done, " +
+                "whether jobs succeeded or failed, what errors occurred, what files changed, and what commands ran. " +
+                "If the user wants to send guidance to a running job, suggest they use the guidance composer in the Jobs page." +
+                bridgeContext +
+                jobContext
+              ),
+          );
+        }
         args.push("-p", fullPrompt);
         break;
+      }
       case "codex":
         args.push("exec");
         if (existingCodexSession?.threadId) {
@@ -494,6 +525,7 @@ export function createChatRoutes(deps: ChatDeps) {
     }
 
     const CHAT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+    const isClaudeJsonChat = effectiveConfig.engine === "claude-code";
 
     return streamSSE(c, async (stream) => {
       let proc: ReturnType<typeof Bun.spawn> | null = null;
@@ -501,7 +533,9 @@ export function createChatRoutes(deps: ChatDeps) {
       let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
       let aborted = false;
       let codexThreadId = existingCodexSession?.threadId;
+      let claudeSessionId = existingClaudeSession?.threadId;
       const codexJsonState = isCodexJsonChat ? createCodexJsonStreamState() : null;
+      const claudeJsonState = isClaudeJsonChat ? createClaudeJsonStreamState() : null;
 
       try {
         // Send an immediate status event so the connection is never idle
@@ -577,6 +611,15 @@ export function createChatRoutes(deps: ChatDeps) {
                     if (!chunk) continue;
                     await stream.writeSSE({ data: JSON.stringify({ type: "text", content: chunk }), event: "message" });
                   }
+                } else if (isClaudeJsonChat && claudeJsonState) {
+                  const parsed = consumeClaudeJsonChunk(claudeJsonState, text);
+                  if (parsed.sessionId) {
+                    claudeSessionId = parsed.sessionId;
+                  }
+                  for (const chunk of parsed.textChunks) {
+                    if (!chunk) continue;
+                    await stream.writeSSE({ data: JSON.stringify({ type: "text", content: chunk }), event: "message" });
+                  }
                 } else {
                   await stream.writeSSE({ data: JSON.stringify({ type: "text", content: text }), event: "message" });
                 }
@@ -586,6 +629,16 @@ export function createChatRoutes(deps: ChatDeps) {
               const parsed = flushCodexJsonChunk(codexJsonState);
               if (parsed.threadId) {
                 codexThreadId = parsed.threadId;
+              }
+              for (const chunk of parsed.textChunks) {
+                if (!chunk) continue;
+                await stream.writeSSE({ data: JSON.stringify({ type: "text", content: chunk }), event: "message" });
+              }
+            }
+            if (isClaudeJsonChat && claudeJsonState) {
+              const parsed = flushClaudeJsonChunk(claudeJsonState);
+              if (parsed.sessionId) {
+                claudeSessionId = parsed.sessionId;
               }
               for (const chunk of parsed.textChunks) {
                 if (!chunk) continue;
@@ -630,6 +683,15 @@ export function createChatRoutes(deps: ChatDeps) {
           }
         }
 
+        if (claudeSessionKey) {
+          if (exitCode === 0 && claudeSessionId) {
+            deps.chatSessions.set(claudeSessionKey, claudeSessionId);
+            logger.info("chat", `Stored Claude session: ${claudeSessionId.slice(0, 12)}...`);
+          } else if (exitCode !== 0) {
+            deps.chatSessions.delete(claudeSessionKey);
+          }
+        }
+
         if (exitCode !== 0 && stderrText) {
           logger.warn("chat", `Chat process failed (exit ${exitCode}): ${stderrText.slice(0, 500)}`);
         }
@@ -640,6 +702,9 @@ export function createChatRoutes(deps: ChatDeps) {
         clearInterval(heartbeatTimer);
         if (codexSessionKey) {
           deps.chatSessions.delete(codexSessionKey);
+        }
+        if (claudeSessionKey) {
+          deps.chatSessions.delete(claudeSessionKey);
         }
         logger.error("chat", `Chat error: ${err?.message ?? err}`);
         try {

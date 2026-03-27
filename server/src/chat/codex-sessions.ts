@@ -29,7 +29,8 @@ function stableJson(value: unknown): string {
   return JSON.stringify(normalizeForStableJson(value));
 }
 
-export function buildCodexChatSessionKey(input: {
+/** Build a stable session key for any engine's chat session. */
+export function buildChatSessionKey(input: {
   principalKey: string;
   conversationKey: string;
   agentConfigId: string;
@@ -46,6 +47,9 @@ export function buildCodexChatSessionKey(input: {
     runtimeOptions: input.runtimeOptions ?? {},
   });
 }
+
+/** @deprecated Use buildChatSessionKey instead */
+export const buildCodexChatSessionKey = buildChatSessionKey;
 
 export class CodexChatSessionManager {
   private readonly sessions = new Map<string, CodexChatSessionRecord>();
