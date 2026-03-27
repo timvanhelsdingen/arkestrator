@@ -2,28 +2,31 @@ import { describe, expect, it } from "bun:test";
 import { WebSocketHub } from "../ws/hub.js";
 
 describe("WebSocketHub bridge context storage", () => {
-  it("upserts context items by @index per bridge", () => {
+  it("assigns sequential server-controlled indexes on add", () => {
     const hub = new WebSocketHub();
 
-    hub.addBridgeContextItem("bridge-a", {
-      index: 1,
+    const item1 = hub.addBridgeContextItem("bridge-a", {
+      index: 99, // client index is ignored — server assigns its own
       type: "node",
       name: "box1",
       path: "/obj/geo1/box1",
     } as any);
 
-    hub.addBridgeContextItem("bridge-a", {
-      index: 1,
+    const item2 = hub.addBridgeContextItem("bridge-a", {
+      index: 99,
       type: "node",
       name: "box1_renamed",
       path: "/obj/geo1/box1",
     } as any);
 
+    expect(item1.index).toBe(1);
+    expect(item2.index).toBe(2);
+
     const ctx = hub.getBridgeContext("bridge-a");
     expect(ctx).toBeDefined();
-    expect(ctx?.items.length).toBe(1);
-    expect(ctx?.items[0]?.index).toBe(1);
-    expect(ctx?.items[0]?.name).toBe("box1_renamed");
+    expect(ctx?.items.length).toBe(2);
+    expect(ctx?.items[0]?.name).toBe("box1");
+    expect(ctx?.items[1]?.name).toBe("box1_renamed");
   });
 
   it("keeps separate items for different indexes", () => {

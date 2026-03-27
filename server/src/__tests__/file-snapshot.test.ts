@@ -33,6 +33,9 @@ describe("file snapshot watcher", () => {
     const before = await collectPaths(root);
     const watcher = startWatching(root);
 
+    // Give fs.watch time to fully initialize before making changes
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
     writeFileSync(textPath, "after", "utf-8");
     writeFileSync(join(root, "sample.bin"), Buffer.from([0, 1, 2, 3, 0, 255]));
     unlinkSync(deletedPath);
@@ -42,7 +45,7 @@ describe("file snapshot watcher", () => {
       symlinkSync("note.txt", join(root, "note_link"));
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 500));
     watcher.stop();
 
     const changes = await watcher.getChanges(before);
