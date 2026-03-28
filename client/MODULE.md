@@ -4,6 +4,9 @@
 Primary user-facing desktop dashboard (Tauri v2 + Svelte 5). Users manage jobs, configure agents, view workers, manage projects. Connects to server via REST + WebSocket.
 
 ## Recent Updates (2026-03-28)
+- Chat prompt templates (2026-03-28): `lib/components/chat/ChatInput.svelte` adds a "Templates" dropdown button in the action bar with 8 presets (Create Asset, Scene Layout, Material Setup, Animation, Code Task, Bug Fix, Refactor, Review & Explain). Selecting a template inserts it into the textarea and auto-selects the first bracket placeholder. Machine dropdown max-height increased to `min(460px, 60vh)` for studios with 100+ machines.
+- Bridge "Update All" button (2026-03-28): `lib/components/BridgeInstaller.svelte` adds an "Update All (N)" button in the header that appears when bridges have available updates. Iterates all updatable bridges and re-installs to their existing paths. New `updatableBridges` derived state and `updateAllBridges()` function.
+- Updater error handling (2026-03-28): `lib/components/settings/SettingsGeneralTab.svelte` now catches "release JSON" and "latest.json" error patterns from the Tauri updater, showing a friendly message instead of a raw error when `latest.json` is missing from the release.
 - Pre-release audit cleanup (2026-03-28): `src/lib/services/ollamaClient.ts` now exports `DEFAULT_OLLAMA_URL` constant. `src/lib/api/ws.ts` fixed void handlers to use `.catch()` for error logging. `src/lib/components/settings/SettingsGeneralTab.svelte` improved update check error messaging. `src/lib/components/settings/SettingsLlmTab.svelte` uses shared `DEFAULT_OLLAMA_URL` constant. `src-tauri/tauri.conf.json` configured updater with GitHub releases endpoint and signing public key.
 
 ## Recent Updates (2026-03-26)

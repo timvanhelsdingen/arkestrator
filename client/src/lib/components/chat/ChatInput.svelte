@@ -204,6 +204,19 @@
   let inputHeight = $state(loadInputHeight());
   let vDragging = $state(false);
   let promptDropActive = $state(false);
+  let presetsOpen = $state(false);
+
+  // Chat prompt presets — quick templates inserted into the textarea
+  const PROMPT_PRESETS = [
+    { label: "Create Asset", prompt: "Create a 3D asset: [describe the asset, style, poly count, textures]" },
+    { label: "Scene Layout", prompt: "Set up a scene with the following layout:\n- [describe objects, positions, lighting]\n- Camera angle: [describe]\n- Mood/atmosphere: [describe]" },
+    { label: "Material Setup", prompt: "Create materials for [object name]:\n- Base color: [color/texture]\n- Roughness: [value]\n- Normal map: [yes/no]\n- Special effects: [emission, subsurface, etc.]" },
+    { label: "Animation", prompt: "Animate [object/character]:\n- Action: [describe motion]\n- Duration: [seconds]\n- Style: [realistic/stylized]\n- Easing: [linear/ease-in-out/etc.]" },
+    { label: "Code Task", prompt: "Write a script that:\n- Purpose: [describe what it should do]\n- Language: [GDScript/Python/etc.]\n- Integration: [how it connects to existing code]" },
+    { label: "Bug Fix", prompt: "Fix the following issue:\n- What's happening: [describe the bug]\n- Expected behavior: [what should happen]\n- Steps to reproduce: [list steps]\n- Relevant files: [file paths]" },
+    { label: "Refactor", prompt: "Refactor [file/module/system]:\n- Current problem: [describe issue]\n- Desired outcome: [what the refactored code should look like]\n- Constraints: [backward compatibility, performance, etc.]" },
+    { label: "Review & Explain", prompt: "Review and explain the following code/setup:\n- File/node: [path or name]\n- What I want to understand: [specific question]\n- Context: [what you're trying to achieve]" },
+  ];
 
   function loadInputHeight(): number {
     try {
@@ -631,6 +644,9 @@
     if (!target.closest(".bridge-dropdown")) {
       bridgeDropdownOpen = false;
     }
+    if (!target.closest(".presets-dropdown")) {
+      presetsOpen = false;
+    }
   }
 
   // Listen for click-to-insert events from ChatContextPanel
@@ -701,6 +717,22 @@
     e.preventDefault();
     promptDropActive = true;
     if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+  }
+
+  function insertPreset(preset: { label: string; prompt: string }) {
+    promptText = preset.prompt;
+    presetsOpen = false;
+    tick().then(() => {
+      textarea?.focus();
+      // Place cursor at first bracket placeholder
+      const bracketStart = promptText.indexOf("[");
+      if (bracketStart >= 0) {
+        const bracketEnd = promptText.indexOf("]", bracketStart);
+        if (bracketEnd >= 0) {
+          textarea?.setSelectionRange(bracketStart, bracketEnd + 1);
+        }
+      }
+    });
   }
 
   function onPromptDragLeave(e: DragEvent) {
@@ -888,6 +920,26 @@
     <div class="auth-warning">Log in to submit jobs</div>
   {/if}
   <div class="action-bar">
+    <div class="presets-dropdown">
+      <button
+        class="btn-presets"
+        onclick={() => (presetsOpen = !presetsOpen)}
+        disabled={improving}
+        title="Insert a prompt template"
+      >
+        Templates <span class="dropdown-arrow">{presetsOpen ? "\u25B2" : "\u25BC"}</span>
+      </button>
+      {#if presetsOpen}
+        <div class="presets-menu">
+          {#each PROMPT_PRESETS as preset}
+            <button class="presets-item" onclick={() => insertPreset(preset)}>
+              <span class="presets-item-label">{preset.label}</span>
+              <span class="presets-item-preview">{preset.prompt.split("\n")[0].slice(0, 60)}</span>
+            </button>
+          {/each}
+        </div>
+      {/if}
+    </div>
     <input
       bind:this={fileInput}
       type="file"
@@ -1046,7 +1098,7 @@
     left: 0;
     margin-bottom: 4px;
     min-width: 220px;
-    max-height: 320px;
+    max-height: min(460px, 60vh);
     overflow-y: auto;
     background: var(--bg-elevated);
     border: 1px solid var(--border);
@@ -1154,6 +1206,80 @@
     height: 20px;
     background: var(--border);
     flex-shrink: 0;
+  }
+  /* Prompt presets dropdown */
+  .presets-dropdown {
+    position: relative;
+  }
+  .btn-presets {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 5px 12px;
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    white-space: nowrap;
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    cursor: pointer;
+  }
+  .btn-presets:hover:not(:disabled) {
+    background: var(--bg-hover);
+    border-color: var(--accent);
+  }
+  .btn-presets:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .btn-presets .dropdown-arrow {
+    font-size: 8px;
+    opacity: 0.6;
+  }
+  .presets-menu {
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    margin-bottom: 4px;
+    min-width: 280px;
+    max-height: 340px;
+    overflow-y: auto;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    z-index: 100;
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .presets-item {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    border: none;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+    color: var(--text-primary);
+  }
+  .presets-item:hover {
+    background: var(--bg-hover);
+  }
+  .presets-item-label {
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+  }
+  .presets-item-preview {
+    font-size: 11px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .btn-send,
   .btn-attach,
