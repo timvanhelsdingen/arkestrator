@@ -3,6 +3,11 @@
   import { api } from "../../api/rest";
   import { wizard } from "../../stores/wizard.svelte";
 
+  interface Props {
+    oncomplete?: () => void;
+  }
+  let { oncomplete }: Props = $props();
+
   interface OnboardingLink {
     label: string;
     url: string;
@@ -164,6 +169,8 @@
         );
         personalitySaved = true;
       } catch { /* non-critical */ }
+      // Auto-advance to next wizard step after agents are created
+      if (count > 0) oncomplete?.();
     } catch (err: any) {
       error = `Failed to create agent config: ${err.message}`;
     } finally {

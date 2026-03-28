@@ -48,8 +48,13 @@
     currentComponent !== "choose" &&
     currentComponent !== "security" &&
     currentComponent !== "connect" &&
+    currentComponent !== "agents" &&
     currentComponent !== "done"
   );
+
+  function handleAgentsComplete() {
+    wizard.nextStep();
+  }
 
   function handleModeSelect(mode: "local" | "remote") {
     wizard.mode = mode;
@@ -104,7 +109,7 @@
       {:else if currentComponent === "connect"}
         <WizardConnectRemote oncomplete={handleConnectComplete} />
       {:else if currentComponent === "agents"}
-        <WizardAgentSetup />
+        <WizardAgentSetup oncomplete={handleAgentsComplete} />
       {:else if currentComponent === "skills"}
         <WizardSkillsTraining />
       {:else if currentComponent === "bridges"}
@@ -135,6 +140,21 @@
         <button class="btn ghost" onclick={() => wizard.skip()}>
           Skip Setup
         </button>
+      </div>
+    {:else if currentComponent === "agents"}
+      <!-- Agent step: skip/back (Next is handled by the component itself via "Add Agents") -->
+      <div class="nav-bar">
+        <button class="btn ghost" onclick={() => wizard.skip()}>
+          Skip Setup
+        </button>
+        <div class="nav-right">
+          <button class="btn secondary" onclick={() => wizard.prevStep()}>
+            Back
+          </button>
+          <button class="btn ghost" onclick={() => wizard.nextStep()}>
+            Skip
+          </button>
+        </div>
       </div>
     {:else if currentComponent === "security" || currentComponent === "connect"}
       <!-- Skip option on security/connect steps -->
