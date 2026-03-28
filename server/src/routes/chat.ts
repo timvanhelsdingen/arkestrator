@@ -235,21 +235,44 @@ export function createChatRoutes(deps: ChatDeps) {
     let jobContext = "";
     if (!improveMode && Array.isArray(body.jobIds) && body.jobIds.length > 0) {
       const summaries: string[] = [];
+      const MAX_JOB_CONTEXT_CHARS = 4000; // budget for all job summaries combined
+      let totalChars = 0;
       for (const jobId of body.jobIds.slice(-10)) {
         try {
           const job = deps.jobsRepo.getById(jobId);
           if (!job) continue;
           const id = `#${job.id.slice(0, 8)}`;
-          const prompt = (job.prompt ?? "").replace(/\s+/g, " ").trim().slice(0, 80);
-          const changes = Array.isArray(job.result) ? `${job.result.length} file change${job.result.length !== 1 ? "s" : ""}` : "";
-          const commands = Array.isArray(job.commands) ? `${job.commands.length} command${job.commands.length !== 1 ? "s" : ""}` : "";
-          const err = job.error ? `error: ${job.error.slice(0, 100)}` : "";
-          const parts = [id, job.status, `"${prompt}"`, changes, commands, err].filter(Boolean);
-          summaries.push(`  - ${parts.join(" | ")}`);
+          const status = job.status;
+          const prompt = (job.prompt ?? "").replace(/\s+/g, " ").trim().slice(0, 300);
+          const bridge = job.bridgeProgram ?? job.usedBridges?.[0] ?? "";
+          const model = job.actualModel ?? "";
+          const duration = job.durationMs ? `${Math.round(job.durationMs / 1000)}s` : "";
+          const err = job.error ? `Error: ${job.error.slice(0, 200)}` : "";
+
+          // For completed/failed jobs, include tail of logs for context
+          let logTail = "";
+          if ((status === "completed" || status === "failed") && job.logs) {
+            const lines = job.logs.split("\n").filter((l: string) => l.trim());
+            // Get last 15 meaningful lines (skip empty/whitespace)
+            const tail = lines.slice(-15).join("\n").slice(-800);
+            if (tail) logTail = `\n    Log tail:\n    ${tail.replace(/\n/g, "\n    ")}`;
+          }
+
+          const parts = [`  Job ${id} [${status}]`];
+          if (bridge) parts.push(`Bridge: ${bridge}`);
+          if (model) parts.push(`Model: ${model}`);
+          if (duration) parts.push(`Duration: ${duration}`);
+          parts.push(`Prompt: "${prompt}"`);
+          if (err) parts.push(err);
+
+          const summary = parts.join(" | ") + logTail;
+          if (totalChars + summary.length > MAX_JOB_CONTEXT_CHARS) break;
+          totalChars += summary.length;
+          summaries.push(summary);
         } catch { /* skip bad IDs */ }
       }
       if (summaries.length > 0) {
-        jobContext = `\n\nRecent jobs in this conversation:\n${summaries.join("\n")}`;
+        jobContext = `\n\nJobs submitted from this conversation:\n${summaries.join("\n\n")}`;
       }
     }
 
