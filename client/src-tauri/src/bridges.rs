@@ -110,83 +110,58 @@ pub async fn fetch_bridge_registry(repo: String) -> Result<Value, String> {
         }
     }
 
-    // Fetch recent releases from GitHub (sorted newest first by default)
-    let url = format!(
-        "{}/repos/{}/releases?per_page=20",
-        GITHUB_API_BASE,
-        repo.trim()
-    );
-
     let client = reqwest::Client::new();
-    let releases: Vec<Value> = client
-        .get(&url)
+    let repo_trimmed = repo.trim();
+
+    // Fetch registry.json from raw GitHub content (same approach as the server)
+    let raw_url = format!(
+        "https://raw.githubusercontent.com/{}/main/registry.json",
+        repo_trimmed
+    );
+    let registry_text = client
+        .get(&raw_url)
         .header("User-Agent", "Arkestrator-Client")
-        .header("Accept", "application/vnd.github+json")
         .send()
         .await
-        .map_err(|e| format!("Failed to fetch releases: {e}"))?
-        .json()
+        .map_err(|e| format!("Failed to fetch registry: {e}"))?
+        .text()
         .await
-        .map_err(|e| format!("Failed to parse releases JSON: {e}"))?;
-
-    if releases.is_empty() {
-        return Err("No releases found".to_string());
-    }
-
-    // Find registry.json from the most recent release that has one
-    let mut registry_text: Option<String> = None;
-    let mut registry_release: Option<&Value> = None;
-    for rel in &releases {
-        let assets = rel.get("assets").and_then(|a| a.as_array());
-        if let Some(assets) = assets {
-            if let Some(reg_asset) = assets.iter().find(|a| {
-                a.get("name")
-                    .and_then(|n| n.as_str())
-                    .map(|n| n == "registry.json")
-                    .unwrap_or(false)
-            }) {
-                if let Some(dl_url) = reg_asset.get("browser_download_url").and_then(|u| u.as_str())
-                {
-                    let text = client
-                        .get(dl_url)
-                        .header("User-Agent", "Arkestrator-Client")
-                        .send()
-                        .await
-                        .map_err(|e| format!("Failed to download registry: {e}"))?
-                        .text()
-                        .await
-                        .map_err(|e| format!("Failed to read registry: {e}"))?;
-                    registry_release = Some(rel);
-                    registry_text = Some(text);
-                    break;
-                }
-            }
-        }
-    }
-
-    let registry_text = registry_text.ok_or("registry.json not found in any release")?;
-    let latest_release = registry_release.unwrap();
+        .map_err(|e| format!("Failed to read registry: {e}"))?;
 
     let registry: Value = serde_json::from_str(&registry_text)
         .map_err(|e| format!("Failed to parse registry JSON: {e}"))?;
 
+    // Fetch releases to find download URLs for each bridge's asset zip
+    let releases_url = format!(
+        "{}/repos/{}/releases?per_page=20",
+        GITHUB_API_BASE,
+        repo_trimmed
+    );
+    let releases: Vec<Value> = client
+        .get(&releases_url)
+        .header("User-Agent", "Arkestrator-Client")
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await
+        .unwrap_or_default()
+        .json()
+        .await
+        .unwrap_or_default();
+
     // Inject release info into the registry
     let mut result = registry.clone();
     if let Some(obj) = result.as_object_mut() {
-        obj.insert(
-            "releaseTag".to_string(),
-            latest_release
-                .get("tag_name")
-                .cloned()
-                .unwrap_or(Value::Null),
-        );
-        obj.insert(
-            "releaseUrl".to_string(),
-            latest_release
-                .get("html_url")
-                .cloned()
-                .unwrap_or(Value::Null),
-        );
+        // Use the latest release tag if available
+        if let Some(latest) = releases.first() {
+            obj.insert(
+                "releaseTag".to_string(),
+                latest.get("tag_name").cloned().unwrap_or(Value::Null),
+            );
+            obj.insert(
+                "releaseUrl".to_string(),
+                latest.get("html_url").cloned().unwrap_or(Value::Null),
+            );
+        }
 
         // For each bridge, scan releases (newest first) to find the latest
         // release that contains that bridge's asset zip

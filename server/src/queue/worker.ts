@@ -196,7 +196,7 @@ export class WorkerLoop {
     }
 
     // Load effective policies for this job's user
-    const policies = this.deps.policiesRepo.getEffectiveForUser(null);
+    const policies = this.deps.policiesRepo.getEffectiveForUser(job.submittedBy ?? null);
     const toolRestrictions = getToolRestrictions(policies);
     const filePathPolicies = policies.filter((p) => p.type === "file_path");
     const commandFilterPolicies = policies.filter((p) => p.type === "command_filter");

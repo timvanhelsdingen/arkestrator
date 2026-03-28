@@ -15,6 +15,11 @@
   let workerPollMs = $state(500);
   let defaultWorkspaceMode = $state("auto");
 
+  // ── Coordination Policy ──
+  let allowClientCoordination = $state(false);
+  let policyLoading = $state(false);
+  let policySaving = $state(false);
+
   async function loadConfig() {
     loading = true;
     try {
@@ -28,6 +33,30 @@
       toast.error(err?.message ?? "Failed to load system config");
     } finally {
       loading = false;
+    }
+    // Load coordination policy alongside system config
+    if (auth.canManageSecurity) {
+      policyLoading = true;
+      try {
+        const result = await api.settings.get();
+        allowClientCoordination = !!result?.allowClientCoordination;
+      } catch { /* ignore */ } finally {
+        policyLoading = false;
+      }
+    }
+  }
+
+  async function setAllowClientCoordination(enabled: boolean) {
+    if (!auth.canManageSecurity) return;
+    policySaving = true;
+    try {
+      const result = await api.settings.setAllowClientCoordination(enabled);
+      allowClientCoordination = !!result?.allowClientCoordination;
+      toast.success(allowClientCoordination ? "Global client-side coordination enabled." : "Global client-side coordination disabled.");
+    } catch (err: any) {
+      toast.error(err?.message ?? "Failed to update coordination policy");
+    } finally {
+      policySaving = false;
     }
   }
 
@@ -158,6 +187,27 @@
               {saving ? "Saving..." : "Save Settings"}
             </button>
           </div>
+
+          {#if auth.canManageSecurity}
+            <div class="policy-section">
+              <h3>Coordination Policy</h3>
+              <p class="hint">Controls whether non-admin users can enable client-side coordination and queue client-initiated training.</p>
+              <label class="toggle-label">
+                <input
+                  type="checkbox"
+                  checked={allowClientCoordination}
+                  onchange={(e) => setAllowClientCoordination((e.target as HTMLInputElement).checked)}
+                  disabled={policyLoading || policySaving}
+                />
+                <span>Allow client-side coordination globally</span>
+              </label>
+              {#if policyLoading}
+                <p class="muted">Loading...</p>
+              {:else if policySaving}
+                <p class="muted">Saving...</p>
+              {/if}
+            </div>
+          {/if}
         {/if}
       </div>
 
@@ -374,6 +424,34 @@
     color: var(--text-tertiary);
     margin-top: 2px;
   }
+
+  /* ── Policy section ── */
+  .policy-section {
+    margin-top: 32px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+    max-width: 480px;
+  }
+  .policy-section h3 {
+    font-size: var(--font-size-base);
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .policy-section .hint {
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+    margin-bottom: 12px;
+    line-height: 1.4;
+  }
+  .toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--font-size-sm);
+    color: var(--text-primary);
+    cursor: pointer;
+  }
+  .toggle-label input[type="checkbox"] { flex-shrink: 0; }
 
   /* ── Modal ── */
   .overlay {

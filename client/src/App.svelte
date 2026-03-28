@@ -238,6 +238,9 @@
             {/each}
           </div>
         {/if}
+        <button class="boot-cancel" onclick={() => { booting = false; connection.clearSession(); wizard.reset(); }}>
+          Cancel
+        </button>
       </div>
     </div>
   </div>
@@ -330,6 +333,20 @@
     white-space: pre-wrap;
     word-break: break-all;
     line-height: 1.4;
+  }
+  .boot-cancel {
+    margin-top: 16px;
+    padding: 6px 20px;
+    font-size: var(--font-size-sm);
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+  .boot-cancel:hover {
+    color: var(--text-primary);
+    border-color: var(--text-muted);
   }
   .legal-card {
     max-width: 620px;

@@ -478,7 +478,7 @@
       </select>
     </div>
     <div class="toolbar-actions">
-      <button class="btn-primary" onclick={() => (createOpen = true)}>Create Skill</button>
+      <button class="btn-secondary" onclick={() => (createOpen = true)}>Create Skill</button>
       <button class="btn-secondary" onclick={openRegistry}>Browse Registry</button>
       <button class="btn-secondary" onclick={pullAll} disabled={pullingAll}>
         {pullingAll ? "Pulling..." : "Pull from Bridge Repo"}
