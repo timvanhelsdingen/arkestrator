@@ -2,9 +2,9 @@
 
 ![Arkestrator](docs/assets/arkestrator-logo_brandname.svg)
 
-**Tell an AI to build a health bar in Godot, and it does it — inside the editor, using your project's conventions, getting better every time.**
+**Tell an AI to build a health bar in Godot, rig an explosion in Houdini, model a donut in Blender — and watch it happen inside the editor, using your project's own conventions, getting smarter every time it learns how you work.**
 
-Arkestrator is an open-source orchestration system that lets AI agents work directly inside creative tools. Connect Godot, Blender, Houdini, Unreal, Unity, Fusion, or ComfyUI to any AI engine. One server handles queueing, routing, and learning. One desktop client controls everything.
+Arkestrator is an open-source orchestration layer that puts AI agents to work directly inside your creative tools. Connect any application that has a bridge to the network, and the AI can operate across them — even across different machines. The server handles queuing, routing, and context; your clients connect to submit tasks and receive results.
 
 > Pre-release software. See [DISCLAIMER.md](DISCLAIMER.md).
 
