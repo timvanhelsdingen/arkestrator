@@ -12,6 +12,7 @@
     filter: "M22 3H2l8 9v7l4 2v-9z",
     zap: "M13 2L3 14h9l-1 8 10-12h-9l1-8z",
     folder: "M3 7h6l2 2h10v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7zM3 7a2 2 0 0 1 2-2h4l2 2",
+    fileText: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8",
     list: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01",
     settings: "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
   };
@@ -29,6 +30,7 @@
     { page: "bridges", label: "Bridges", icon: "plug", canAccess: () => auth.canManageWorkers },
     { page: "policies", label: "Filters", icon: "filter", canAccess: () => auth.canManagePolicies },
     { page: "knowledge", label: "Skills & Training", icon: "zap", canAccess: () => auth.canEditCoordinator || auth.canManageSecurity },
+    { page: "templates", label: "Templates", icon: "fileText", canAccess: () => auth.canEditCoordinator || auth.canManageSecurity },
     { page: "audit-log", label: "Audit Log", icon: "list", canAccess: () => auth.canViewAuditLog },
     { page: "system", label: "System", icon: "settings", canAccess: () => auth.canManageSecurity },
   ];

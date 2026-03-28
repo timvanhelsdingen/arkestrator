@@ -21,6 +21,7 @@ import { DependenciesRepo } from "./db/dependencies.repo.js";
 import { HeadlessProgramsRepo } from "./db/headless-programs.repo.js";
 import { SettingsRepo } from "./db/settings.repo.js";
 import { SkillsRepo } from "./db/skills.repo.js";
+import { TemplatesRepo } from "./db/templates.repo.js";
 import { SkillIndex } from "./skills/skill-index.js";
 import { materializeSkills } from "./skills/skill-materializer.js";
 import { JobInterventionsRepo } from "./db/job-interventions.repo.js";
@@ -380,6 +381,7 @@ async function main() {
   const policiesRepo = new PoliciesRepo(db);
   const auditRepo = new AuditRepo(db);
   const projectsRepo = new ProjectsRepo(db);
+  const templatesRepo = new TemplatesRepo(db);
   const workersRepo = new WorkersRepo(db);
   const usageRepo = new UsageRepo(db);
   const depsRepo = new DependenciesRepo(db);
@@ -639,7 +641,7 @@ async function main() {
   });
 
   // 9. Create Hono app
-  const app = createApp({ db, jobsRepo, agentsRepo, apiKeysRepo, usersRepo, policiesRepo, auditRepo, projectsRepo, workersRepo, usageRepo, depsRepo, syncManager, hub, headlessProgramsRepo, settingsRepo, skillsRepo, skillEffectivenessRepo, skillIndex, jobInterventionsRepo, config, resourceLeaseManager, processTracker, dispatchJob: (id) => worker.dispatchById(id) });
+  const app = createApp({ db, jobsRepo, agentsRepo, apiKeysRepo, usersRepo, policiesRepo, auditRepo, projectsRepo, templatesRepo, workersRepo, usageRepo, depsRepo, syncManager, hub, headlessProgramsRepo, settingsRepo, skillsRepo, skillEffectivenessRepo, skillIndex, jobInterventionsRepo, config, resourceLeaseManager, processTracker, dispatchJob: (id) => worker.dispatchById(id) });
 
   // Handler deps for WebSocket messages
   const handlerDeps = {

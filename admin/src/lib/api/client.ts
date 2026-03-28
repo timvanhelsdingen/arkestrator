@@ -1319,6 +1319,37 @@ export const api = {
       request("/api/skills/ranking-config/reset", { method: "POST" }) as Promise<{ ok: boolean; config: Record<string, number> }>,
   },
 
+  templates: {
+    list: (type?: string, category?: string) => {
+      const params = new URLSearchParams();
+      if (type) params.set("type", type);
+      if (category) params.set("category", category);
+      const qs = params.toString();
+      return request(`/api/templates${qs ? `?${qs}` : ""}`);
+    },
+    get: (id: string) => request(`/api/templates/${id}`),
+    create: (data: any) =>
+      request("/api/templates", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    update: (id: string, data: any) =>
+      request(`/api/templates/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
+    delete: (id: string) =>
+      request(`/api/templates/${id}`, { method: "DELETE" }),
+    categories: (type?: string) => {
+      const params = new URLSearchParams();
+      if (type) params.set("type", type);
+      const qs = params.toString();
+      return request(`/api/templates/categories${qs ? `?${qs}` : ""}`);
+    },
+    seed: () =>
+      request("/api/templates/seed", { method: "POST" }),
+  },
+
   system: {
     factoryReset: (password: string, confirmation: string, clearTrainingData = false) =>
       request("/api/settings/factory-reset", {

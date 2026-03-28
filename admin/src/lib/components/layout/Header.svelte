@@ -9,6 +9,7 @@
     machines: "Machines",
     bridges: "Bridges",
     knowledge: "Skills & Training",
+    templates: "Templates",
     policies: "Filters & Policies",
     "audit-log": "Audit Log",
   };

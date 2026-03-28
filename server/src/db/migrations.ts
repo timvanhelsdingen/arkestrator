@@ -243,6 +243,27 @@ const MIGRATIONS = [
     updated_at  TEXT NOT NULL,
     UNIQUE(slug, program)
   )`,
+
+  // Prompt templates (chat presets, job presets, project templates)
+  `CREATE TABLE IF NOT EXISTS prompt_templates (
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    slug        TEXT NOT NULL UNIQUE,
+    type        TEXT NOT NULL CHECK(type IN ('chat','project','job_preset')),
+    category    TEXT NOT NULL DEFAULT 'General',
+    subcategory TEXT,
+    description TEXT NOT NULL DEFAULT '',
+    content     TEXT NOT NULL DEFAULT '',
+    icon        TEXT,
+    options     TEXT,
+    sort_order  INTEGER NOT NULL DEFAULT 50,
+    enabled     INTEGER NOT NULL DEFAULT 1,
+    created_by  TEXT,
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+  )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_prompt_templates_type ON prompt_templates(type, enabled, category, sort_order)`,
 ];
 
 // Column additions for existing tables (safe to fail if column already exists)

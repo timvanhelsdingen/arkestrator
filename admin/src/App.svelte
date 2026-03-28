@@ -14,6 +14,7 @@
   import Policies from "./pages/Policies.svelte";
   import AuditLog from "./pages/AuditLog.svelte";
   import Knowledge from "./pages/Knowledge.svelte";
+  import Templates from "./pages/Templates.svelte";
   import System from "./pages/System.svelte";
 
   let ready = $state(false);
@@ -106,6 +107,8 @@
           <Policies />
         {:else if nav.current === "knowledge" && (auth.canEditCoordinator || auth.canManageSecurity)}
           <Knowledge />
+        {:else if nav.current === "templates" && (auth.canEditCoordinator || auth.canManageSecurity)}
+          <Templates />
         {:else if nav.current === "audit-log" && auth.canViewAuditLog}
           <AuditLog />
         {:else if nav.current === "system" && auth.canManageSecurity}
