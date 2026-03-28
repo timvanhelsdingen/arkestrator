@@ -68,6 +68,33 @@ When the agent exits, the server records the result and sends `job_complete` to 
 
 Token usage (input/output/cost) is recorded for auditing.
 
+## The Self-Improvement Loop
+
+What makes Arkestrator different from a one-shot AI tool is the feedback cycle. Every job contributes to a growing knowledge base that makes future jobs better.
+
+```
+  Submit prompt ──▶ Agent runs with ──▶ You rate the
+                    matched skills       outcome
+        ▲                                    │
+        │                                    ▼
+  Next prompt gets              Training extracts
+  better context ◀──────────── patterns into skills
+```
+
+### How It Works
+
+1. **Skills are injected at job time.** When a job is spawned, the server's skill index searches for relevant skills by program, keywords, and content similarity. Matched skills are injected into the agent's context alongside coordinator scripts and playbook guidance.
+
+2. **You rate outcomes.** After a job completes, you can rate it (positive, average, negative) and optionally add notes. This takes a couple seconds and has outsized impact.
+
+3. **Ratings propagate to skills.** Every skill that was injected into a job gets tagged with that job's outcome. Over time, each skill accumulates a success rate. Skills that consistently help produce good outcomes rise in priority; skills correlated with poor outcomes can be flagged or disabled.
+
+4. **Training creates new skills.** Point Arkestrator at a project folder, and the training pipeline analyzes your existing code to extract conventions, patterns, and tool usage. These become new skills that future agents receive automatically.
+
+5. **The cycle repeats.** Each new job gets the benefit of all previous outcomes. The more you use Arkestrator, the more it knows about how you work.
+
+See [Skills System](skills.md) for skill structure and management, and [Coordinator & Training](coordinator.md) for the full training pipeline.
+
 ## Workspace Modes
 
 ### `repo` — Direct File Editing
