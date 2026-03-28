@@ -91,8 +91,9 @@ fn now_iso() -> String {
 // ─── Registry ───────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn fetch_bridge_registry(repo: String) -> Result<Value, String> {
-    // Check cache first
+pub async fn fetch_bridge_registry(repo: String, force_refresh: Option<bool>) -> Result<Value, String> {
+    // Check cache first (skip if force refresh)
+    if !force_refresh.unwrap_or(false) {
     if let Ok(cache_path) = registry_cache_path() {
         if let Ok(metadata) = fs::metadata(&cache_path) {
             if let Ok(modified) = metadata.modified() {
@@ -109,6 +110,7 @@ pub async fn fetch_bridge_registry(repo: String) -> Result<Value, String> {
             }
         }
     }
+    } // end cache check
 
     let client = reqwest::Client::new();
     let repo_trimmed = repo.trim();
