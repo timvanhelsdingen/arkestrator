@@ -3757,6 +3757,7 @@ export function createSettingsSnapshotsRoutes(deps: SettingsRouteDeps) {
 
     const password = typeof body?.password === "string" ? body.password.trim() : "";
     const confirmation = typeof body?.confirmation === "string" ? body.confirmation.trim() : "";
+    const clearTrainingData = body?.clearTrainingData === true;
 
     if (!password) {
       return errorResponse(c, 400, "Password is required", "INVALID_INPUT");
@@ -3799,6 +3800,8 @@ export function createSettingsSnapshotsRoutes(deps: SettingsRouteDeps) {
       "server_settings",
       "agent_configs",
       "skills",
+      "skill_versions",
+      "skill_effectiveness",
       "headless_programs",
     ];
 
@@ -3815,6 +3818,25 @@ export function createSettingsSnapshotsRoutes(deps: SettingsRouteDeps) {
       return errorResponse(c, 500, `Factory reset failed: ${err?.message ?? err}`, "INTERNAL_ERROR");
     }
 
+    // Clean up disk-based data
+    const { rmSync } = await import("node:fs");
+    const dirsToClean = [
+      config.syncTempDir,
+      config.headlessTempDir,
+      config.snapshotsDir,
+    ];
+    if (clearTrainingData) {
+      const learningDir = `${config.coordinatorPlaybooksDir}/_learning`;
+      dirsToClean.push(learningDir);
+    }
+    for (const dir of dirsToClean) {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {
+        // Non-fatal — dir may not exist
+      }
+    }
+
     // Re-create bootstrap admin with default credentials so first-run flow works
     const bootstrapUsername = process.env.BOOTSTRAP_ADMIN_USERNAME?.trim() || "admin";
     const bootstrapPassword = process.env.BOOTSTRAP_ADMIN_PASSWORD?.trim() || "admin";
@@ -3825,7 +3847,7 @@ export function createSettingsSnapshotsRoutes(deps: SettingsRouteDeps) {
       logger.warn("factory-reset", `Failed to re-create bootstrap user: ${err?.message ?? err}`);
     }
 
-    return c.json({ ok: true });
+    return c.json({ ok: true, trainingDataCleared: clearTrainingData });
   });
 
   return router;

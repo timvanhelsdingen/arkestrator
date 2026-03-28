@@ -58,6 +58,7 @@
   let resetConfirmation = $state("");
   let resetError = $state("");
   let resetBusy = $state(false);
+  let clearTrainingData = $state(false);
 
   async function factoryReset() {
     if (!resetPassword) {
@@ -71,7 +72,7 @@
     resetError = "";
     resetBusy = true;
     try {
-      await api.system.factoryReset(resetPassword, resetConfirmation);
+      await api.system.factoryReset(resetPassword, resetConfirmation, clearTrainingData);
       toast.success("Factory reset complete. Logging out...");
       showResetModal = false;
       setTimeout(() => auth.logout(), 1500);
@@ -87,6 +88,7 @@
     resetPassword = "";
     resetConfirmation = "";
     resetError = "";
+    clearTrainingData = false;
   }
 </script>
 
@@ -186,7 +188,7 @@
   <div class="overlay" onclick={closeModal}>
     <div class="dialog" onclick={(e) => e.stopPropagation()}>
       <h3>Factory Reset</h3>
-      <p class="warning">This action is irreversible. All server data will be permanently deleted. A default admin account (admin/admin) will be re-created.</p>
+      <p class="warning">This action is irreversible. All server data (users, jobs, skills, settings) will be permanently deleted. A default admin account (admin/admin) will be re-created.</p>
       <div class="form-group">
         <label>
           Admin Password
@@ -203,6 +205,11 @@
             placeholder='Type "RESET"'
             onkeydown={(e) => { if (e.key === "Enter") factoryReset(); }}
           />
+        </label>
+        <label class="checkbox-label">
+          <input type="checkbox" bind:checked={clearTrainingData} />
+          Also clear training data
+          <span class="hint">Removes learned patterns, experiences, and playbook artifacts. Uncheck to preserve institutional knowledge.</span>
         </label>
         {#if resetError}
           <span class="error">{resetError}</span>
@@ -347,6 +354,26 @@
   }
   .btn-danger:hover { opacity: 0.9; }
   .btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .checkbox-label {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: var(--font-size-sm);
+    color: var(--text-primary);
+    cursor: pointer;
+    margin-top: 4px;
+  }
+  .checkbox-label input[type="checkbox"] {
+    margin-top: 2px;
+    flex-shrink: 0;
+  }
+  .checkbox-label .hint {
+    display: block;
+    font-size: 11px;
+    color: var(--text-tertiary);
+    margin-top: 2px;
+  }
 
   /* ── Modal ── */
   .overlay {

@@ -1308,10 +1308,10 @@ export const api = {
   },
 
   system: {
-    factoryReset: (password: string, confirmation: string) =>
+    factoryReset: (password: string, confirmation: string, clearTrainingData = false) =>
       request("/api/settings/factory-reset", {
         method: "POST",
-        body: JSON.stringify({ password, confirmation }),
+        body: JSON.stringify({ password, confirmation, clearTrainingData }),
       }),
     getConfig: () =>
       request("/api/settings/system-config") as Promise<{
