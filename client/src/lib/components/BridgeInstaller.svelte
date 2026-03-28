@@ -66,7 +66,9 @@
     loading = true;
     error = "";
     try {
-      const result = await invoke<any>("fetch_bridge_registry", { repo: BRIDGE_REPO });
+      // Force refresh bypasses cache — essential for "Check for Updates"
+      const forceRefresh = registry.length > 0;
+      const result = await invoke<any>("fetch_bridge_registry", { repo: BRIDGE_REPO, forceRefresh });
       registry = result.bridges ?? [];
       await loadInstalled();
     } catch (e: any) {

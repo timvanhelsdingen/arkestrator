@@ -39,6 +39,7 @@
     selected: boolean;
     installing: boolean;
     installed: boolean;
+    updateAvailable: boolean;
     error: string;
   }
 
@@ -88,13 +89,16 @@
           }
 
           const isInstalled = !!installedMap[bridge.id];
+          const hasUpdate = isInstalled && installedMap[bridge.id].version !== bridge.version;
           return {
             bridge,
             detected,
-            selectedPath: detected.length > 0 ? detected[0].path : "",
-            selected: detected.length > 0 && !isInstalled,
+            selectedPath: isInstalled ? installedMap[bridge.id].installPath : (detected.length > 0 ? detected[0].path : ""),
+            // Auto-select: new installs with detected paths, or installed bridges with available updates
+            selected: hasUpdate || (detected.length > 0 && !isInstalled),
             installing: false,
             installed: isInstalled,
+            updateAvailable: hasUpdate,
             error: "",
           };
         })
@@ -167,7 +171,7 @@
 
     for (let i = 0; i < bridges.length; i++) {
       const bs = bridges[i];
-      if (!bs.selected || bs.installed) continue;
+      if (!bs.selected || (bs.installed && !bs.updateAvailable)) continue;
       if (!bs.selectedPath) {
         bridges[i] = { ...bs, error: "No install path selected" };
         continue;
@@ -200,7 +204,7 @@
     batchInstalling = false;
   }
 
-  let selectedCount = $derived(bridges.filter((b) => b.selected && !b.installed).length);
+  let selectedCount = $derived(bridges.filter((b) => b.selected && (!b.installed || b.updateAvailable)).length);
 </script>
 
 <div class="bridge-setup">
@@ -219,14 +223,15 @@
         <div
           class="bridge-card"
           class:selected={bs.selected}
-          class:installed={bs.installed}
+          class:installed={bs.installed && !bs.updateAvailable}
+          class:update-available={bs.updateAvailable}
         >
           <div class="bridge-header">
             <label class="bridge-check">
               <input
                 type="checkbox"
-                checked={bs.selected || bs.installed}
-                disabled={bs.installed || bs.installing}
+                checked={bs.selected || (bs.installed && !bs.updateAvailable)}
+                disabled={(bs.installed && !bs.updateAvailable) || bs.installing}
                 onchange={() => toggleBridge(i)}
               />
               <div class="bridge-info">
@@ -240,7 +245,9 @@
               </div>
             </label>
             <div class="bridge-badges">
-              {#if bs.installed}
+              {#if bs.updateAvailable}
+                <span class="badge update">Update → v{bs.bridge.version}</span>
+              {:else if bs.installed}
                 <span class="badge installed">Installed</span>
               {:else if bs.installing}
                 <span class="badge installing">Installing...</span>
@@ -252,7 +259,7 @@
             </div>
           </div>
 
-          {#if !bs.installed && (bs.selected || bs.detected.length > 0)}
+          {#if (bs.updateAvailable || !bs.installed) && (bs.selected || bs.detected.length > 0)}
             <div class="path-section">
               {#if bs.detected.length > 0}
                 {#if bs.detected.length === 1}
@@ -301,7 +308,7 @@
         disabled={selectedCount === 0 || batchInstalling}
         onclick={installSelected}
       >
-        {batchInstalling ? "Installing..." : `Install ${selectedCount} Plugin${selectedCount === 1 ? "" : "s"}`}
+        {batchInstalling ? "Installing..." : selectedCount === 0 ? "All up to date" : `Install / Update ${selectedCount} Plugin${selectedCount === 1 ? "" : "s"}`}
       </button>
       <span class="skip-hint">You can also install bridges later in Settings.</span>
     </div>
@@ -357,6 +364,10 @@
   .bridge-card.installed {
     border-color: #4ade80;
     opacity: 0.8;
+  }
+  .bridge-card.update-available {
+    border-color: var(--status-queued, #e2b93d);
+    opacity: 1;
   }
   .bridge-header {
     display: flex;
@@ -419,6 +430,10 @@
   .badge.installed {
     background: rgba(74, 222, 128, 0.15);
     color: #4ade80;
+  }
+  .badge.update {
+    background: rgba(226, 185, 61, 0.15);
+    color: #e2b93d;
   }
   .badge.installing {
     background: rgba(96, 165, 250, 0.15);
