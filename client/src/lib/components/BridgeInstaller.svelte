@@ -40,6 +40,7 @@
   let installing = $state<string | null>(null);
   let installError = $state<Record<string, string>>({});
   let installSuccess = $state<Record<string, string>>({});
+  let updatingAll = $state(false);
 
   // Install dialog state
   let showInstallDialog = $state<string | null>(null);
@@ -236,6 +237,39 @@
     standalone: "Standalone",
   };
 
+  let updatableBridges = $derived(registry.filter((b) => hasUpdate(b) && b.downloadUrl && b.installType !== "project"));
+
+  async function updateAllBridges() {
+    updatingAll = true;
+    for (const bridge of updatableBridges) {
+      const inst = installed[bridge.id];
+      if (!inst || !bridge.downloadUrl) continue;
+
+      installing = bridge.id;
+      installError = { ...installError, [bridge.id]: "" };
+      installSuccess = { ...installSuccess, [bridge.id]: "" };
+
+      try {
+        const targetPath = inst.installPath;
+        await invoke("download_and_install_bridge", {
+          downloadUrl: bridge.downloadUrl,
+          installPath: targetPath,
+        });
+        await invoke("save_bridge_installation", {
+          bridgeId: bridge.id,
+          version: bridge.version,
+          installPath: targetPath,
+        });
+        installSuccess = { ...installSuccess, [bridge.id]: `Updated to v${bridge.version}` };
+      } catch (e: any) {
+        installError = { ...installError, [bridge.id]: e?.toString() ?? "Update failed" };
+      }
+    }
+    installing = null;
+    await loadInstalled();
+    updatingAll = false;
+  }
+
   // ─── ComfyUI setup state ─────────────────────────────────────────────
 
   interface DetectedComfyPath {
@@ -400,9 +434,16 @@
 <section class="bridge-installer">
   <div class="bridge-header">
     <h3>Bridge Plugins</h3>
-    <button class="btn secondary" onclick={loadRegistry} disabled={loading}>
-      {loading ? "Loading..." : registry.length > 0 ? "Check for Updates" : "Load Plugins"}
-    </button>
+    <div class="header-actions">
+      {#if updatableBridges.length > 0}
+        <button class="btn" onclick={updateAllBridges} disabled={updatingAll || !!installing}>
+          {updatingAll ? "Updating..." : `Update All (${updatableBridges.length})`}
+        </button>
+      {/if}
+      <button class="btn secondary" onclick={loadRegistry} disabled={loading}>
+        {loading ? "Loading..." : registry.length > 0 ? "Check for Updates" : "Load Plugins"}
+      </button>
+    </div>
   </div>
 
   {#if error}
@@ -655,6 +696,10 @@
     margin: 0;
     font-size: var(--font-size-base);
     color: var(--text-secondary);
+  }
+  .header-actions {
+    display: flex;
+    gap: 8px;
   }
   .bridge-grid {
     display: grid;
