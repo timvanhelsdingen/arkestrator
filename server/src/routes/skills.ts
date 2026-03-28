@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import type { SkillsRepo } from "../db/skills.repo.js";
 import type { SkillEffectivenessRepo } from "../db/skill-effectiveness.repo.js";
-import type { SkillIndex } from "../skills/skill-index.js";
+import { type SkillIndex, DEFAULT_SKILL_RANKING_CONFIG, SKILL_RANKING_SETTINGS_KEYS, type SkillRankingConfig } from "../skills/skill-index.js";
 import type { UsersRepo } from "../db/users.repo.js";
 import type { ApiKeysRepo } from "../db/apikeys.repo.js";
 import type { SettingsRepo } from "../db/settings.repo.js";
@@ -545,6 +545,69 @@ export function createSkillsRoutes(
       }
     }
     return c.json({ playbooks });
+  });
+
+  // ── Ranking configuration ──
+
+  /** GET /ranking-config — read current skill ranking thresholds */
+  router.get("/ranking-config", async (c) => {
+    const auth = await requireWriteAccess(c);
+    if (!auth) return errorResponse(c, 403, "Admin or editCoordinator required", "FORBIDDEN");
+
+    const config: Record<string, number> = {};
+    for (const [field, dbKey] of Object.entries(SKILL_RANKING_SETTINGS_KEYS)) {
+      const stored = settingsRepo?.getNumber(dbKey) ?? null;
+      config[field] = stored ?? DEFAULT_SKILL_RANKING_CONFIG[field as keyof SkillRankingConfig];
+    }
+    return c.json({ config, defaults: DEFAULT_SKILL_RANKING_CONFIG });
+  });
+
+  /** PUT /ranking-config — update skill ranking thresholds */
+  router.put("/ranking-config", async (c) => {
+    const auth = await requireWriteAccess(c);
+    if (!auth) return errorResponse(c, 403, "Admin or editCoordinator required", "FORBIDDEN");
+    if (!settingsRepo) return errorResponse(c, 500, "Settings not available", "INTERNAL");
+
+    let body: Record<string, unknown>;
+    try {
+      body = await c.req.json();
+    } catch {
+      return errorResponse(c, 400, "Invalid JSON body", "BAD_REQUEST");
+    }
+
+    const updated: string[] = [];
+    for (const [field, dbKey] of Object.entries(SKILL_RANKING_SETTINGS_KEYS)) {
+      if (!(field in body)) continue;
+      const val = Number(body[field]);
+      if (!Number.isFinite(val) || val < 0) {
+        return errorResponse(c, 400, `Invalid value for ${field}: must be a non-negative number`, "BAD_REQUEST");
+      }
+      settingsRepo.setNumber(dbKey, val);
+      updated.push(field);
+    }
+
+    // Read back current state
+    const config: Record<string, number> = {};
+    for (const [field, dbKey] of Object.entries(SKILL_RANKING_SETTINGS_KEYS)) {
+      const stored = settingsRepo.getNumber(dbKey) ?? null;
+      config[field] = stored ?? DEFAULT_SKILL_RANKING_CONFIG[field as keyof SkillRankingConfig];
+    }
+
+    logger.info(`Skill ranking config updated: ${updated.join(", ")}`);
+    return c.json({ ok: true, updated, config });
+  });
+
+  /** POST /ranking-config/reset — reset ranking config to defaults */
+  router.post("/ranking-config/reset", async (c) => {
+    const auth = await requireWriteAccess(c);
+    if (!auth) return errorResponse(c, 403, "Admin or editCoordinator required", "FORBIDDEN");
+    if (!settingsRepo) return errorResponse(c, 500, "Settings not available", "INTERNAL");
+
+    for (const [field, dbKey] of Object.entries(SKILL_RANKING_SETTINGS_KEYS)) {
+      settingsRepo.setNumber(dbKey, DEFAULT_SKILL_RANKING_CONFIG[field as keyof SkillRankingConfig]);
+    }
+    logger.info("Skill ranking config reset to defaults");
+    return c.json({ ok: true, config: DEFAULT_SKILL_RANKING_CONFIG });
   });
 
   // GET /:slug — get skill by slug (from index) — MUST be last (catch-all param route)

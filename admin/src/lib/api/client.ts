@@ -1305,6 +1305,18 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ skillIds }),
       }) as Promise<{ stats: Record<string, { totalUsed: number; goodOutcomes: number; averageOutcomes: number; poorOutcomes: number; pendingOutcomes: number; successRate: number }> }>,
+    getRankingConfig: () =>
+      request("/api/skills/ranking-config") as Promise<{
+        config: Record<string, number>;
+        defaults: Record<string, number>;
+      }>,
+    updateRankingConfig: (updates: Record<string, number>) =>
+      request("/api/skills/ranking-config", {
+        method: "PUT",
+        body: JSON.stringify(updates),
+      }) as Promise<{ ok: boolean; updated: string[]; config: Record<string, number> }>,
+    resetRankingConfig: () =>
+      request("/api/skills/ranking-config/reset", { method: "POST" }) as Promise<{ ok: boolean; config: Record<string, number> }>,
   },
 
   system: {

@@ -386,6 +386,70 @@
       .replace(/^-|-$/g, "");
   }
 
+  // ── Ranking Config ──
+  let rankingOpen = $state(false);
+  let rankingLoading = $state(false);
+  let rankingSaving = $state(false);
+  let rankingConfig = $state<Record<string, number>>({});
+  let rankingDefaults = $state<Record<string, number>>({});
+
+  const RANKING_FIELDS: Array<{ key: string; label: string; hint: string; min: number; max: number; step: number }> = [
+    { key: "explorationThreshold", label: "Exploration Threshold (uses)", hint: "Skills with fewer uses than this get an optimistic bonus.", min: 1, max: 100, step: 1 },
+    { key: "establishedThreshold", label: "Established Threshold (uses)", hint: "Skills at or above this usage count trust their actual success rate.", min: 2, max: 500, step: 1 },
+    { key: "explorationBonus", label: "Exploration Bonus", hint: "Effectiveness score given to new/low-use skills.", min: 0, max: 1, step: 0.05 },
+    { key: "effectivenessFloor", label: "Effectiveness Floor", hint: "Minimum effectiveness score — prevents hard-disabling poor skills.", min: 0, max: 1, step: 0.05 },
+    { key: "weightLexical", label: "Lexical Weight", hint: "Weight for keyword matching in the combined score.", min: 0, max: 1, step: 0.05 },
+    { key: "weightSemantic", label: "Semantic Weight", hint: "Weight for semantic (vector) similarity.", min: 0, max: 1, step: 0.05 },
+    { key: "weightEffectiveness", label: "Effectiveness Weight", hint: "Weight for effectiveness scoring.", min: 0, max: 1, step: 0.05 },
+    { key: "minScoreThreshold", label: "Min Score Threshold", hint: "Minimum combined score for a skill to be included in results.", min: 0, max: 1, step: 0.01 },
+  ];
+
+  async function loadRankingConfig() {
+    rankingLoading = true;
+    try {
+      const data = await api.skills.getRankingConfig();
+      rankingConfig = { ...data.config };
+      rankingDefaults = { ...data.defaults };
+    } catch (err: any) {
+      toast.error(err?.message ?? "Failed to load ranking config");
+    } finally {
+      rankingLoading = false;
+    }
+  }
+
+  async function saveRankingConfig() {
+    rankingSaving = true;
+    try {
+      const res = await api.skills.updateRankingConfig(rankingConfig);
+      rankingConfig = { ...res.config };
+      toast.success(`Ranking config saved (${res.updated.length} updated)`);
+    } catch (err: any) {
+      toast.error(err?.message ?? "Failed to save ranking config");
+    } finally {
+      rankingSaving = false;
+    }
+  }
+
+  async function resetRankingConfig() {
+    rankingSaving = true;
+    try {
+      const res = await api.skills.resetRankingConfig();
+      rankingConfig = { ...res.config };
+      toast.success("Ranking config reset to defaults");
+    } catch (err: any) {
+      toast.error(err?.message ?? "Failed to reset ranking config");
+    } finally {
+      rankingSaving = false;
+    }
+  }
+
+  function toggleRankingPanel() {
+    rankingOpen = !rankingOpen;
+    if (rankingOpen && Object.keys(rankingConfig).length === 0) {
+      loadRankingConfig();
+    }
+  }
+
   onMount(() => {
     load();
   });
@@ -455,6 +519,52 @@
             <span class="score">score: {r.score?.toFixed?.(2) ?? r.score}</span>
           </div>
         {/each}
+      </div>
+    {/if}
+  </div>
+
+  <!-- Ranking Tuning -->
+  <div class="ranking-section">
+    <button class="ranking-toggle" onclick={toggleRankingPanel}>
+      <span class="ranking-arrow">{rankingOpen ? "v" : ">"}</span>
+      Ranking Tuning
+    </button>
+    {#if rankingOpen}
+      <div class="ranking-panel">
+        {#if rankingLoading}
+          <p class="muted">Loading...</p>
+        {:else}
+          <p class="ranking-hint">Configure how skills are ranked when matched to agent prompts. Weights should sum to 1.0 for best results.</p>
+          <div class="ranking-grid">
+            {#each RANKING_FIELDS as field}
+              <div class="ranking-field">
+                <label for="rc-{field.key}">{field.label}</label>
+                <p class="ranking-field-hint">{field.hint}</p>
+                <div class="ranking-input-row">
+                  <input
+                    id="rc-{field.key}"
+                    type="number"
+                    min={field.min}
+                    max={field.max}
+                    step={field.step}
+                    bind:value={rankingConfig[field.key]}
+                  />
+                  {#if rankingDefaults[field.key] !== undefined}
+                    <span class="ranking-default">default: {rankingDefaults[field.key]}</span>
+                  {/if}
+                </div>
+              </div>
+            {/each}
+          </div>
+          <div class="ranking-actions">
+            <button class="btn-primary" onclick={saveRankingConfig} disabled={rankingSaving}>
+              {rankingSaving ? "Saving..." : "Save"}
+            </button>
+            <button class="btn-secondary" onclick={resetRankingConfig} disabled={rankingSaving}>
+              Reset to Defaults
+            </button>
+          </div>
+        {/if}
       </div>
     {/if}
   </div>
@@ -800,4 +910,17 @@
   .registry-version { color: var(--text-muted); font-size: 11px; }
   .registry-desc { color: var(--text-secondary); font-size: var(--font-size-sm); }
   .registry-action { flex-shrink: 0; }
+  .ranking-section { margin-bottom: 14px; }
+  .ranking-toggle { display: flex; align-items: center; gap: 6px; background: none; border: none; color: var(--text-secondary); cursor: pointer; padding: 6px 0; font-size: var(--font-size-sm); font-weight: 500; }
+  .ranking-toggle:hover { color: var(--text-primary); }
+  .ranking-arrow { font-family: var(--font-mono); font-size: 0.75em; width: 10px; color: var(--text-muted); }
+  .ranking-panel { padding: 12px 16px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-surface); margin-top: 6px; }
+  .ranking-hint { font-size: var(--font-size-xs); color: var(--text-muted); margin-bottom: 12px; line-height: 1.4; }
+  .ranking-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 24px; max-width: 720px; }
+  .ranking-field label { display: block; font-size: var(--font-size-sm); font-weight: 600; color: var(--text-primary); margin-bottom: 1px; }
+  .ranking-field-hint { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; line-height: 1.3; }
+  .ranking-input-row { display: flex; align-items: center; gap: 8px; }
+  .ranking-input-row input { width: 100px; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-base); color: var(--text-primary); font-size: var(--font-size-sm); }
+  .ranking-default { font-size: 11px; color: var(--text-muted); }
+  .ranking-actions { display: flex; gap: 8px; margin-top: 14px; }
 </style>

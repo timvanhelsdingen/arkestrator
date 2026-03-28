@@ -10,6 +10,9 @@ Focused web admin panel (served at `/admin`) for:
 
 Job operations and broader operational tooling are intentionally handled in the Tauri client.
 
+## Recent Updates (2026-03-28)
+- Skill ranking tuning panel (2026-03-28): `src/pages/Skills.svelte` adds a collapsible "Ranking Tuning" panel for configuring skill ranking thresholds (exploration/established use counts, scoring weights, effectiveness floor). `src/lib/api/client.ts` adds `getRankingConfig()`, `updateRankingConfig()`, and `resetRankingConfig()` methods to the skills API namespace.
+
 ## Recent Updates (2026-03-25)
 - Skills effectiveness stats + delete cleanup (2026-03-25): `src/pages/Skills.svelte` now shows Uses and Success columns with effectiveness stats per skill (fetched via batch endpoint), delete button no longer restricted by source (all non-builtin skills deletable), and new `badge-warn`/`badge-bad` CSS classes for color-coded success rate badges. `src/lib/api/client.ts` adds `batchEffectiveness(ids)` method to the skills API namespace.
 - Skills playbook & related skills support (2026-03-25): `src/pages/Skills.svelte` now shows a playbooks column in the skill table, playbook content preview in the detail modal, and clickable related skills navigation links. `SkillEntry` interface updated with `playbooks: string[]` and `relatedSkills: string[]`. `src/lib/api/client.ts` adds `getPlaybookContent(slug)` method to the skills API namespace.
