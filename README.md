@@ -90,7 +90,7 @@ Three components, connected over WebSocket:
 
 **Orchestration** — Multi-engine support (Claude Code, Codex, Gemini, Grok, Ollama, any CLI), auto-routing, job queue with priorities/dependencies/retries, multi-machine routing, three workspace modes, headless execution. [Details](docs/how-it-works.md)
 
-**Bridges** — 7 plugins (Godot, Blender, Houdini, Unreal, Unity, Fusion, ComfyUI), live editor context, cross-bridge commands, context menu integration, built-in bridge installer. [Details](docs/usage-bridges.md)
+**Bridges** — Various availble bridges for all types of different applications with a library that keeps growing. =  live editor context, cross-bridge commands, context menu integration, built-in bridge installer. [Details](docs/usage-bridges.md) Bridges are easy to build yourself with some technical knowhow, or with help of AI. Submit your own to the bridge repo, or improve ones that already exist.
 
 **Skills & Training** — Self-improving skill system, training pipeline from project analysis, coordinator scripts per DCC app, playbook task templates, effectiveness tracking. [Details](docs/skills.md)
 
