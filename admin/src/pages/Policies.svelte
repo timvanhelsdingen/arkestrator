@@ -45,9 +45,75 @@
     command_filter: "rm\\s+-rf|del\\s+/f",
   };
 
+  interface PolicyPreset {
+    name: string;
+    description: string;
+    rules: Array<{ type: string; pattern: string; action: string; description: string }>;
+  }
+
+  const PRESETS: PolicyPreset[] = [
+    {
+      name: "Protect Sensitive Files",
+      description: "Block modifications to env files, secrets, credentials, and SSH keys",
+      rules: [
+        { type: "file_path", pattern: "**/.env*", action: "block", description: "Protect environment/secret files" },
+        { type: "file_path", pattern: "**/secrets/**", action: "block", description: "Protect secrets directory" },
+        { type: "file_path", pattern: "**/*.pem", action: "block", description: "Protect SSL/SSH certificates" },
+        { type: "file_path", pattern: "**/*.key", action: "block", description: "Protect private keys" },
+        { type: "file_path", pattern: "**/credentials*", action: "block", description: "Protect credential files" },
+        { type: "file_path", pattern: "**/.ssh/**", action: "block", description: "Protect SSH directory" },
+      ],
+    },
+    {
+      name: "Prevent Destructive Operations",
+      description: "Block dangerous shell commands that delete files, format disks, or wipe data",
+      rules: [
+        { type: "command_filter", pattern: "rm\\s+-r[f ]|rm\\s+-fr", action: "block", description: "Block recursive file deletion" },
+        { type: "command_filter", pattern: "rmdir\\s+/s", action: "block", description: "Block Windows recursive directory removal" },
+        { type: "command_filter", pattern: "del\\s+/[sfq]", action: "block", description: "Block Windows force-delete" },
+        { type: "command_filter", pattern: "format\\s+[a-z]:", action: "block", description: "Block disk formatting" },
+        { type: "command_filter", pattern: "mkfs\\.", action: "block", description: "Block filesystem creation" },
+        { type: "command_filter", pattern: "dd\\s+if=.*of=/dev/", action: "block", description: "Block raw disk writes" },
+        { type: "prompt_filter", pattern: "rm\\s+-rf\\s+/(?!tmp)", action: "block", description: "Block prompts requesting recursive root deletion" },
+      ],
+    },
+    {
+      name: "Prevent Git Force Push",
+      description: "Block force-push and destructive git operations that can lose history",
+      rules: [
+        { type: "command_filter", pattern: "git\\s+push\\s+.*--force(?!-with-lease)", action: "block", description: "Block git force push (allow --force-with-lease)" },
+        { type: "command_filter", pattern: "git\\s+reset\\s+--hard", action: "warn", description: "Warn on git hard reset" },
+        { type: "command_filter", pattern: "git\\s+clean\\s+-[dfx]", action: "warn", description: "Warn on git clean" },
+      ],
+    },
+    {
+      name: "Protect Project Structure",
+      description: "Warn when agents modify build configs, lock files, or CI pipelines",
+      rules: [
+        { type: "file_path", pattern: "**/.github/workflows/**", action: "warn", description: "Warn on CI/CD pipeline changes" },
+        { type: "file_path", pattern: "**/Dockerfile*", action: "warn", description: "Warn on Dockerfile changes" },
+        { type: "file_path", pattern: "**/docker-compose*", action: "warn", description: "Warn on Docker Compose changes" },
+        { type: "file_path", pattern: "**/package-lock.json", action: "warn", description: "Warn on lockfile changes" },
+        { type: "file_path", pattern: "**/pnpm-lock.yaml", action: "warn", description: "Warn on lockfile changes" },
+        { type: "file_path", pattern: "**/yarn.lock", action: "warn", description: "Warn on lockfile changes" },
+      ],
+    },
+    {
+      name: "Block Network Exfiltration",
+      description: "Block commands that could upload or send data to external servers",
+      rules: [
+        { type: "command_filter", pattern: "curl\\s+.*-[dXF]|curl\\s+.*--data|curl\\s+.*--upload", action: "warn", description: "Warn on curl data uploads" },
+        { type: "command_filter", pattern: "wget\\s+.*--post", action: "warn", description: "Warn on wget POST requests" },
+        { type: "command_filter", pattern: "scp\\s|rsync\\s.*:", action: "warn", description: "Warn on remote file transfers" },
+      ],
+    },
+  ];
+
   let policies = $state<Policy[]>([]);
   let users = $state<UserOption[]>([]);
   let activeTab = $state("file_path");
+  let showPresetsModal = $state(false);
+  let applyingPreset = $state(false);
   let showForm = $state(false);
   let editingId = $state<string | null>(null);
   let form = $state({
@@ -150,6 +216,30 @@
     }
   }
 
+  async function applyPreset(preset: PolicyPreset) {
+    applyingPreset = true;
+    const existingPatterns = new Set(policies.map((p) => `${p.type}:${p.pattern}`));
+    let created = 0;
+    let skipped = 0;
+    try {
+      for (const rule of preset.rules) {
+        if (existingPatterns.has(`${rule.type}:${rule.pattern}`)) {
+          skipped++;
+          continue;
+        }
+        await api.policies.create({ scope: "global", ...rule });
+        created++;
+      }
+      toast.success(`${preset.name}: ${created} rules added${skipped ? `, ${skipped} already existed` : ""}`);
+      showPresetsModal = false;
+      await load();
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      applyingPreset = false;
+    }
+  }
+
   onMount(load);
 </script>
 
@@ -167,9 +257,14 @@
         </button>
       {/each}
     </div>
-    <button class="btn-primary" onclick={() => { resetForm(); form.type = activeTab; showForm = true; }}>
-      Add Rule
-    </button>
+    <div class="toolbar-actions">
+      <button class="btn-secondary" onclick={() => (showPresetsModal = true)}>
+        Presets
+      </button>
+      <button class="btn-primary" onclick={() => { resetForm(); form.type = activeTab; showForm = true; }}>
+        Add Rule
+      </button>
+    </div>
   </div>
 
   <p class="help-text">{typeHelp[activeTab]}</p>
@@ -274,6 +369,24 @@
   </form>
 </Modal>
 
+<Modal title="Policy Presets" open={showPresetsModal} onclose={() => (showPresetsModal = false)}>
+  <p class="presets-hint">Apply a preset to quickly add common safety rules. Existing rules with the same pattern are skipped.</p>
+  <div class="presets-list">
+    {#each PRESETS as preset}
+      <div class="preset-card">
+        <div class="preset-info">
+          <h4>{preset.name}</h4>
+          <p>{preset.description}</p>
+          <span class="preset-count">{preset.rules.length} rules</span>
+        </div>
+        <button class="btn-secondary" onclick={() => applyPreset(preset)} disabled={applyingPreset}>
+          {applyingPreset ? "..." : "Apply"}
+        </button>
+      </div>
+    {/each}
+  </div>
+</Modal>
+
 <style>
   .page { padding: 24px; }
   .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
@@ -303,4 +416,14 @@
   .field { display: block; margin-bottom: 14px; }
   .field span { display: block; font-size: var(--font-size-sm); color: var(--text-secondary); margin-bottom: 4px; }
   .field input, .field select { width: 100%; }
+  .toolbar-actions { display: flex; gap: 8px; }
+  .btn-secondary { background: var(--bg-elevated); color: var(--text-secondary); padding: 8px 16px; border-radius: var(--radius-sm); font-weight: 500; border: 1px solid var(--border); }
+  .btn-secondary:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .presets-hint { color: var(--text-muted); font-size: var(--font-size-sm); margin-bottom: 16px; }
+  .presets-list { display: flex; flex-direction: column; gap: 10px; }
+  .preset-card { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 16px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-surface); }
+  .preset-info h4 { font-size: var(--font-size-sm); font-weight: 600; margin-bottom: 2px; }
+  .preset-info p { font-size: var(--font-size-xs); color: var(--text-secondary); line-height: 1.4; }
+  .preset-count { font-size: 11px; color: var(--text-muted); }
 </style>

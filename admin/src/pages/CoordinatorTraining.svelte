@@ -106,10 +106,6 @@
   let snapshotFileInput = $state<HTMLInputElement | null>(null);
   let trainingZipFileInput = $state<HTMLInputElement | null>(null);
   let vaultView = $state<VaultView>("vault");
-  let allowClientCoordination = $state(false);
-  let policyLoading = $state(false);
-  let policySaving = $state(false);
-
   let repositoryProgram = $state("houdini");
   let coordinatorScripts = $state<Array<{ program: string; content: string; isDefault: boolean; defaultContent: string }>>([]);
   let coordinatorScriptsLoading = $state(false);
@@ -373,36 +369,6 @@
     }
   }
 
-  async function loadCoordinationPolicy() {
-    if (!auth.canManageSecurity) return;
-    policyLoading = true;
-    try {
-      const result = await api.settings.get();
-      allowClientCoordination = !!result?.allowClientCoordination;
-    } catch (err: any) {
-      toast.error(err.message ?? "Failed to load coordination policy");
-    } finally {
-      policyLoading = false;
-    }
-  }
-
-  async function setAllowClientCoordination(enabled: boolean) {
-    if (!auth.canManageSecurity) return;
-    policySaving = true;
-    try {
-      const result = await api.settings.setAllowClientCoordination(enabled);
-      allowClientCoordination = !!result?.allowClientCoordination;
-      toast.success(
-        allowClientCoordination
-          ? "Global client-side coordination enabled."
-          : "Global client-side coordination disabled.",
-      );
-    } catch (err: any) {
-      toast.error(err.message ?? "Failed to update coordination policy");
-    } finally {
-      policySaving = false;
-    }
-  }
 
   async function loadCoordinatorScripts() {
     if (!auth.canManageSecurity) return;
@@ -1494,7 +1460,6 @@
 
   onMount(() => {
     void load();
-    void loadCoordinationPolicy();
     void loadCoordinatorScripts().then(() => loadTrainingSchedule());
     void refreshTrainingRepositoryData();
     void loadHousekeepingSchedule();
@@ -1510,32 +1475,6 @@
     onchange={importSnapshotFile}
   />
 
-  {#if auth.canManageSecurity}
-    <section class="policy-panel">
-      <h2>Coordination Policy</h2>
-      <p class="hint">
-        Controls whether non-admin users can enable client-side coordination and queue client-initiated training.
-      </p>
-      <label class="toggle policy-toggle">
-        <input
-          type="checkbox"
-          checked={allowClientCoordination}
-          onchange={(e) => setAllowClientCoordination((e.target as HTMLInputElement).checked)}
-          disabled={policyLoading || policySaving}
-        />
-        <span>Allow client-side coordination globally</span>
-      </label>
-      <div class="policy-meta">
-        {#if policyLoading}
-          Loading policy...
-        {:else if policySaving}
-          Saving policy...
-        {:else}
-          Current: {allowClientCoordination ? "enabled" : "disabled"}
-        {/if}
-      </div>
-    </section>
-  {/if}
 
   {#if auth.canManageSecurity}
     <section class="policy-panel">
