@@ -547,6 +547,30 @@ class ChatState {
     this.tabs = [...this.tabs];
     this.persist();
   }
+
+  setCleanupTempFiles(value: boolean | undefined) {
+    const tab = this.activeTab;
+    if (!tab) return;
+    const next: JobRuntimeOptions = { ...(tab.runtimeOptions ?? {}) };
+    if (value === true) {
+      next.cleanupTempFiles = true;
+    } else {
+      delete next.cleanupTempFiles;
+    }
+    tab.runtimeOptions = Object.keys(next).length > 0 ? next : undefined;
+    this.tabs = [...this.tabs];
+    this.persist();
+  }
+
+  /** Apply a preset by merging its runtime options into the current tab. */
+  applyPreset(options: Partial<JobRuntimeOptions>) {
+    const tab = this.activeTab;
+    if (!tab) return;
+    const next: JobRuntimeOptions = { ...(tab.runtimeOptions ?? {}), ...options };
+    tab.runtimeOptions = Object.keys(next).length > 0 ? next : undefined;
+    this.tabs = [...this.tabs];
+    this.persist();
+  }
 }
 
 export const chatStore = new ChatState();

@@ -57,6 +57,8 @@ export const JobRuntimeOptions = z.object({
   skillsMode: z.boolean().optional(),
   /** Per-job timeout override in minutes. Capped by the server's global max. */
   timeoutMinutes: z.number().min(1).max(1440).optional(),
+  /** When true, delete the _arkestrator/{jobId}/ temp folder on job completion. Default: false. */
+  cleanupTempFiles: z.boolean().optional(),
 });
 export type JobRuntimeOptions = z.infer<typeof JobRuntimeOptions>;
 

@@ -217,8 +217,8 @@ const MAX_PROJECT_GUIDANCE_CHARS = 2400;
 const MAX_DISCOVERY_FILES_PER_SOURCE = 140;
 const MAX_DISCOVERY_DEPTH = 6;
 const MAX_EXPERIENCE_ENTRIES = 240;
-const MAX_EXPERIENCE_PROMPT_CHARS = 220;
-const MAX_EXPERIENCE_OUTCOME_CHARS = 260;
+const MAX_EXPERIENCE_PROMPT_CHARS = 150;
+const MAX_EXPERIENCE_OUTCOME_CHARS = 150;
 const MAX_EXPERIENCE_JOB_NAME_CHARS = 180;
 const MAX_EXPERIENCE_USER_CHARS = 96;
 const MAX_EXPERIENCE_MODEL_CHARS = 120;
@@ -1008,10 +1008,10 @@ function buildExperienceSection(
   const failures: CoordinatorExperienceEntry[] = [];
 
   for (const entry of ranked) {
-    if (entry.signal === "positive" && successes.length < 3) successes.push(entry);
-    if (entry.signal === "average" && averages.length < 2) averages.push(entry);
-    if (entry.signal === "negative" && failures.length < 2) failures.push(entry);
-    if (successes.length >= 3 && averages.length >= 2 && failures.length >= 2) break;
+    if (entry.signal === "positive" && successes.length < 2) successes.push(entry);
+    if (entry.signal === "average" && averages.length < 1) averages.push(entry);
+    if (entry.signal === "negative" && failures.length < 1) failures.push(entry);
+    if (successes.length >= 2 && averages.length >= 1 && failures.length >= 1) break;
   }
 
   if (successes.length === 0 && averages.length === 0 && failures.length === 0) return undefined;
@@ -1610,16 +1610,11 @@ function buildTrainingPatternSection(
   for (const hit of hits) {
     const quality = hit.record.qualityRating;
     const qualityLabel = quality === "good" ? "good" : quality === "poor" ? "poor" : "average";
+    const summaryTrunc = hit.record.summary.length > 200 ? hit.record.summary.slice(0, 200) + "…" : hit.record.summary;
     lines.push(`### Pattern: ${hit.record.title}`);
-    lines.push(`- Source: ${hit.record.sourcePath}`);
-    lines.push(`- Score: ${hit.score.toFixed(2)} | Quality: ${qualityLabel} | Kind: ${hit.record.sourceKind} | Trust: ${(hit.record.trustScore * 100).toFixed(0)}%`);
-    lines.push(`- Lexical/Semantic: ${hit.lexicalScore.toFixed(2)} / ${hit.semanticScore.toFixed(2)}`);
-    if (hit.matchedTerms.length > 0) {
-      lines.push(`- Matched terms: ${hit.matchedTerms.join(", ")}`);
-    }
-    lines.push(`- Summary: ${hit.record.summary}`);
-    if (hit.record.prompt) lines.push(`- Prompt pattern: ${hit.record.prompt}`);
-    if (hit.record.outcome) lines.push(`- Outcome pattern: ${hit.record.outcome}`);
+    lines.push(`- Quality: ${qualityLabel} | Score: ${hit.score.toFixed(1)}`);
+    lines.push(`- Summary: ${summaryTrunc}`);
+    if (hit.record.outcome) lines.push(`- Outcome: ${hit.record.outcome}`);
   }
 
   return lines.join("\n");
@@ -1640,7 +1635,7 @@ export function loadCoordinatorPlaybookContextDetailed(
     maxTasks = 2,
     maxExamplesPerTask = 4,
     maxProjectGuides = 3,
-    maxTrainingPatterns = 4,
+    maxTrainingPatterns = 3,
     trainingRepositoryPolicy,
     trainingRepositoryOverrides,
   } = options;

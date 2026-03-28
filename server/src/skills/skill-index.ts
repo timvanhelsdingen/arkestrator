@@ -312,23 +312,25 @@ export class SkillIndex {
       const semScore = Math.max(0, semanticSimilarity(queryVector, this.vectors[i]));
 
       // Effectiveness score: graduated based on usage confidence.
-      // - New skills (< 15 uses): exploration bonus — slightly above neutral so
+      // - New skills (< 20 uses): exploration bonus — slightly above neutral so
       //   they get a fair chance to prove themselves.
-      // - Moderate use (15-50): blend between neutral and actual success rate,
+      // - Moderate use (20-60): blend between neutral and actual success rate,
       //   letting the signal build up gradually.
-      // - Established (50+): full trust in the success rate, but floor at 0.10
+      // - Established (60+): full trust in the success rate, but floor at 0.10
       //   so even poorly performing skills can still appear if the prompt match
       //   is strong enough (no hard auto-disable).
+      // Note: only MCP-loaded skills record usage (auto-fetch skills don't),
+      // so these thresholds reflect genuine agent-chosen usage counts.
       let effScore: number;
-      if (!eff || eff.totalUsed < 15) {
+      if (!eff || eff.totalUsed < 20) {
         // Exploration phase: slightly optimistic to encourage discovery
         effScore = 0.6;
-      } else if (eff.totalUsed < 50) {
+      } else if (eff.totalUsed < 60) {
         // Transition phase: blend neutral toward actual rate as confidence grows
-        const confidence = (eff.totalUsed - 15) / 35; // 0 → 1 over 15..50 uses
+        const confidence = (eff.totalUsed - 20) / 40; // 0 → 1 over 20..60 uses
         effScore = 0.5 * (1 - confidence) + eff.successRate * confidence;
       } else {
-        // Established (50+ uses): trust the data, with a floor so skills aren't fully killed
+        // Established (60+ uses): trust the data, with a floor so skills aren't fully killed
         effScore = Math.max(0.10, eff.successRate);
       }
 

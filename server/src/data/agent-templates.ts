@@ -35,7 +35,7 @@ export const AGENT_TEMPLATES: AgentTemplate[] = [
     engine: "claude-code",
     command: "claude",
     args: [],
-    model: "claude-sonnet-4-20250514",
+    model: "claude-opus-4-6",
     maxTurns: 300,
     priority: 50,
     onboarding: {

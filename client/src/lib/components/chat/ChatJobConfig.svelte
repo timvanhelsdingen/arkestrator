@@ -4,6 +4,7 @@
     RuntimeReasoningLevel,
     RuntimeVerificationMode,
   } from "@arkestrator/protocol";
+  import type { BridgeExecutionMode } from "@arkestrator/protocol";
   import { chatStore } from "../../stores/chat.svelte";
   import { agents } from "../../stores/agents.svelte";
   import { connection } from "../../stores/connection.svelte";
@@ -13,6 +14,29 @@
     type LocalModelCatalogEntry,
     type ProviderModelCatalog,
   } from "../../api/rest";
+
+  const JOB_PRESETS = [
+    {
+      name: "Quick Draft",
+      icon: "\u26A1",
+      description: "No verification, fast execution",
+      options: { verificationMode: "disabled" as const, bridgeExecutionMode: "live" as BridgeExecutionMode },
+    },
+    {
+      name: "Verified",
+      icon: "\u2705",
+      description: "Required verification, weight 80",
+      options: { verificationMode: "required" as const, verificationWeight: 80, bridgeExecutionMode: "live" as BridgeExecutionMode },
+    },
+    {
+      name: "Strict",
+      icon: "\uD83D\uDD12",
+      description: "Required verification, weight 99",
+      options: { verificationMode: "required" as const, verificationWeight: 99, bridgeExecutionMode: "live" as BridgeExecutionMode },
+    },
+  ];
+
+  let activePreset = $state("");
 
   let coordinationEnabled = $derived.by(() => {
     const cs = chatStore.activeTab?.runtimeOptions?.coordinationScripts;
@@ -266,6 +290,23 @@
     <strong>Job Settings</strong>
   </div>
   <div class="config-content">
+    <!-- Presets -->
+    <div class="preset-row">
+      {#each JOB_PRESETS as preset (preset.name)}
+        <button
+          class="preset-chip"
+          class:active={activePreset === preset.name}
+          title={preset.description}
+          onclick={() => {
+            activePreset = activePreset === preset.name ? "" : preset.name;
+            chatStore.applyPreset(preset.options);
+          }}
+        >
+          {preset.icon} {preset.name}
+        </button>
+      {/each}
+    </div>
+
     <!-- Agent -->
     <div class="config-row">
       <label for="jc-agent-select">Agent</label>
@@ -426,6 +467,22 @@
       />
     </div>
 
+    <!-- Cleanup Temp Files -->
+    <div class="config-row config-row-inline">
+      <span class="config-label-text">Cleanup Temp Files</span>
+      <button
+        class="coordination-toggle"
+        class:on={chatStore.activeTab?.runtimeOptions?.cleanupTempFiles === true}
+        onclick={() => {
+          const current = chatStore.activeTab?.runtimeOptions?.cleanupTempFiles === true;
+          chatStore.setCleanupTempFiles(!current ? true : undefined);
+        }}
+        title="Delete _arkestrator/ temp folder after job completes"
+      >
+        {chatStore.activeTab?.runtimeOptions?.cleanupTempFiles ? "On" : "Off"}
+      </button>
+    </div>
+
     <!-- Name -->
     <div class="config-row">
       <label for="jc-job-name">Name</label>
@@ -537,6 +594,36 @@
 
   .model-refresh-btn:disabled {
     opacity: 0.65;
+  }
+
+  .preset-row {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .preset-chip {
+    font-size: 10px;
+    padding: 3px 8px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--bg-base);
+    color: var(--text-secondary);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .preset-chip:hover {
+    border-color: var(--accent);
+    color: var(--text-primary);
+  }
+
+  .preset-chip.active {
+    background: var(--accent);
+    color: var(--bg-base);
+    border-color: var(--accent);
   }
 
   .coordination-toggle {

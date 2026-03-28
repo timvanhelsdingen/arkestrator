@@ -1500,12 +1500,10 @@ export async function spawnAgent(
         ? `${orchestratorPromptOverride}\n\n${skillBlock}`
         : skillBlock;
 
-      // Record auto-fetch skill usage for effectiveness tracking
-      if (deps.skillEffectivenessRepo) {
-        for (const skill of autoFetchSkills) {
-          deps.skillEffectivenessRepo.recordUsage(skill.id, job.id);
-        }
-      }
+      // Note: auto-fetch skills are NOT recorded for effectiveness tracking.
+      // They always inject regardless of score, so tracking them inflates
+      // use counts and pollutes effectiveness data. Usage is only recorded
+      // when a skill is actively loaded via MCP tools (search_skills/get_skill).
     }
 
     // Log for observability
@@ -2932,6 +2930,23 @@ function sendComplete(
   if (deps.skillEffectivenessRepo) {
     const outcome = success ? "positive" : "negative";
     deps.skillEffectivenessRepo.recordOutcome(job.id, outcome);
+  }
+
+  // Cleanup temp files if requested
+  if (success && job.runtimeOptions?.cleanupTempFiles) {
+    const projectRoot = job.editorContext?.projectRoot;
+    if (projectRoot) {
+      const cleanupScript = `import shutil, os\npath = os.path.join(${JSON.stringify(projectRoot)}, "_arkestrator", ${JSON.stringify(job.id)})\nif os.path.isdir(path):\n    shutil.rmtree(path)\n    print(f"Cleaned up {path}")\nelse:\n    print(f"No temp dir at {path}")`;
+      const bridgeIds = getTargetBridgeIds(deps, job);
+      if (bridgeIds.length > 0) {
+        deps.hub.send(bridgeIds[0], {
+          type: "bridge_command",
+          id: newId(),
+          payload: { language: "python", script: cleanupScript, correlationId: newId() },
+        });
+        logger.info("spawner", `Sent temp file cleanup for job ${job.id}`);
+      }
+    }
   }
 
   const payload = {

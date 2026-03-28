@@ -476,6 +476,7 @@ function buildInstructionPrompt(
     headlessPrograms,
     orchestratorPromptOverride,
     defaultProjectDir,
+    job.id,
   );
   appendInstructionSection(sections, bridgePrompt);
   if (config.engine === "claude-code" || config.engine === "codex") {
@@ -952,6 +953,13 @@ Additional rules:
 - Never create a new file when the user already has a relevant file open — work in that file.
 - Only create a brand-new file when the user asks for one or the task clearly requires a new asset.
 
+Temporary file organization:
+- When creating temporary files (test renders, intermediate outputs, debug exports), save them in a \`_arkestrator/{JOB_ID}/\` subfolder inside the project root.
+- Example: \`{projectRoot}/_arkestrator/{JOB_ID}/test_render_01.png\`
+- Create the folder with \`os.makedirs(..., exist_ok=True)\` before writing.
+- Final deliverables go in the project's standard output folders (renders/, exports/, etc.), not the temp folder.
+- This keeps the project root clean and makes cleanup easy.
+
 ---
 
 ### Mandatory Start Gate
@@ -1383,6 +1391,7 @@ function buildBridgeOrchestrationPrompt(
   headlessPrograms?: HeadlessProgramInfo[],
   orchestratorPromptOverride?: string,
   defaultProjectDir?: string,
+  jobId?: string,
 ): string {
   // Filter out the bridge that submitted this job (don't tell it to send commands to itself)
   const otherBridges = (bridges ?? []).filter((b) => b.program !== currentProgram);
@@ -1491,6 +1500,9 @@ function buildBridgeOrchestrationPrompt(
   if (result.includes("{DEFAULT_PROJECT_DIR}")) {
     const dir = defaultProjectDir || getDefaultProjectDir() || "(not configured)";
     result = result.replaceAll("{DEFAULT_PROJECT_DIR}", dir);
+  }
+  if (result.includes("{JOB_ID}") && jobId) {
+    result = result.replaceAll("{JOB_ID}", jobId);
   }
 
   // Add file access hint when bridges are available

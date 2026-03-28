@@ -108,6 +108,8 @@ export class ProjectsRepo {
   }
 
   delete(id: string): boolean {
+    // Unlink jobs first so FK constraint doesn't block deletion
+    this.db.prepare("UPDATE jobs SET project_id = NULL WHERE project_id = ?").run(id);
     const result = this.deleteStmt.run(id);
     return result.changes > 0;
   }
