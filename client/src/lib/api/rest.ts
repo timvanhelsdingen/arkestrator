@@ -884,6 +884,19 @@ export const api = {
     },
   },
 
+  templates: {
+    list: (type?: string, category?: string): Promise<any> => {
+      const params = new URLSearchParams();
+      if (type) params.set("type", type);
+      if (category) params.set("category", category);
+      params.set("enabled", "1");
+      const qs = params.toString();
+      return request(`/api/templates${qs ? `?${qs}` : ""}`);
+    },
+    categories: (type?: string): Promise<any> =>
+      request(`/api/templates/categories${type ? `?type=${encodeURIComponent(type)}` : ""}`),
+  },
+
   skills: {
     list: (program?: string, category?: string) => {
       const params = new URLSearchParams();

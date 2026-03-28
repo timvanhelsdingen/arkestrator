@@ -15,20 +15,24 @@
     type ProviderModelCatalog,
   } from "../../api/rest";
 
-  const JOB_PRESETS = [
+  // Hardcoded fallback presets used when the server has no job_preset templates
+  const FALLBACK_JOB_PRESETS = [
     {
+      id: "_fallback_quick",
       name: "Quick Draft",
       icon: "\u26A1",
       description: "No verification, fast execution",
       options: { verificationMode: "disabled" as const, bridgeExecutionMode: "live" as BridgeExecutionMode },
     },
     {
+      id: "_fallback_verified",
       name: "Verified",
       icon: "\u2705",
       description: "Required verification, weight 80",
       options: { verificationMode: "required" as const, verificationWeight: 80, bridgeExecutionMode: "live" as BridgeExecutionMode },
     },
     {
+      id: "_fallback_strict",
       name: "Strict",
       icon: "\uD83D\uDD12",
       description: "Required verification, weight 99",
@@ -36,7 +40,31 @@
     },
   ];
 
+  let jobPresets = $state<Array<{ id: string; name: string; icon: string; description: string; options: any }>>(
+    [...FALLBACK_JOB_PRESETS],
+  );
+
   let activePreset = $state("");
+
+  // Load job presets from server, fall back to hardcoded defaults
+  $effect(() => {
+    if (!connection.isConnected) return;
+    if (!connection.sessionToken && !connection.apiKey) return;
+
+    api.templates.list("job_preset").then((res: any) => {
+      const templates = Array.isArray(res?.templates) ? res.templates : [];
+      if (templates.length === 0) return; // keep fallback
+      jobPresets = templates.map((t: any) => ({
+        id: t.id ?? "",
+        name: t.name ?? "",
+        icon: t.icon ?? "",
+        description: t.description ?? "",
+        options: typeof t.options === "object" && t.options !== null ? t.options : {},
+      }));
+    }).catch(() => {
+      // keep fallback presets on error
+    });
+  });
 
   let coordinationEnabled = $derived.by(() => {
     const cs = chatStore.activeTab?.runtimeOptions?.coordinationScripts;
@@ -290,9 +318,21 @@
     <strong>Job Settings</strong>
   </div>
   <div class="config-content">
+    <!-- Name -->
+    <div class="config-row">
+      <label for="jc-job-name">Name</label>
+      <input
+        id="jc-job-name"
+        type="text"
+        placeholder="Auto"
+        value={chatStore.activeTab?.jobName ?? ""}
+        oninput={(e) => chatStore.setJobName((e.target as HTMLInputElement).value)}
+      />
+    </div>
+
     <!-- Presets -->
     <div class="preset-row">
-      {#each JOB_PRESETS as preset (preset.name)}
+      {#each jobPresets as preset (preset.id)}
         <button
           class="preset-chip"
           class:active={activePreset === preset.name}
@@ -483,17 +523,6 @@
       </button>
     </div>
 
-    <!-- Name -->
-    <div class="config-row">
-      <label for="jc-job-name">Name</label>
-      <input
-        id="jc-job-name"
-        type="text"
-        placeholder="Auto"
-        value={chatStore.activeTab?.jobName ?? ""}
-        oninput={(e) => chatStore.setJobName((e.target as HTMLInputElement).value)}
-      />
-    </div>
   </div>
 </div>
 

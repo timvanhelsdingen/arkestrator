@@ -6,6 +6,7 @@ export type Page =
   | "bridges"
   | "policies"
   | "knowledge"
+  | "templates"
   | "audit-log"
   | "system";
 

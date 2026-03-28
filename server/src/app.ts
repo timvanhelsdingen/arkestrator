@@ -21,6 +21,7 @@ import { createHeadlessProgramRoutes } from "./routes/headless-programs.js";
 import { createChatRoutes } from "./routes/chat.js";
 import { createSettingsRoutes } from "./routes/settings.js";
 import { createSkillsRoutes } from "./routes/skills.js";
+import { createTemplatesRoutes } from "./routes/templates.js";
 import { createMcpRoutes } from "./mcp/routes.js";
 import { CodexChatSessionManager } from "./chat/codex-sessions.js";
 import type { Database } from "bun:sqlite";
@@ -51,6 +52,7 @@ import {
 } from "./security/network-policy.js";
 import { errorResponse } from "./utils/errors.js";
 import type { SkillsRepo } from "./db/skills.repo.js";
+import type { TemplatesRepo } from "./db/templates.repo.js";
 import { SkillIndex } from "./skills/skill-index.js";
 import { materializeSkills } from "./skills/skill-materializer.js";
 
@@ -71,6 +73,7 @@ export interface AppDeps {
   headlessProgramsRepo: HeadlessProgramsRepo;
   settingsRepo: SettingsRepo;
   skillsRepo: SkillsRepo;
+  templatesRepo: TemplatesRepo;
   skillEffectivenessRepo?: import("./db/skill-effectiveness.repo.js").SkillEffectivenessRepo;
   skillIndex?: SkillIndex;
   jobInterventionsRepo: JobInterventionsRepo;
@@ -148,6 +151,7 @@ export function createApp(deps: AppDeps) {
   app.route("/api/stats", createStatsRoutes(deps));
   app.route("/api/connections", createConnectionRoutes(deps.hub, deps.usersRepo, deps.auditRepo));
   app.route("/api/projects", createProjectRoutes(deps.projectsRepo, deps.usersRepo, deps.apiKeysRepo, deps.auditRepo));
+  app.route("/api/templates", createTemplatesRoutes(deps.templatesRepo, deps.usersRepo, deps.apiKeysRepo));
   app.route(
     "/api/workers",
     createWorkerRoutes(

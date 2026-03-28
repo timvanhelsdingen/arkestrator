@@ -7,6 +7,7 @@
   import WizardAgentSetup from "../lib/components/wizard/WizardAgentSetup.svelte";
   import WizardSkillsTraining from "../lib/components/wizard/WizardSkillsTraining.svelte";
   import WizardBridges from "../lib/components/wizard/WizardBridges.svelte";
+  import WizardPersonality from "../lib/components/wizard/WizardPersonality.svelte";
   import WizardDone from "../lib/components/wizard/WizardDone.svelte";
 
   // Determine what step component to show
@@ -23,12 +24,13 @@
         default: return "choose";
       }
     } else if (wizard.mode === "remote") {
-      // Welcome → Connect → Bridges → Ready
+      // Welcome → Connect → Personality → Bridges → Ready
       switch (stepIndex) {
         case 0: return "choose";
         case 1: return "connect";
-        case 2: return "bridges";
-        case 3: return "done";
+        case 2: return "personality";
+        case 3: return "bridges";
+        case 4: return "done";
         default: return "choose";
       }
     }
@@ -110,6 +112,8 @@
         <WizardConnectRemote oncomplete={handleConnectComplete} />
       {:else if currentComponent === "agents"}
         <WizardAgentSetup oncomplete={handleAgentsComplete} />
+      {:else if currentComponent === "personality"}
+        <WizardPersonality />
       {:else if currentComponent === "skills"}
         <WizardSkillsTraining />
       {:else if currentComponent === "bridges"}
