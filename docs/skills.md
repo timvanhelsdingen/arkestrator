@@ -4,8 +4,6 @@
 
 Skills are learned patterns stored as reusable knowledge that the server injects into agent context at job time. Each skill is a markdown document with metadata — title, description, keywords, category, program affinity, priority — stored in SQLite and indexed in memory for fast retrieval.
 
-Skills replace the old approach of static coordinator scripts and playbook files on disk. Instead of reading flat files at startup, the server maintains a searchable skill database that grows as the system learns from training runs, bridge connections, and manual curation.
-
 A skill record looks like this:
 
 | Field          | Type       | Purpose                                                |
