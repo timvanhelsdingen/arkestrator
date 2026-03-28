@@ -17,6 +17,9 @@ Thumbs.db
 # Server runtime data (NOT server/src/data/ which is source code)
 /server/data/
 /data/
+*.db
+*.db-wal
+*.db-shm
 
 # Godot
 .godot/
@@ -44,6 +47,7 @@ server/.mcp.json
 NEXT_SESSION.md
 LESSONS.md
 
-# Worktrees
+# Claude Code local state
 .claude/worktrees/
+.claude/plans/
 nul
