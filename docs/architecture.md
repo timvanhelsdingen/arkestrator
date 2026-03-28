@@ -35,14 +35,22 @@ Arkestrator uses a hub-and-spoke model. The server is the hub — it owns the jo
 │  ┌────────────────────────▼───────────────────────────────┐      │
 │  │              Agent Spawner                             │      │
 │  │  Bun.spawn → claude | codex | gemini | ollama | any   │      │
-│  │  + coordinator context injection                      │      │
+│  │  + skill injection (TF-IDF search → matched skills)   │      │
+│  │  + coordinator context + playbook guidance injection   │      │
 │  │  + MCP config injection for agent ↔ server callbacks  │      │
 │  └────────────────────────┬───────────────────────────────┘      │
 │                           │                                      │
 │  ┌────────────────────────▼───────────────────────────────┐      │
+│  │              Skills & Training                         │      │
+│  │  skill index (search) · effectiveness tracking         │      │
+│  │  training pipeline · coordinator scripts · playbooks   │      │
+│  └────────────────────────┬───────────────────────────────┘      │
+│                           │                                      │
+│  ┌────────────────────────▼───────────────────────────────┐      │
 │  │              SQLite Database                           │      │
-│  │  jobs · users · workers · agents · policies            │      │
-│  │  settings · audit · usage · headless programs          │      │
+│  │  jobs · users · workers · agents · policies · skills   │      │
+│  │  skill_versions · skill_effectiveness · settings       │      │
+│  │  audit · usage · headless programs                     │      │
 │  └────────────────────────────────────────────────────────┘      │
 │                                                                  │
 │  ┌────────────────────────────────────────────────────────┐      │
