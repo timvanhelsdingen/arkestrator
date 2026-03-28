@@ -104,7 +104,7 @@
       : "",
   );
 
-  let program = $state<string>("houdini");
+  let program = $state<string>("global");
   let scopeTab = $state<ScopeTab>("training");
   type ScriptEditorTarget = "global" | "bridge" | null;
   let scriptEditorTarget = $state<ScriptEditorTarget>(null);
@@ -515,17 +515,15 @@
       }
       headlessStatusByProgram = nextHeadless;
 
-      // If programs list hasn't been populated by loadScripts (admin-only), derive from bridges + headless
-      if (programs.length <= 1) {
-        const knownKeys = new Set<string>();
-        for (const key of Object.keys(bridgeCounts)) if (key) knownKeys.add(key);
-        for (const key of Object.keys(nextHeadless)) if (key) knownKeys.add(key);
-        knownKeys.add("global");
-        const derived = [...knownKeys]
-          .sort()
-          .map((p) => ({ value: p, label: p.charAt(0).toUpperCase() + p.slice(1) }));
-        programs = derived;
-      }
+      // Build programs dropdown from live bridges + headless configs (always dynamic)
+      const knownKeys = new Set<string>();
+      for (const key of Object.keys(bridgeCounts)) if (key) knownKeys.add(key);
+      for (const key of Object.keys(nextHeadless)) if (key) knownKeys.add(key);
+      knownKeys.add("global");
+      const derived = [...knownKeys]
+        .sort()
+        .map((p) => ({ value: p, label: p.charAt(0).toUpperCase() + p.slice(1) }));
+      programs = derived;
     } catch {
       // non-fatal
     } finally {
@@ -658,17 +656,7 @@
     const scripts = Array.isArray(result?.scripts) ? result.scripts : [];
     globalScript = String(scripts.find((s: any) => s.program === "global")?.content ?? "");
     bridgeScript = String(scripts.find((s: any) => s.program === program)?.content ?? "");
-
-    // Build programs dropdown from API response
-    const fetched: Array<{ value: string; label: string }> = scripts
-      .map((s: any) => String(s.program ?? ""))
-      .filter((p: string) => p.length > 0)
-      .map((p: string) => ({ value: p, label: p.charAt(0).toUpperCase() + p.slice(1) }));
-    // Ensure "global" is always present
-    if (!fetched.some((p) => p.value === "global")) {
-      fetched.push({ value: "global", label: "Global" });
-    }
-    programs = fetched;
+    // Programs dropdown is built dynamically from live bridges + headless in loadExecutionReadiness()
   }
 
   function formatAnalyzeAgentLabel(agentId: string): string {
