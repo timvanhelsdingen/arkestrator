@@ -1489,9 +1489,11 @@ export async function spawnAgent(
       if (rankedSkillCount > 0) {
         skillLines.push(`## Available Skills (${rankedSkillCount} learned skills)`);
         skillLines.push(
-          "Use the `search_skills` and `get_skill` MCP tools to find and load relevant " +
-          "learned skills when you need specific knowledge about techniques, patterns, or " +
-          "project conventions. Do NOT guess — search first if you're unsure how to approach something.",
+          "MANDATORY: Before starting bridge work, call search_skills with a query describing your task type " +
+          "(e.g., 'blender rendering', 'godot scene setup', 'houdini procedural'). Load top results with " +
+          "get_skill to get execution patterns and known pitfalls. Also search for 'verification' before " +
+          "declaring done — verification skills contain programmatic quality checks that prevent false PASS " +
+          "claims. Skipping skill search leads to poor results.",
         );
       }
 

@@ -578,6 +578,14 @@ function buildRuntimeVerificationDirective(job: Job): string {
     lines.push("You must run deterministic verification before reporting success.");
     lines.push("If verification cannot be run, report BLOCKED instead of success.");
     lines.push("Include explicit PASS/FAIL evidence in the final report.");
+    lines.push("");
+    lines.push("CRITICAL VERIFICATION RULES:");
+    lines.push("1. NEVER claim success based on your own visual assessment alone.");
+    lines.push("2. Before declaring done, call search_skills with query \"verification\" to find bridge-specific verification patterns. Load and follow them.");
+    lines.push("3. For visual/render tasks: run a programmatic comparison script via execute_command (histogram correlation, pixel diff). Report NUMERIC scores in your output.");
+    lines.push("4. If any comparison score < 0.7, list SPECIFIC differences (color, geometry, missing elements) and fix them before continuing. Do not proceed until scores improve.");
+    lines.push("5. For non-visual tasks (game dev, compositing, procedural): run the bridge's deterministic validation checks (syntax check, runtime check, scene tree validation, node graph validation).");
+    lines.push("6. Include explicit VERIFY PASS/FAIL lines with evidence in your final report.");
   } else if (effectiveMode === "optional") {
     lines.push("Attempt deterministic verification when practical for changed scope.");
     lines.push("If verification is skipped or unavailable, clearly list what remains unverified.");

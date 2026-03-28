@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { api } from "../lib/api/rest";
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
+  import ConfirmDialog from "../lib/components/ui/ConfirmDialog.svelte";
 
   interface PathMappingEntry { platform: string; path: string; }
   interface PathMapping { label: string; entries: PathMappingEntry[]; }
@@ -45,6 +46,8 @@
   let error = $state("");
   let showForm = $state(false);
   let editingId = $state<string | null>(null);
+  let deleteConfirmOpen = $state(false);
+  let projectToDelete = $state<{ id: string; name: string } | null>(null);
 
   // New project creation flow
   let rootFolder = $state("");
@@ -234,9 +237,16 @@
     }
   }
 
-  async function deleteProject(e: MouseEvent, id: string, name: string) {
+  function deleteProject(e: MouseEvent, id: string, name: string) {
     e.stopPropagation();
-    if (!confirm(`Delete project "${name}"?`)) return;
+    projectToDelete = { id, name };
+    deleteConfirmOpen = true;
+  }
+
+  async function confirmDelete() {
+    if (!projectToDelete) return;
+    const { id } = projectToDelete;
+    deleteConfirmOpen = false;
     try {
       await api.projects.delete(id);
       if (editingId === id) {
@@ -247,6 +257,12 @@
     } catch (err: any) {
       error = err.message;
     }
+    projectToDelete = null;
+  }
+
+  function cancelDelete() {
+    deleteConfirmOpen = false;
+    projectToDelete = null;
   }
 
   function applyPreset(preset: { label: string; prompt: string }) {
@@ -512,6 +528,16 @@
     </div>
   {/if}
 </div>
+
+<ConfirmDialog
+  open={deleteConfirmOpen}
+  title="Delete Project"
+  message={`Are you sure you want to delete "${projectToDelete?.name}"? Jobs will be kept but unlinked from this project.`}
+  confirmText="Delete"
+  variant="danger"
+  onconfirm={confirmDelete}
+  oncancel={cancelDelete}
+/>
 
 <style>
   .projects-page { display: flex; height: 100%; overflow: hidden; }
