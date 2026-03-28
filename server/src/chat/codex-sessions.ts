@@ -48,9 +48,6 @@ export function buildChatSessionKey(input: {
   });
 }
 
-/** @deprecated Use buildChatSessionKey instead */
-export const buildCodexChatSessionKey = buildChatSessionKey;
-
 export class CodexChatSessionManager {
   private readonly sessions = new Map<string, CodexChatSessionRecord>();
   private readonly ttlMs: number;

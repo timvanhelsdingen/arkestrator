@@ -74,6 +74,7 @@ import {
 import {
   getConfiguredOllamaBaseUrl,
   SERVER_LOCAL_LLM_BASE_URL_SETTINGS_KEY,
+  DEFAULT_OLLAMA_BASE_URL,
 } from "../local-models/ollama.js";
 import type { SettingsRouteDeps } from "./settings-shared.js";
 
@@ -125,7 +126,7 @@ export function createSettingsSnapshotsRoutes(deps: SettingsRouteDeps) {
       baseUrl: storedNormalized,
       effectiveBaseUrl,
       source,
-      defaultBaseUrl: "http://127.0.0.1:11434",
+      defaultBaseUrl: DEFAULT_OLLAMA_BASE_URL,
     } as const;
   }
 
@@ -3837,14 +3838,22 @@ export function createSettingsSnapshotsRoutes(deps: SettingsRouteDeps) {
       }
     }
 
-    // Re-create bootstrap admin with default credentials so first-run flow works
-    const bootstrapUsername = process.env.BOOTSTRAP_ADMIN_USERNAME?.trim() || "admin";
-    const bootstrapPassword = process.env.BOOTSTRAP_ADMIN_PASSWORD?.trim() || "admin";
+    // Re-create bootstrap admin with default credentials so first-run flow works.
+    // If this fails, the next server restart will detect an empty users table and seed it.
+    const bootstrapUsername = (process.env.BOOTSTRAP_ADMIN_USERNAME?.trim() || "admin");
+    const bootstrapPassword = (process.env.BOOTSTRAP_ADMIN_PASSWORD?.trim() || "admin");
+    if (!bootstrapUsername || !bootstrapPassword) {
+      logger.error("factory-reset", "BOOTSTRAP_ADMIN_USERNAME or BOOTSTRAP_ADMIN_PASSWORD env var is empty after trim. Falling back to 'admin'.");
+    }
     try {
-      await usersRepo.create(bootstrapUsername, bootstrapPassword, "admin");
+      await usersRepo.create(
+        bootstrapUsername || "admin",
+        bootstrapPassword || "admin",
+        "admin",
+      );
     } catch (err: any) {
-      // Non-fatal — user table is empty, next server restart will seed it
-      logger.warn("factory-reset", `Failed to re-create bootstrap user: ${err?.message ?? err}`);
+      // Critical — no users exist. Next server restart will re-seed via firstRun check.
+      logger.error("factory-reset", `CRITICAL: Failed to re-create bootstrap user: ${err?.message ?? err}. Restart the server to auto-seed.`);
     }
 
     return c.json({ ok: true, trainingDataCleared: clearTrainingData });

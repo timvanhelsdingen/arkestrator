@@ -5,6 +5,7 @@
   import { api, type LocalModelCatalogEntry, type LocalModelsResponse } from "../../api/rest";
   import { nav } from "../../stores/navigation.svelte";
   import { invoke } from "@tauri-apps/api/core";
+  import { DEFAULT_OLLAMA_URL } from "../../services/ollamaClient";
 
   let clientCoordSaving = $state(false);
   let clientCoordError = $state("");
@@ -22,7 +23,7 @@
   let pullProgressLabel = $state("");
   let pullProgressPercent = $state<number | null>(null);
   let serverLocalLlmBaseUrlDraft = $state("");
-  let serverLocalLlmEffectiveBaseUrl = $state("http://127.0.0.1:11434");
+  let serverLocalLlmEffectiveBaseUrl = $state(DEFAULT_OLLAMA_URL);
   let serverLocalLlmSource = $state<"setting" | "env" | "default">("default");
   let serverLocalLlmSaving = $state(false);
   let serverLocalLlmLoaded = $state(false);
@@ -137,7 +138,7 @@
           selectedCatalogModel = localCatalog[0]?.name ?? "";
         }
         localModelSourceLabel = "Client (This Desktop)";
-        serverLocalLlmEffectiveBaseUrl = "http://127.0.0.1:11434";
+        serverLocalLlmEffectiveBaseUrl = DEFAULT_OLLAMA_URL;
         serverLocalLlmSource = "default";
         return;
       }

@@ -100,10 +100,15 @@ jobs:
           cp -r admin/dist/* client/src-tauri/resources/admin-dist/
 
       # Build Tauri app and upload installers to the draft release
+      # tauri-action@v0 is the current stable major — supports Tauri v2.
+      # No v1 tag exists yet; revisit when upstream cuts one.
       - name: Build and upload Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Tauri updater signing (generate with: pnpm tauri signer generate -w ~/.tauri/arkestrator.key)
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           # macOS code signing (empty values are harmless on other platforms)
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}

@@ -38,8 +38,11 @@ interface BridgeRegistryData {
 // Registry cache (shared across calls, 5-minute TTL)
 // ---------------------------------------------------------------------------
 
-const BRIDGE_REGISTRY_URL =
-  "https://raw.githubusercontent.com/timvanhelsdingen/arkestrator-bridges/main/registry.json";
+/** Base URL for raw content in the arkestrator-bridges GitHub repo. */
+export const BRIDGE_RAW_BASE_URL = "https://raw.githubusercontent.com/timvanhelsdingen/arkestrator-bridges/main";
+
+/** URL for the bridge registry.json in the arkestrator-bridges GitHub repo. */
+export const BRIDGE_REGISTRY_URL = `${BRIDGE_RAW_BASE_URL}/registry.json`;
 const BRIDGE_REGISTRY_CACHE_TTL = 5 * 60 * 1000;
 
 let bridgeRegistryCache: { data: BridgeRegistryData; fetchedAt: number } | null = null;
@@ -74,7 +77,7 @@ export async function fetchBridgeRegistry(): Promise<BridgeRegistryData> {
 // Pull functions
 // ---------------------------------------------------------------------------
 
-const BRIDGE_RAW_BASE = "https://raw.githubusercontent.com/timvanhelsdingen/arkestrator-bridges/main";
+const BRIDGE_RAW_BASE = BRIDGE_RAW_BASE_URL;
 
 export interface PullResult {
   pulled: number;

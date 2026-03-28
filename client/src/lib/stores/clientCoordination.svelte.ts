@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { DEFAULT_OLLAMA_URL } from "../services/ollamaClient.js";
 
 export interface LocalDesktopOllamaModel {
   name: string;
@@ -28,7 +29,6 @@ const STORAGE_KEY = "arkestrator-client-coordination-capability";
 const OLLAMA_URL_KEY = "arkestrator-client-ollama-url";
 const CHAT_MODEL_KEY = "arkestrator-default-chat-model";
 const JOB_MODEL_KEY = "arkestrator-default-job-model";
-const DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434";
 const DEFAULT_PROBE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
 function buildProbeFingerprint(): string {

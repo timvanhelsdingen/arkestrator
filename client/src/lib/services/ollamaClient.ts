@@ -6,7 +6,8 @@
  * is running on the default port.
  */
 
-const DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434";
+/** Default Ollama API base URL. Used as fallback when no setting is configured. */
+export const DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434";
 
 export interface OllamaGenerateOptions {
   model: string;

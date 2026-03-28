@@ -90,3 +90,11 @@ export const FileAttachment = z.object({
   content: z.string(),
 });
 export type FileAttachment = z.infer<typeof FileAttachment>;
+
+// --- API Error Response ---
+
+export const ApiErrorResponseSchema = z.object({
+  error: z.string(),
+  code: z.string(),
+});
+export type ApiErrorResponse = z.infer<typeof ApiErrorResponseSchema>;

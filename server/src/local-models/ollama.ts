@@ -22,11 +22,14 @@ export interface PullModelProgress {
 }
 
 const OLLAMA_LIST_TIMEOUT_MS = 8_000;
+/** Default Ollama API base URL. Used as fallback when no env/setting is configured. */
+export const DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434";
+
 const OLLAMA_PULL_TIMEOUT_MS = 20_000;
 const OLLAMA_CHAT_CONNECT_TIMEOUT_MS = 15_000;
 
 function normalizeOllamaBaseUrl(raw?: string): string {
-  const fallback = "http://127.0.0.1:11434";
+  const fallback = DEFAULT_OLLAMA_BASE_URL;
   const value = String(raw ?? "").trim();
   if (!value) return fallback;
   return value.replace(/\/+$/, "");

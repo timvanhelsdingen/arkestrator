@@ -254,7 +254,7 @@ const COLUMN_ADDITIONS = [
   `ALTER TABLE jobs ADD COLUMN name TEXT`,
   `ALTER TABLE jobs ADD COLUMN worker_name TEXT`,
   `ALTER TABLE jobs ADD COLUMN target_worker_name TEXT`,
-  `ALTER TABLE jobs ADD COLUMN project_id TEXT REFERENCES projects(id)`,
+  `ALTER TABLE jobs ADD COLUMN project_id TEXT REFERENCES projects(id) ON DELETE SET NULL`,
   `ALTER TABLE jobs ADD COLUMN context_items TEXT NOT NULL DEFAULT '[]'`,
   `ALTER TABLE projects ADD COLUMN system_prompt TEXT`,
   // 2FA columns
@@ -341,6 +341,16 @@ const COLUMN_ADDITIONS = [
   // Per-user chat personality preference
   `ALTER TABLE users ADD COLUMN chat_personality TEXT NOT NULL DEFAULT 'default'`,
   `ALTER TABLE users ADD COLUMN chat_personality_custom TEXT`,
+  // Indexes on foreign key columns for query performance
+  `CREATE INDEX IF NOT EXISTS idx_jobs_project ON jobs(project_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_jobs_submitted_by ON jobs(submitted_by)`,
+  `CREATE INDEX IF NOT EXISTS idx_jobs_outcome_marked_by ON jobs(outcome_marked_by)`,
+  `CREATE INDEX IF NOT EXISTS idx_usage_stats_agent_config ON usage_stats(agent_config_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_policies_user ON policies(user_id)`,
+  // Indexes + FK-style cleanup for skill_versions and skill_effectiveness
+  `CREATE INDEX IF NOT EXISTS idx_skill_versions_skill ON skill_versions(skill_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_skill_effectiveness_skill ON skill_effectiveness(skill_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_skill_effectiveness_job ON skill_effectiveness(job_id)`,
 ];
 
 // Reset any jobs stuck in 'running' state (server crashed while they were active)
@@ -364,6 +374,7 @@ export function runMigrations(db: Database) {
   }
 
   // Rebuild jobs table if CHECK constraint is missing 'paused' status
+  // or if project_id FK is missing ON DELETE SET NULL
   rebuildJobsTableIfNeeded(db);
 
   // Rebuild policies table if CHECK constraint is missing 'command_filter'
@@ -573,11 +584,16 @@ function rebuildJobsTableIfNeeded(db: Database) {
     `SELECT sql FROM sqlite_master WHERE type='table' AND name='jobs'`,
   ).get() as { sql: string } | null;
 
-  if (!tableInfo || tableInfo.sql.includes("'paused'")) {
-    return; // Already has paused or table doesn't exist
+  // Check if project_id FK needs ON DELETE SET NULL (missing in older DBs)
+  const needsProjectIdFkFix = tableInfo &&
+    tableInfo.sql.includes("project_id") &&
+    !tableInfo.sql.includes("projects(id) ON DELETE SET NULL");
+
+  if (!tableInfo || (tableInfo.sql.includes("'paused'") && !needsProjectIdFkFix)) {
+    return; // Already up to date or table doesn't exist
   }
 
-  logger.info("migrations", "Migrating jobs table to support 'paused' status...");
+  logger.info("migrations", "Migrating jobs table (status constraints / FK fixes)...");
   db.exec("PRAGMA foreign_keys = OFF");
   db.exec("BEGIN TRANSACTION");
   try {
@@ -613,7 +629,7 @@ function rebuildJobsTableIfNeeded(db: Database) {
       name            TEXT,
       worker_name     TEXT,
       target_worker_name TEXT,
-      project_id      TEXT REFERENCES projects(id),
+      project_id      TEXT REFERENCES projects(id) ON DELETE SET NULL,
       parent_job_id   TEXT REFERENCES jobs(id) ON DELETE SET NULL,
       used_bridges    TEXT NOT NULL DEFAULT '[]'
     )`);

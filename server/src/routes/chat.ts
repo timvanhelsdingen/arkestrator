@@ -25,7 +25,7 @@ import { resolveWorkerLocalLlmEndpoint, resolveAnyAvailableWorkerLlm } from "../
 import { resolveAutoAgentByPriority } from "../agents/auto-routing.js";
 import { getClaudeRuntimeDecision } from "../utils/claude-runtime.js";
 import { getPersonalityPrompt } from "../chat/personalities.js";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -289,9 +289,9 @@ export function createChatRoutes(deps: ChatDeps) {
         // if they point to unreachable hosts (adding 30+ seconds).
         {
           const chatTmpDir = join(tmpdir(), "arkestrator-claude-chat");
-          mkdirSync(chatTmpDir, { recursive: true });
+          await mkdir(chatTmpDir, { recursive: true });
           const emptyMcpPath = join(chatTmpDir, ".mcp-empty.json");
-          writeFileSync(emptyMcpPath, '{"mcpServers":{}}', "utf-8");
+          await writeFile(emptyMcpPath, '{"mcpServers":{}}', "utf-8");
           args.push("--mcp-config", emptyMcpPath);
         }
 
@@ -411,7 +411,7 @@ export function createChatRoutes(deps: ChatDeps) {
         ? join(tmpdir(), "arkestrator-claude-chat")
         : process.cwd();
     if (effectiveConfig.engine === "codex" || effectiveConfig.engine === "claude-code") {
-      mkdirSync(spawnCwd, { recursive: true });
+      await mkdir(spawnCwd, { recursive: true });
     }
     logger.info("chat", `Spawning chat: cwd=${spawnCwd} engine=${effectiveConfig.engine}`);
 
@@ -718,8 +718,14 @@ export function createChatRoutes(deps: ChatDeps) {
           }
         })();
 
-        await Promise.all([stdoutPromise, stderrPromise]);
+        const [stdoutResult, stderrResult] = await Promise.allSettled([stdoutPromise, stderrPromise]);
         clearInterval(heartbeatTimer);
+        if (stdoutResult.status === "rejected") {
+          logger.warn("chat", `stdout stream failed: ${stdoutResult.reason}`);
+        }
+        if (stderrResult.status === "rejected") {
+          logger.warn("chat", `stderr stream failed: ${stderrResult.reason}`);
+        }
 
         const exitCode = await proc.exited;
         clearTimeout(timeoutTimer);

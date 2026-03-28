@@ -38,7 +38,6 @@ import {
   generateCoordinatorTraining,
   getCoordinatorTrainingLastRunByProgram,
   getCoordinatorTrainingSchedule,
-  fanOutTrainingByProgram,
   queueTrainingOrchestrator,
   queueCoordinatorTrainingJob,
   setCoordinatorTrainingLastRunByProgram,
@@ -76,6 +75,7 @@ import {
 import {
   getConfiguredOllamaBaseUrl,
   SERVER_LOCAL_LLM_BASE_URL_SETTINGS_KEY,
+  DEFAULT_OLLAMA_BASE_URL,
 } from "../local-models/ollama.js";
 import type { SettingsRouteDeps } from "./settings-shared.js";
 
@@ -127,7 +127,7 @@ export function createSettingsTrainingRoutes(deps: SettingsRouteDeps) {
       baseUrl: storedNormalized,
       effectiveBaseUrl,
       source,
-      defaultBaseUrl: "http://127.0.0.1:11434",
+      defaultBaseUrl: DEFAULT_OLLAMA_BASE_URL,
     } as const;
   }
 

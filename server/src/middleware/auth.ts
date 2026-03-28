@@ -119,6 +119,60 @@ export function principalHasPermission(
   return false;
 }
 
+/** Lightweight identity returned by requirePrincipalAccess / requireAnyPrincipal. */
+export interface PrincipalIdentity {
+  userId: string;
+  username: string;
+}
+
+/**
+ * Authenticate via session or API key, then enforce access rules.
+ *
+ * - For **users**: if `userPermission` is supplied the user must have it;
+ *   otherwise any authenticated user passes.
+ * - For **API keys**: the key's role must be in `allowedApiKeyRoles`.
+ *
+ * Returns a lightweight `{ userId, username }` on success, or `null`.
+ */
+export async function requirePrincipalAccess(
+  c: Context,
+  usersRepo: UsersRepo,
+  apiKeysRepo: ApiKeysRepo,
+  opts: {
+    userPermission?: UserPermissionKey;
+    allowedApiKeyRoles: ApiKeyRole[];
+  },
+): Promise<PrincipalIdentity | null> {
+  const principal = await getAuthPrincipal(c, usersRepo, apiKeysRepo);
+  if (!principal) return null;
+
+  if (principal.kind === "user") {
+    if (opts.userPermission && !principal.user.permissions[opts.userPermission]) {
+      return null;
+    }
+    return { userId: principal.user.id, username: principal.user.username };
+  }
+
+  if (apiKeyRoleAllowed(principal.apiKey, opts.allowedApiKeyRoles)) {
+    return { userId: principal.apiKey.id, username: `apikey:${principal.apiKey.name}` };
+  }
+  return null;
+}
+
+/**
+ * Authenticate any valid principal (user or API key with admin/client/mcp role).
+ * Convenience wrapper around `requirePrincipalAccess` with no user-permission gate.
+ */
+export async function requireAnyPrincipal(
+  c: Context,
+  usersRepo: UsersRepo,
+  apiKeysRepo: ApiKeysRepo,
+): Promise<PrincipalIdentity | null> {
+  return requirePrincipalAccess(c, usersRepo, apiKeysRepo, {
+    allowedApiKeyRoles: ["admin", "client", "mcp"],
+  });
+}
+
 export function getClientIp(c: Context): string | undefined {
   const trustProxyHeaders = /^(1|true|yes|on)$/i.test(
     String(process.env.TRUST_PROXY_HEADERS ?? ""),

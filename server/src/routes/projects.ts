@@ -4,7 +4,7 @@ import type { ProjectsRepo } from "../db/projects.repo.js";
 import type { UsersRepo } from "../db/users.repo.js";
 import type { ApiKeysRepo } from "../db/apikeys.repo.js";
 import type { AuditRepo } from "../db/audit.repo.js";
-import { getAuthPrincipal, apiKeyRoleAllowed, getClientIp } from "../middleware/auth.js";
+import { requirePrincipalAccess, getClientIp } from "../middleware/auth.js";
 import { errorResponse } from "../utils/errors.js";
 
 const ProjectCreateSchema = z.object({
@@ -33,17 +33,12 @@ export function createProjectRoutes(
 ) {
   const router = new Hono();
 
-  // Helper: authenticate via session or API key (admin/client roles)
-  async function requireProjectAccess(c: any): Promise<{ userId: string; username: string } | null> {
-    const principal = await getAuthPrincipal(c, usersRepo, apiKeysRepo);
-    if (!principal) return null;
-    if (principal.kind === "user") {
-      if (!principal.user.permissions.manageProjects) return null;
-      return { userId: principal.user.id, username: principal.user.username };
-    }
-    // API keys with admin or client role can manage projects
-    if (!apiKeyRoleAllowed(principal.apiKey, ["admin", "client"])) return null;
-    return { userId: principal.apiKey.id, username: `apikey:${principal.apiKey.label}` };
+  // Auth helper — delegate to shared middleware
+  async function requireProjectAccess(c: any) {
+    return requirePrincipalAccess(c, usersRepo, apiKeysRepo, {
+      userPermission: "manageProjects",
+      allowedApiKeyRoles: ["admin", "client"],
+    });
   }
 
   // List projects

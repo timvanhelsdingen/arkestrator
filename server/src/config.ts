@@ -1,3 +1,5 @@
+import { join } from "path";
+
 export type WorkspaceModeConfig = "auto" | "command" | "repo" | "sync";
 
 export interface Config {
@@ -68,7 +70,7 @@ function parseExecutableHints(raw?: string): Record<string, string[]> {
 export function loadConfig(): Config {
   const dataDir = process.env.DATA_DIR?.trim() || "./data";
   const explicitDbPath = process.env.DB_PATH?.trim();
-  const defaultDbPath = `${dataDir}/db/arkestrator.db`;
+  const defaultDbPath = join(dataDir, "db", "arkestrator.db");
   const dbPath = explicitDbPath || defaultDbPath;
 
   return {
@@ -85,7 +87,7 @@ export function loadConfig(): Config {
       10,
     ),
     logLevel: (process.env.LOG_LEVEL as Config["logLevel"]) ?? "info",
-    syncTempDir: process.env.SYNC_TEMP_DIR ?? `${dataDir}/sync-tmp`,
+    syncTempDir: process.env.SYNC_TEMP_DIR ?? join(dataDir, "sync-tmp"),
     syncTtlMs: parseInt(
       process.env.SYNC_TTL_MS ?? String(30 * 60 * 1000),
       10,
@@ -97,14 +99,14 @@ export function loadConfig(): Config {
     syncMaxSizeMb: parseInt(process.env.SYNC_MAX_SIZE_MB ?? "500", 10),
     defaultWorkspaceMode:
       (process.env.DEFAULT_WORKSPACE_MODE as WorkspaceModeConfig) ?? "auto",
-    headlessTempDir: process.env.HEADLESS_TEMP_DIR ?? `${dataDir}/headless-tmp`,
+    headlessTempDir: process.env.HEADLESS_TEMP_DIR ?? join(dataDir, "headless-tmp"),
     comfyuiUrl: process.env.COMFYUI_URL ?? "http://127.0.0.1:8188",
     seedExampleHeadlessPrograms: parseBoolean(process.env.SEED_EXAMPLE_HEADLESS_PROGRAMS, true),
     headlessExecutableHints: parseExecutableHints(process.env.HEADLESS_EXECUTABLE_HINTS_JSON),
-    coordinatorScriptsDir: process.env.COORDINATOR_SCRIPTS_DIR ?? `${dataDir}/coordinator-scripts`,
-    coordinatorPlaybooksDir: process.env.COORDINATOR_PLAYBOOKS_DIR ?? `${dataDir}/coordinator-playbooks`,
-    coordinatorImportsDir: process.env.COORDINATOR_IMPORTS_DIR ?? `${dataDir}/coordinator-imports`,
-    snapshotsDir: process.env.SNAPSHOTS_DIR ?? `${dataDir}/snapshots`,
+    coordinatorScriptsDir: process.env.COORDINATOR_SCRIPTS_DIR ?? join(dataDir, "coordinator-scripts"),
+    coordinatorPlaybooksDir: process.env.COORDINATOR_PLAYBOOKS_DIR ?? join(dataDir, "coordinator-playbooks"),
+    coordinatorImportsDir: process.env.COORDINATOR_IMPORTS_DIR ?? join(dataDir, "coordinator-imports"),
+    snapshotsDir: process.env.SNAPSHOTS_DIR ?? join(dataDir, "snapshots"),
     coordinatorReferencePaths: parsePathList(process.env.COORDINATOR_REFERENCE_PATHS),
     coordinatorPlaybookSourcePaths: parsePathList(process.env.COORDINATOR_PLAYBOOK_SOURCE_PATHS),
     corsOrigins: process.env.CORS_ORIGINS

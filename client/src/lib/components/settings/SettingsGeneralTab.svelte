@@ -216,9 +216,12 @@
       updateAvailable = { version: update.version, date: update.date ?? undefined };
     } catch (err: any) {
       const msg = String(err?.message ?? err ?? "");
-      // Updater is not available in dev builds or when not configured
-      if (msg.includes("updater") || msg.includes("endpoint") || msg.includes("signature") || import.meta.env.DEV) {
+      // Dev mode — updater never works
+      if (import.meta.env.DEV) {
         updateResult = "Update checking is only available in packaged builds.";
+      } else if (msg.includes("endpoint") || msg.includes("No endpoints configured") || msg.includes("pubkey") || msg.includes("signature")) {
+        // Updater plugin is configured but signing keys are not set up yet
+        updateResult = "Auto-update requires signing keys to be configured. Check GitHub releases for new versions.";
       } else {
         updateError = msg || "Update check failed";
       }

@@ -44,7 +44,9 @@ export function getConfig(): ArkestratorConfig {
     apiKey = shared.apiKey;
   }
 
-  // Default fallback
+  // Default fallback — port 7800 is the default Arkestrator server port,
+  // configurable via the arkestrator.serverUrl extension setting or
+  // ~/.arkestrator/config.json.
   if (!serverUrl) {
     serverUrl = "http://localhost:7800";
   }

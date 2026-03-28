@@ -1,3 +1,6 @@
+# Multi-platform: builds for linux/amd64 and linux/arm64 via CI (docker buildx).
+# See .github/workflows/publish-server-image.yml for build configuration.
+
 FROM oven/bun:1 AS base
 WORKDIR /app
 ENV CI=1

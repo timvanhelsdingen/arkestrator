@@ -539,10 +539,12 @@ function dispatch(msg: any) {
     case "bridge_command_result":
       break;
     case "bridge_file_read_request":
-      void handleBridgeFileReadRequest(msg);
+      handleBridgeFileReadRequest(msg).catch((err) =>
+        console.error("[ws] bridge_file_read_request handler error:", err));
       break;
     case "worker_headless_command":
-      void handleWorkerHeadlessCommand(msg.payload);
+      handleWorkerHeadlessCommand(msg.payload).catch((err) =>
+        console.error("[ws] worker_headless_command handler error:", err));
       break;
     case "client_job_dispatch":
       handleJobDispatch(msg.payload);

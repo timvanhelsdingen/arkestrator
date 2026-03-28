@@ -194,8 +194,18 @@ export function createJobRoutes(
   }
 
   function broadcastInterventions(jobId: string, interventionIds: string[]) {
+    if (!jobInterventionsRepo || !hub || interventionIds.length === 0) return;
+    const job = jobsRepo.getById(jobId);
+    if (!job) return;
+    const support = getJobInterventionSupport(job, agentsRepo);
     for (const interventionId of interventionIds) {
-      broadcastIntervention(jobId, interventionId);
+      const intervention = jobInterventionsRepo.getById(interventionId);
+      if (!intervention) continue;
+      hub.broadcastToType("client", {
+        type: "job_intervention_updated",
+        id: newId(),
+        payload: { jobId, intervention, support },
+      });
     }
   }
 
@@ -682,7 +692,7 @@ export function createJobRoutes(
 
     const actor = principalToAuditActor(principal);
     if (!jobInterventionsRepo) {
-      return errorResponse(c, 503, "Job interventions are not available on this server.", "SERVICE_UNAVAILABLE");
+      return errorResponse(c, 503, "Job interventions are not available on this server.", "UNAVAILABLE");
     }
     const intervention = jobInterventionsRepo.create(jobId, parsed.data, {
       userId: actor.userId,
@@ -740,7 +750,7 @@ export function createJobRoutes(
       return errorResponse(c, 404, "Job not found", "NOT_FOUND");
     }
     if (!jobInterventionsRepo) {
-      return errorResponse(c, 503, "Job interventions are not available on this server.", "SERVICE_UNAVAILABLE");
+      return errorResponse(c, 503, "Job interventions are not available on this server.", "UNAVAILABLE");
     }
 
     const body = await c.req.json().catch(() => ({}));
@@ -1296,10 +1306,10 @@ export function createJobRoutes(
   router.delete("/:id/permanent", async (c) => {
     const principal = await getAuthPrincipal(c, usersRepo, apiKeysRepo);
     if (!principal) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
-    if (principal.type === "user" && principal.user.role !== "admin") {
+    if (principal.kind === "user" && principal.user.role !== "admin") {
       return errorResponse(c, 403, "Admin only", "FORBIDDEN");
     }
-    if (principal.type === "apiKey" && principal.apiKey.role !== "admin") {
+    if (principal.kind === "apiKey" && principal.apiKey.role !== "admin") {
       return errorResponse(c, 403, "Admin only", "FORBIDDEN");
     }
 

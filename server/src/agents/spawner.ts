@@ -183,7 +183,7 @@ export interface SpawnerDeps {
   agentsRepo: AgentsRepo;
   projectsRepo: ProjectsRepo;
   config: Config;
-  syncManager: SyncManager;
+  syncManager?: SyncManager;
   usageRepo: UsageRepo;
   depsRepo: DependenciesRepo;
   headlessProgramsRepo?: HeadlessProgramsRepo;
@@ -1289,7 +1289,7 @@ export async function spawnAgent(
   broadcastJobUpdated(deps, job.id);
 
   // 3. Handle sync mode: create dir and write attached files
-  if (workspace.needsSync && workspace.syncDir) {
+  if (workspace.needsSync && workspace.syncDir && deps.syncManager) {
     await deps.syncManager.createSyncDir(job.id);
     if (job.files && job.files.length > 0) {
       await deps.syncManager.writeFiles(job.id, job.files);
@@ -2674,7 +2674,7 @@ function cleanupSync(
   jobId: string,
 ) {
   if (workspace.mode === "sync") {
-    deps.syncManager.markComplete(jobId);
+    deps.syncManager?.markComplete(jobId);
   }
 }
 

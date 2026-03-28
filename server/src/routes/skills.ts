@@ -10,17 +10,14 @@ import type { ApiKeysRepo } from "../db/apikeys.repo.js";
 import type { SettingsRepo } from "../db/settings.repo.js";
 import type { WorkersRepo } from "../db/workers.repo.js";
 import { validateSkill, previewSkillInjection } from "../skills/skill-validator.js";
-import { getAuthPrincipal, apiKeyRoleAllowed } from "../middleware/auth.js";
+import { requireAnyPrincipal, requirePrincipalAccess } from "../middleware/auth.js";
 import { errorResponse } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
-import { pullBridgeSkills, pullAllBridgeSkills } from "../skills/skill-registry.js";
+import { pullBridgeSkills, pullAllBridgeSkills, BRIDGE_REGISTRY_URL, BRIDGE_RAW_BASE_URL } from "../skills/skill-registry.js";
 
-// --- Registry cache ---
-// Uses the same registry.json as skill-registry.ts (bridge format with nested skills)
-const REGISTRY_URL =
-  "https://raw.githubusercontent.com/timvanhelsdingen/arkestrator-bridges/main/registry.json";
-const BRIDGE_RAW_BASE =
-  "https://raw.githubusercontent.com/timvanhelsdingen/arkestrator-bridges/main";
+// --- Registry cache (URLs shared with skill-registry.ts) ---
+const REGISTRY_URL = BRIDGE_REGISTRY_URL;
+const BRIDGE_RAW_BASE = BRIDGE_RAW_BASE_URL;
 const REGISTRY_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 interface RegistrySkillEntry {
@@ -150,38 +147,16 @@ export function createSkillsRoutes(
 ) {
   const router = new Hono();
 
-  // Helper: authenticate via session or API key
-  async function requireAuth(c: any): Promise<{ userId: string; username: string } | null> {
-    const principal = await getAuthPrincipal(c, usersRepo, apiKeysRepo);
-    if (!principal) return null;
-    if (principal.kind === "user") {
-      return { userId: principal.user.id, username: principal.user.username };
-    }
-    if (apiKeyRoleAllowed(principal.apiKey, ["admin", "client", "mcp"])) {
-      return { userId: principal.apiKey.id, username: `apikey:${principal.apiKey.label}` };
-    }
-    return null;
+  // Auth helpers — delegate to shared middleware
+  async function requireAuth(c: any) {
+    return requireAnyPrincipal(c, usersRepo, apiKeysRepo);
   }
 
-  // Helper: authenticate and require write permission (admin or user with manageSettings)
-  async function requireWriteAccess(c: any): Promise<{ userId: string; username: string } | null> {
-    const principal = await getAuthPrincipal(c, usersRepo, apiKeysRepo);
-    if (!principal) {
-      logger.warn("skills", "requireWriteAccess: no principal found");
-      return null;
-    }
-    if (principal.kind === "user") {
-      if (!principal.user.permissions.editCoordinator) {
-        logger.warn("skills", `requireWriteAccess: user ${principal.user.username} lacks editCoordinator`);
-        return null;
-      }
-      return { userId: principal.user.id, username: principal.user.username };
-    }
-    if (apiKeyRoleAllowed(principal.apiKey, ["admin"])) {
-      return { userId: principal.apiKey.id, username: `apikey:${principal.apiKey.label}` };
-    }
-    logger.warn("skills", `requireWriteAccess: apiKey role ${principal.apiKey.role} not allowed`);
-    return null;
+  async function requireWriteAccess(c: any) {
+    return requirePrincipalAccess(c, usersRepo, apiKeysRepo, {
+      userPermission: "editCoordinator",
+      allowedApiKeyRoles: ["admin"],
+    });
   }
 
   // GET / — list skills (from index, includes all sources)

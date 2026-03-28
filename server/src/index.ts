@@ -395,7 +395,7 @@ async function main() {
   const firstRun = usersRepo.isEmpty();
   if (firstRun) {
     await usersRepo.create("admin", "admin", "admin");
-    logger.info("server", "First run detected. Created default admin user (admin/admin).");
+    logger.info("server", "First run detected. Created default admin user. Change credentials on first login.");
   }
 
   if (apiKeysRepo.isEmpty()) {

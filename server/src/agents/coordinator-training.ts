@@ -868,57 +868,6 @@ export function queueTrainingOrchestrator(
   return deps.jobsRepo.getById(created.id) ?? created;
 }
 
-/** @deprecated Use {@link queueTrainingOrchestrator} instead. */
-export function fanOutTrainingByProgram(
-  deps: QueueCoordinatorTrainingJobDeps,
-  options: Omit<QueueCoordinatorTrainingJobOptions, "program"> & { programs?: string[] },
-): { queued: Array<{ program: string; jobId: string; job: Job }>; failures: Array<{ program: string; error: string }> } {
-  const programDeps: ProgramDiscoveryDeps = {
-    coordinatorScriptsDir: deps.coordinatorScriptsDir,
-    hub: deps.hub,
-    headlessProgramsRepo: deps.headlessProgramsRepo,
-  };
-
-  let programs: string[];
-  if (Array.isArray(options.programs) && options.programs.length > 0) {
-    const knownPrograms = new Set(getCoordinatorScriptPrograms(programDeps).map((p) => p.toLowerCase()));
-    programs = [...new Set(options.programs.map((p) => String(p ?? "").trim().toLowerCase()).filter(Boolean))]
-      .filter((p) => knownPrograms.has(p));
-  } else {
-    const sourcePaths = Array.isArray(options.sourcePaths) && options.sourcePaths.length > 0
-      ? options.sourcePaths
-      : resolveTrainingSourcePaths(
-          deps.settingsRepo,
-          deps.defaultCoordinatorPlaybookSourcePaths ?? [],
-          deps.coordinatorPlaybooksDir,
-          "global",
-          undefined,
-        );
-    const knownPrograms = getCoordinatorScriptPrograms(programDeps).map((p) => p.toLowerCase());
-    programs = detectProgramsInPaths(sourcePaths, knownPrograms);
-    if (programs.length > 0) {
-      logger.info(
-        "coordinator-training",
-        `Auto-detected programs from source paths: ${programs.join(", ")}`,
-      );
-    }
-  }
-
-  const queued: Array<{ program: string; jobId: string; job: Job }> = [];
-  const failures: Array<{ program: string; error: string }> = [];
-
-  for (const program of programs) {
-    try {
-      const job = queueCoordinatorTrainingJob(deps, { ...options, program });
-      queued.push({ program, jobId: job.id, job });
-    } catch (err: any) {
-      failures.push({ program, error: String(err?.message ?? err) });
-    }
-  }
-
-  return { queued, failures };
-}
-
 export function queueCoordinatorTrainingJob(
   deps: QueueCoordinatorTrainingJobDeps,
   options: QueueCoordinatorTrainingJobOptions,

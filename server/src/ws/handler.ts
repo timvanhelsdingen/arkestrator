@@ -25,6 +25,7 @@ import {
 } from "../agents/client-dispatch.js";
 import { executeLocalAgenticToolCall } from "../agents/spawner.js";
 import type { SpawnerDeps } from "../agents/spawner.js";
+import { LocalAgenticToolCall } from "@arkestrator/protocol";
 import { basename, dirname } from "path";
 import { newId } from "../utils/id.js";
 import { logger } from "../utils/logger.js";
@@ -223,10 +224,10 @@ export function handleMessage(
               jobInterventionsRepo: deps.jobInterventionsRepo,
               resourceLeaseManager: deps.resourceLeaseManager,
               localLlmGate: deps.localLlmGate,
-              syncManager: undefined as any,
             } satisfies Partial<SpawnerDeps> as SpawnerDeps;
+            const toolCall = LocalAgenticToolCall.parse({ type: "tool_call", tool, args });
             const result = await executeLocalAgenticToolCall(
-              { type: "tool_call", tool: tool as any, args },
+              toolCall,
               spawnerDeps,
               job,
             );
@@ -372,7 +373,7 @@ function handleJobReprioritize(
 ) {
   const updated = deps.jobsRepo.reprioritize(
     msg.payload.jobId,
-    msg.payload.priority as any,
+    msg.payload.priority,
   );
   if (!updated) {
     errorReply(ws, "REPRIORITIZE_FAILED", "Cannot reprioritize job", msg.id);
