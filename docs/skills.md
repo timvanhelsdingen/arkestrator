@@ -95,7 +95,20 @@ Disk-based coordinator scripts (`.md` files in the scripts directory) are migrat
 
 ### Playbooks (`playbook`)
 
-Playbook tasks from `playbook.json` manifests in the playbooks directory are migrated as individual skills. Each task gets its own skill with the instruction file content as the skill body. These are keyword-matched at job time, not auto-fetched.
+Each program (Houdini, Blender, Godot, etc.) has its own playbook directory containing a `playbook.json` manifest and individual task instruction files:
+
+```
+coordinator-playbooks/
+  houdini/
+    playbook.json          ← manifest: lists tasks, keywords, regex patterns
+    tasks/explosion.md     ← instruction content for this task
+    tasks/terrain.md
+  blender/
+    playbook.json
+    tasks/donut.md
+```
+
+At startup, each task from these manifests is migrated into the skills DB as its own skill record, with the instruction file's markdown content as the skill body. Playbook skills are **not** auto-fetched — they are keyword- and regex-matched against the user's prompt at job time, so only relevant tasks get injected into agent context.
 
 ### Training Pipeline (`training`)
 
@@ -117,13 +130,24 @@ When a job completes and receives an outcome signal (`positive`/`good`, `average
 
 ### Graduated Confidence Model
 
-The ranking algorithm uses a three-phase confidence model for effectiveness scoring:
+The ranking algorithm uses a three-phase confidence model for effectiveness scoring. All thresholds and weights are **configurable via the admin Skills page** (Ranking Tuning panel) or the `GET/PUT /api/skills/ranking-config` endpoints.
 
-| Phase         | Usage Count | Behavior                                                |
-|---------------|-------------|---------------------------------------------------------|
-| Exploration   | < 20 uses   | Optimistic bonus (0.6) to encourage discovery           |
-| Transition    | 20-60 uses  | Blends from neutral (0.5) toward actual success rate    |
-| Established   | 60+ uses    | Full trust in success rate, floored at 0.10             |
+| Phase         | Default Usage Threshold | Behavior                                                |
+|---------------|-------------------------|---------------------------------------------------------|
+| Exploration   | < 8 uses                | Optimistic bonus (0.6) to encourage discovery           |
+| Transition    | 8–25 uses               | Blends from neutral (0.5) toward actual success rate    |
+| Established   | 25+ uses                | Full trust in success rate, floored at 0.10             |
+
+| Setting                | Default | Description                                       |
+|------------------------|---------|---------------------------------------------------|
+| `explorationThreshold` | 8       | Uses below this = exploration phase               |
+| `establishedThreshold` | 25      | Uses at/above this = established phase            |
+| `explorationBonus`     | 0.6     | Effectiveness score during exploration            |
+| `effectivenessFloor`   | 0.10    | Minimum score for established skills              |
+| `weightLexical`        | 0.5     | Keyword matching weight in combined score         |
+| `weightSemantic`       | 0.3     | Semantic similarity weight                        |
+| `weightEffectiveness`  | 0.2     | Effectiveness weight                              |
+| `minScoreThreshold`    | 0.05    | Minimum combined score to include in results      |
 
 The floor at 0.10 ensures even poorly performing skills can still surface if the prompt match is strong enough. Skills are never hard-disabled by low effectiveness alone.
 

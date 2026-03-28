@@ -104,6 +104,52 @@ function semanticSimilarity(a: number[], b: number[]): number {
 // Public types
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Ranking configuration — configurable via admin API
+// ---------------------------------------------------------------------------
+
+export interface SkillRankingConfig {
+  /** Uses below this count = exploration phase (optimistic bonus). Default: 8 */
+  explorationThreshold: number;
+  /** Uses at/above this count = established phase (trust actual rate). Default: 25 */
+  establishedThreshold: number;
+  /** Score given during exploration phase. Default: 0.6 */
+  explorationBonus: number;
+  /** Minimum effectiveness score for established skills (prevents hard-disable). Default: 0.10 */
+  effectivenessFloor: number;
+  /** Weight for lexical (keyword) matching. Default: 0.5 */
+  weightLexical: number;
+  /** Weight for semantic (vector) matching. Default: 0.3 */
+  weightSemantic: number;
+  /** Weight for effectiveness scoring. Default: 0.2 */
+  weightEffectiveness: number;
+  /** Minimum combined score to be included in results. Default: 0.05 */
+  minScoreThreshold: number;
+}
+
+export const DEFAULT_SKILL_RANKING_CONFIG: SkillRankingConfig = {
+  explorationThreshold: 8,
+  establishedThreshold: 25,
+  explorationBonus: 0.6,
+  effectivenessFloor: 0.10,
+  weightLexical: 0.5,
+  weightSemantic: 0.3,
+  weightEffectiveness: 0.2,
+  minScoreThreshold: 0.05,
+};
+
+/** Settings keys for persisting ranking config in server_settings table. */
+export const SKILL_RANKING_SETTINGS_KEYS: Record<keyof SkillRankingConfig, string> = {
+  explorationThreshold: "skill_ranking_exploration_threshold",
+  establishedThreshold: "skill_ranking_established_threshold",
+  explorationBonus: "skill_ranking_exploration_bonus",
+  effectivenessFloor: "skill_ranking_effectiveness_floor",
+  weightLexical: "skill_ranking_weight_lexical",
+  weightSemantic: "skill_ranking_weight_semantic",
+  weightEffectiveness: "skill_ranking_weight_effectiveness",
+  minScoreThreshold: "skill_ranking_min_score_threshold",
+};
+
 export interface SkillEffectivenessInfo {
   successRate: number;
   totalUsed: number;
@@ -259,11 +305,7 @@ export class SkillIndex {
    * Returns the top-N most relevant skills for injection into agent context.
    *
    * AutoFetch skills (coordinators, bridge scripts) are always included regardless of score.
-   * Effectiveness scoring uses a graduated confidence model:
-   * - New skills (< 15 uses) get an exploration bonus to prove themselves.
-   * - Moderate use (15-50): gradually blends toward actual success rate.
-   * - Established skills (50+ uses) with low success rate are penalized but
-   *   never hard-disabled — a strong prompt match can still surface them.
+   * Effectiveness scoring uses a graduated confidence model with configurable thresholds.
    */
   rankForJob(
     prompt: string,
@@ -271,12 +313,14 @@ export class SkillIndex {
     opts?: {
       limit?: number;
       effectivenessScores?: Map<string, SkillEffectivenessInfo>;
+      rankingConfig?: Partial<SkillRankingConfig>;
     },
   ): { results: SkillRankResult[] } {
     this.ensureFresh();
 
     const limit = opts?.limit ?? 8;
     const effectivenessMap = opts?.effectivenessScores ?? new Map();
+    const rc = { ...DEFAULT_SKILL_RANKING_CONFIG, ...opts?.rankingConfig };
     const queryTokens = tokenize(prompt);
     const queryVector = buildSemanticVector(prompt);
     const programLower = program.trim().toLowerCase();
@@ -311,33 +355,26 @@ export class SkillIndex {
       // Semantic score: cosine similarity
       const semScore = Math.max(0, semanticSimilarity(queryVector, this.vectors[i]));
 
-      // Effectiveness score: graduated based on usage confidence.
-      // - New skills (< 20 uses): exploration bonus — slightly above neutral so
-      //   they get a fair chance to prove themselves.
-      // - Moderate use (20-60): blend between neutral and actual success rate,
-      //   letting the signal build up gradually.
-      // - Established (60+): full trust in the success rate, but floor at 0.10
-      //   so even poorly performing skills can still appear if the prompt match
-      //   is strong enough (no hard auto-disable).
-      // Note: only MCP-loaded skills record usage (auto-fetch skills don't),
-      // so these thresholds reflect genuine agent-chosen usage counts.
+      // Effectiveness score: graduated confidence model with configurable thresholds.
+      // Exploration → Transition → Established phases based on usage count.
       let effScore: number;
-      if (!eff || eff.totalUsed < 20) {
-        // Exploration phase: slightly optimistic to encourage discovery
-        effScore = 0.6;
-      } else if (eff.totalUsed < 60) {
+      if (!eff || eff.totalUsed < rc.explorationThreshold) {
+        // Exploration phase: optimistic to encourage discovery
+        effScore = rc.explorationBonus;
+      } else if (eff.totalUsed < rc.establishedThreshold) {
         // Transition phase: blend neutral toward actual rate as confidence grows
-        const confidence = (eff.totalUsed - 20) / 40; // 0 → 1 over 20..60 uses
+        const range = rc.establishedThreshold - rc.explorationThreshold;
+        const confidence = range > 0 ? (eff.totalUsed - rc.explorationThreshold) / range : 1;
         effScore = 0.5 * (1 - confidence) + eff.successRate * confidence;
       } else {
-        // Established (60+ uses): trust the data, with a floor so skills aren't fully killed
-        effScore = Math.max(0.10, eff.successRate);
+        // Established: trust the data, with a floor so skills aren't fully killed
+        effScore = Math.max(rc.effectivenessFloor, eff.successRate);
       }
 
-      // Combined score: lexical 50%, semantic 30%, effectiveness 20%
-      const score = lexicalScore * 0.5 + semScore * 0.3 + effScore * 0.2;
+      // Combined score with configurable weights
+      const score = lexicalScore * rc.weightLexical + semScore * rc.weightSemantic + effScore * rc.weightEffectiveness;
 
-      if (score > 0.05) {
+      if (score > rc.minScoreThreshold) {
         ranked.push({ index: i, score });
       }
     }
