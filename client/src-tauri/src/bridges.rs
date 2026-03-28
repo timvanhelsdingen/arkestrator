@@ -137,16 +137,16 @@ pub async fn fetch_bridge_registry(repo: String) -> Result<Value, String> {
         GITHUB_API_BASE,
         repo_trimmed
     );
-    let releases: Vec<Value> = client
+    let releases: Vec<Value> = match client
         .get(&releases_url)
         .header("User-Agent", "Arkestrator-Client")
         .header("Accept", "application/vnd.github+json")
         .send()
         .await
-        .unwrap_or_default()
-        .json()
-        .await
-        .unwrap_or_default();
+    {
+        Ok(resp) => resp.json().await.unwrap_or_default(),
+        Err(_) => vec![],
+    };
 
     // Inject release info into the registry
     let mut result = registry.clone();
