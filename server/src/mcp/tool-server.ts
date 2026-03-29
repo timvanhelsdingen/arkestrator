@@ -1182,6 +1182,83 @@ export function createMcpServer(deps: McpDeps): McpServer {
   );
 
   server.tool(
+    "create_skill",
+    "Create a new skill from something you learned during this task. " +
+      "Use this whenever you discover a non-trivial technique, workaround, or pattern that would save time on future similar tasks. " +
+      "Examples: a tricky API usage pattern, a multi-step workflow, a version-specific workaround, a naming convention.",
+    {
+      slug: z.string().describe("URL-friendly identifier (e.g. 'blender-procedural-rock', 'houdini-vdb-from-particles')"),
+      title: z.string().describe("Human-readable title (e.g. 'Procedural Rock Material in Blender')"),
+      program: z.string().describe("Target program (e.g. 'blender', 'houdini', 'comfyui', 'global')"),
+      content: z.string().describe("The skill content — step-by-step instructions, code snippets, key parameters, gotchas"),
+      keywords: z.array(z.string()).optional().describe("Search tags (e.g. ['procedural', 'material', 'shader-nodes', 'rock'])"),
+      category: z.string().optional().default("custom").describe("Skill category"),
+    },
+    async ({ slug, title, program, content, keywords, category }) => {
+      if (!deps.skillsRepo) {
+        return { content: [{ type: "text" as const, text: "Skills system not available" }], isError: true };
+      }
+      try {
+        deps.skillsRepo.upsertBySlugAndProgram({
+          name: slug,
+          slug,
+          program,
+          category: category || "custom",
+          title,
+          description: title,
+          keywords: keywords || [program, slug],
+          content,
+          source: "agent",
+          priority: 50,
+          autoFetch: false,
+          enabled: true,
+        });
+        // Refresh index so the skill is immediately searchable
+        deps.skillIndex?.refresh();
+        return { content: [{ type: "text" as const, text: `Skill created: ${slug} [${program}] — "${title}"` }] };
+      } catch (err: any) {
+        return { content: [{ type: "text" as const, text: `Failed to create skill: ${err.message}` }], isError: true };
+      }
+    },
+  );
+
+  server.tool(
+    "update_skill",
+    "Update an existing skill's content, keywords, or title. " +
+      "Use this to improve a skill based on new learnings, fix outdated info, or add better tags.",
+    {
+      slug: z.string().describe("The skill slug to update"),
+      program: z.string().optional().describe("Program filter if slug exists for multiple programs"),
+      content: z.string().optional().describe("New content (replaces existing)"),
+      title: z.string().optional().describe("New title"),
+      keywords: z.array(z.string()).optional().describe("New keywords/tags (replaces existing)"),
+    },
+    async ({ slug, program, content, title, keywords }) => {
+      if (!deps.skillsRepo || !deps.skillIndex) {
+        return { content: [{ type: "text" as const, text: "Skills system not available" }], isError: true };
+      }
+      const skill = deps.skillIndex.get(slug, program || undefined);
+      if (!skill) {
+        return { content: [{ type: "text" as const, text: `Skill not found: ${slug}` }], isError: true };
+      }
+      const updates: Record<string, any> = {};
+      if (content !== undefined) updates.content = content;
+      if (title !== undefined) updates.title = title;
+      if (keywords !== undefined) updates.keywords = keywords;
+      if (Object.keys(updates).length === 0) {
+        return { content: [{ type: "text" as const, text: "No updates provided" }], isError: true };
+      }
+      try {
+        deps.skillsRepo.update(skill.id, updates);
+        deps.skillIndex.refresh();
+        return { content: [{ type: "text" as const, text: `Updated skill: ${slug} — fields: ${Object.keys(updates).join(", ")}` }] };
+      } catch (err: any) {
+        return { content: [{ type: "text" as const, text: `Failed to update skill: ${err.message}` }], isError: true };
+      }
+    },
+  );
+
+  server.tool(
     "list_skills",
     "List all available skills, optionally filtered by program or category. " +
       "Use to discover what guidance is available before searching.",

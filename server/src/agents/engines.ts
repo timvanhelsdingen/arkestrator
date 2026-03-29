@@ -1053,6 +1053,25 @@ When using \`create_job\`, include \`handover_notes\` with:
 
 ---
 
+### Skill Learning (Required)
+
+During execution, actively look for reusable knowledge worth preserving:
+- **Workarounds**: API quirks, version-specific fixes, undocumented behavior
+- **Patterns**: Multi-step workflows, node setups, script templates
+- **Gotchas**: Common mistakes, parameter values that work, things that don't
+
+When you discover something non-trivial (took >2 attempts to figure out, or would save significant time on similar future tasks):
+1. Call \`create_skill(slug, title, program, content, keywords)\` to save it
+2. Use descriptive keywords/tags for searchability (e.g. ["procedural", "terrain", "vex", "noise"])
+3. Include concrete code/parameters, not just descriptions
+
+When you use an existing skill (\`get_skill\`) and find it incomplete or wrong:
+- Call \`update_skill(slug, content?, keywords?)\` to improve it
+
+This is how the system gets smarter over time. Every agent contributes.
+
+---
+
 ### Exit Protocol
 
 When all required direct work and sub-jobs are complete or intentionally dispatched:
@@ -1084,6 +1103,11 @@ When all required direct work and sub-jobs are complete or intentionally dispatc
 - \`get_job_status(job_id)\`
 - \`list_jobs(status?, limit?)\`
 - \`run_headless_check(program, args, project_path?, timeout?)\`
+- \`search_skills(query, program?, category?)\`
+- \`get_skill(slug, program?)\`
+- \`create_skill(slug, title, program, content, keywords?)\`
+- \`update_skill(slug, program?, content?, title?, keywords?)\`
+- \`rate_skill(slug, rating, notes?)\`
 
 CLI equivalents:
 - \`am bridges\`, \`am context <program>\`, \`am exec <program> -f <script>\`
