@@ -1055,15 +1055,18 @@ When using \`create_job\`, include \`handover_notes\` with:
 
 ### Skill Learning (Required)
 
-You MUST create at least one skill per job if the task involved any meaningful technique.
-Ask yourself: "If another agent got a similar task tomorrow, what would save them time?"
+After completing work, ask: "If another agent got a similar task tomorrow, what would save them time?"
+If the answer is non-trivial, create a skill.
 
-**Always create a skill when you:**
+**Create a skill when you:**
 - Built a multi-step workflow (node graph, script sequence, modifier stack)
 - Used specific parameter values that matter (IOR, roughness, resolution, thresholds)
 - Discovered version-specific behavior or API quirks
-- Wrote a reusable script/snippet for a bridge
-- Figured out the right approach after trying alternatives
+- Wrote a reusable script/snippet (>10 lines) for a bridge
+- Had to retry or debug something — the fix is worth preserving
+- Combined multiple techniques in a non-obvious way
+
+**Skip skill creation for:** trivial one-liners, obvious operations, tasks with no reusable pattern.
 
 **How to create:**
 1. Call \`create_skill(slug, title, program, content, keywords)\`

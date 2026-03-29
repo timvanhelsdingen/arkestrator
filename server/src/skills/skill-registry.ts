@@ -178,7 +178,10 @@ export async function pullBridgeSkills(
         // Only coordinator skills are auto-fetched into prompt.
         // Workflow skills (materials, modeling, etc.) are on-demand via
         // search_skills/get_skill — tracked for effectiveness.
+        // Coordinators + verification are always auto-fetched (always relevant for their program).
+        // Workflow skills (materials, modeling, etc.) are on-demand.
         const isCoordinator = skillEntry.category === "coordinator" || skillEntry.slug.endsWith("-coordinator");
+        const isVerification = skillEntry.slug === "verification" || skillEntry.category === "verification";
         skillsRepo.upsertBySlugAndProgram({
           name: skillEntry.slug,
           slug: skillEntry.slug,
@@ -190,7 +193,7 @@ export async function pullBridgeSkills(
           content,
           source: "bridge-repo",
           priority: 50,
-          autoFetch: isCoordinator,
+          autoFetch: isCoordinator || isVerification,
           enabled: true,
         });
         pulled++;
