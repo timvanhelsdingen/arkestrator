@@ -619,6 +619,13 @@
     void refreshAll();
   });
 
+  // Auto-refresh skills when server pulls new ones on bridge connect
+  $effect(() => {
+    const handler = () => { void loadSkills(); };
+    window.addEventListener("arkestrator:skills_updated", handler);
+    return () => window.removeEventListener("arkestrator:skills_updated", handler);
+  });
+
   async function refreshAll() {
     loading = true;
     error = "";
