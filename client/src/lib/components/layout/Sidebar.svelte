@@ -11,7 +11,7 @@
     { page: "admin", label: "Admin", icon: "&#9881;" },
     { page: "workers", label: "Workers", icon: "&#8644;" },
     { page: "projects", label: "Projects", icon: "&#9636;" },
-    { page: "coordinator", label: "Coordinator", icon: "&#9678;" },
+    { page: "coordinator", label: "Skills & Training", icon: "&#9678;" },
     { page: "settings", label: "Settings", icon: "&#9776;" },
   ];
 
