@@ -166,7 +166,12 @@
   let workerFilter = $state(ALL_OPTION);
   let bridgeFilter = $state(ALL_OPTION);
   let userFilter = $state(ALL_OPTION);
-  let sourceFilter = $state(ALL_OPTION);
+  let sourceToggles = $state<Record<string, boolean>>({
+    user: true,
+    training: false,
+    housekeeping: false,
+    "sub-job": false,
+  });
 
   /** Classify a job's source type from its metadata */
   function getJobSourceType(job: any): string {
@@ -340,7 +345,7 @@
     workerFilter = ALL_OPTION;
     bridgeFilter = ALL_OPTION;
     userFilter = ALL_OPTION;
-    sourceFilter = ALL_OPTION;
+    sourceToggles = { user: true, training: false, housekeeping: false, "sub-job": false };
   }
 
   function programIcon(program?: string): string {
@@ -756,7 +761,10 @@
       if (workerFilter !== ALL_OPTION && !workers.includes(workerFilter)) return false;
       if (bridgeFilter !== ALL_OPTION && !bridges.includes(bridgeFilter)) return false;
       if (userFilter !== ALL_OPTION && submittedBy !== userFilter) return false;
-      if (sourceFilter !== ALL_OPTION && getJobSourceType(job) !== sourceFilter) return false;
+      // Source type toggles: if any toggle is ON, only show matching types.
+      // If ALL toggles are ON (or all OFF), show everything.
+      const anyToggleOn = Object.values(sourceToggles).some(Boolean);
+      if (anyToggleOn && !sourceToggles[getJobSourceType(job)]) return false;
 
       if (queryTokens.length === 0) return true;
       const haystack = [
@@ -1172,13 +1180,15 @@
             <option value={user.value}>{user.label}</option>
           {/each}
         </select>
-        <select class="filter-select" bind:value={sourceFilter}>
-          <option value={ALL_OPTION}>All Types</option>
-          <option value="user">User Jobs</option>
-          <option value="training">Training</option>
-          <option value="housekeeping">Housekeeping</option>
-          <option value="sub-job">Sub-jobs</option>
-        </select>
+        <div class="source-toggles">
+          {#each [["user", "Jobs"], ["training", "Training"], ["housekeeping", "Housekeeping"], ["sub-job", "Sub-jobs"]] as [key, label]}
+            <button
+              class="source-toggle"
+              class:active={sourceToggles[key]}
+              onclick={() => { sourceToggles[key] = !sourceToggles[key]; sourceToggles = { ...sourceToggles }; }}
+            >{label}</button>
+          {/each}
+        </div>
         <button class="btn-clear-filters" onclick={clearAdvancedFilters}>Clear</button>
         <span class="filter-count">{filteredJobs.length} shown</span>
       </div>
@@ -1753,6 +1763,29 @@
     color: var(--text-secondary);
     font-size: var(--font-size-sm);
   }
+  .source-toggles {
+    display: flex;
+    gap: 2px;
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+  }
+  .source-toggle {
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    background: var(--bg-base);
+    color: var(--text-muted);
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .source-toggle:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+  .source-toggle:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+  .source-toggle.active {
+    background: var(--accent);
+    color: var(--text-on-accent, #fff);
+    border-color: var(--accent);
+  }
+  .source-toggle:hover:not(.active) { background: var(--bg-hover); color: var(--text-secondary); }
   .btn-clear-filters {
     padding: 5px 10px;
     border-radius: var(--radius-sm);
