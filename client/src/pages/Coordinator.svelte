@@ -1,6 +1,7 @@
 <script lang="ts">
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
   import { connection } from "../lib/stores/connection.svelte";
+  import { getLocalWorkerName } from "../lib/api/ws";
   import { api } from "../lib/api/rest";
 
   type ScopeTab = "server" | "training" | "client";
@@ -139,6 +140,7 @@
   let trainingSourcePaths = $state<string[]>([]);
   let trainingAgentConfigId = $state("");
   let trainingTargetWorkerName = $state("");
+  let trainingExcludeSelf = $state(false);
   let trainingPrompt = $state("");
   let trainingLevel = $state("medium");
   let trainingUploadFiles = $state<File[]>([]);
@@ -904,6 +906,7 @@
             prompt: trimmedPrompt || undefined,
             targetWorkerName: trimmedTargetWorkerName || undefined,
             trainingLevel: trainingLevel || undefined,
+            excludeWorker: trainingExcludeSelf ? getLocalWorkerName() || undefined : undefined,
           });
       const jobId = String(result?.job?.id ?? result?.orchestratorJobId ?? "");
       const uploadedCount = Array.isArray(result?.input?.uploadedFiles) ? result.input.uploadedFiles.length : 0;
@@ -1602,6 +1605,10 @@
                 ? "Loading workers..."
                 : "Auto selects the best available worker with the right bridges and licenses."}
             </span>
+            <label class="toggle-label" style="margin-top: 4px;">
+              <input type="checkbox" bind:checked={trainingExcludeSelf} />
+              <span>Don't use my machine (only dispatch to other workers)</span>
+            </label>
           </label>
         {/if}
         <label>
