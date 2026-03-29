@@ -37,7 +37,7 @@ Those tools are great — Arkestrator makes them better:
 
 | | Raw CLI Agent | MCP-Only | Arkestrator |
 |---|---|---|---|
-| Works inside DCC apps | No | Limited | Yes — 7 bridge plugins |
+| Works inside DCC apps | No | Limited | Yes — official + community bridge plugins |
 | Job queue with priorities | No | No | Yes — dependencies, retries, pause/resume |
 | Multi-machine routing | No | No | Yes — DCC on workstation, AI on server |
 | Live editor context | No | Manual | Automatic — selected nodes, open scenes, scripts |
