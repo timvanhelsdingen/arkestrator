@@ -772,10 +772,8 @@ export function queueTrainingOrchestrator(
           if (programs.length === 0) programs = ["global"];
           appendJobLog(deps.hub, deps.jobsRepo, created.id, `User-specified programs: ${programs.join(", ")}`);
         } else {
-          // Auto-detect programs from file signatures in source paths.
-          // This ensures training runs with the correct program so that
-          // bridge-based analysis can be used (e.g. Houdini bridge to
-          // read .hiplc scene files, Blender bridge for .blend files, etc.).
+          // Auto-detect programs from file signatures in source paths AND
+          // from the training prompt (e.g. "use comfyui to analyze" → comfyui).
           const programDeps: ProgramDiscoveryDeps = {
             coordinatorScriptsDir: deps.coordinatorScriptsDir,
             hub: deps.hub,
@@ -783,14 +781,25 @@ export function queueTrainingOrchestrator(
           };
           const knownPrograms = getCoordinatorScriptPrograms(programDeps);
           const detected = detectProgramsInPaths(sourcePaths, knownPrograms);
+
+          // Also scan the training prompt for explicit program mentions
+          const trainingPrompt = String(options.trainingPrompt ?? "").toLowerCase();
+          if (trainingPrompt) {
+            for (const prog of knownPrograms) {
+              const p = prog.toLowerCase();
+              if (p !== "global" && !detected.includes(p) && trainingPrompt.includes(p)) {
+                detected.push(p);
+              }
+            }
+          }
+
           if (detected.length > 0) {
             programs = detected;
-            appendJobLog(deps.hub, deps.jobsRepo, created.id, `Auto-detected programs from file signatures: ${programs.join(", ")}`);
+            appendJobLog(deps.hub, deps.jobsRepo, created.id, `Auto-detected programs: ${programs.join(", ")} (from file signatures + prompt)`);
           } else {
             // No specific DCC programs detected — fall back to global.
-            // The agent will do filesystem-only analysis.
             programs = ["global"];
-            appendJobLog(deps.hub, deps.jobsRepo, created.id, `No specific programs detected from file signatures — training as global (filesystem analysis only)`);
+            appendJobLog(deps.hub, deps.jobsRepo, created.id, `No specific programs detected from file signatures or prompt — training as global (filesystem analysis only)`);
           }
         }
 
