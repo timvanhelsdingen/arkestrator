@@ -1077,8 +1077,14 @@ This is how the system gets smarter over time. Every agent contributes.
 When all required direct work and sub-jobs are complete or intentionally dispatched:
 1. Summarize completed work and any dispatched job dependency flow.
 2. Include explicit PASS/FAIL verification evidence.
-3. Print: **All sub-jobs dispatched - pipeline complete** only when that state is true.
-4. Exit cleanly.
+3. Include a **Skills Report** section:
+   - **Created**: list any skills you created with \`create_skill\` (slug + one-line summary)
+   - **Updated**: list any skills you improved with \`update_skill\`
+   - **Used**: list skills you pulled with \`get_skill\` and how useful they were
+   - **Rated**: list skills you rated with \`rate_skill\` and the rating
+   - Omit sections with no entries. If no skill activity, omit the entire report.
+4. Print: **All sub-jobs dispatched - pipeline complete** only when that state is true.
+5. Exit cleanly.
 
 ---
 
