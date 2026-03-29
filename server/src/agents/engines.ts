@@ -1055,20 +1055,25 @@ When using \`create_job\`, include \`handover_notes\` with:
 
 ### Skill Learning (Required)
 
-During execution, actively look for reusable knowledge worth preserving:
-- **Workarounds**: API quirks, version-specific fixes, undocumented behavior
-- **Patterns**: Multi-step workflows, node setups, script templates
-- **Gotchas**: Common mistakes, parameter values that work, things that don't
+You MUST create at least one skill per job if the task involved any meaningful technique.
+Ask yourself: "If another agent got a similar task tomorrow, what would save them time?"
 
-When you discover something non-trivial (took >2 attempts to figure out, or would save significant time on similar future tasks):
-1. Call \`create_skill(slug, title, program, content, keywords)\` to save it
-2. Use descriptive keywords/tags for searchability (e.g. ["procedural", "terrain", "vex", "noise"])
-3. Include concrete code/parameters, not just descriptions
+**Always create a skill when you:**
+- Built a multi-step workflow (node graph, script sequence, modifier stack)
+- Used specific parameter values that matter (IOR, roughness, resolution, thresholds)
+- Discovered version-specific behavior or API quirks
+- Wrote a reusable script/snippet for a bridge
+- Figured out the right approach after trying alternatives
 
-When you use an existing skill (\`get_skill\`) and find it incomplete or wrong:
-- Call \`update_skill(slug, content?, keywords?)\` to improve it
+**How to create:**
+1. Call \`create_skill(slug, title, program, content, keywords)\`
+2. Content must include **concrete code/parameters**, not just descriptions
+3. Use rich keywords for searchability: \`["glass", "caustics", "ior", "bsdf", "wine-glass"]\`
 
-This is how the system gets smarter over time. Every agent contributes.
+**Before starting work**, call \`search_skills\` to check if relevant skills exist.
+If you find one, call \`get_skill\` to read it. If it's outdated or incomplete, \`update_skill\` it.
+
+This is how the system gets smarter. Every agent contributes. Do not skip this.
 
 ---
 
