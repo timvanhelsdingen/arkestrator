@@ -583,6 +583,10 @@ function dispatch(msg: any) {
     case "file_deliver":
       void handleFileDeliver(msg.payload);
       break;
+    case "skills_updated":
+      // Server auto-pulled skills after bridge connect — notify UI pages
+      window.dispatchEvent(new CustomEvent("arkestrator:skills_updated", { detail: msg.payload }));
+      break;
     case "error":
       connection.lastError = `${msg.payload.code}: ${msg.payload.message}`;
       break;

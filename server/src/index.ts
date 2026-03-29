@@ -881,7 +881,15 @@ async function main() {
                 skillsPulledThisSession.add(ws.data.program);
                 pullBridgeSkills(ws.data.program, skillsRepo, settingsRepo, false)
                   .then((r) => {
-                    if (r.pulled > 0) logger.info("skills", `Auto-pulled ${r.pulled} skills for ${ws.data.program}`);
+                    if (r.pulled > 0) {
+                      logger.info("skills", `Auto-pulled ${r.pulled} skills for ${ws.data.program}`);
+                      // Notify clients so admin/coordinator pages can refresh skill lists
+                      hub.broadcastToType("client", {
+                        type: "skills_updated",
+                        id: "",
+                        payload: { program: ws.data.program, pulled: r.pulled, source: "auto-pull" },
+                      });
+                    }
                   })
                   .catch((err) => {
                     skillsPulledThisSession.delete(ws.data.program); // retry on next connect
