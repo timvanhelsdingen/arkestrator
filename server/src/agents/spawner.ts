@@ -2948,13 +2948,11 @@ function sendComplete(
   // Flush any buffered WS logs before sending the completion message
   flushWsLogNow(deps, job.id);
 
-  // Record skill effectiveness outcome as fallback — only updates skills
-  // that the agent didn't explicitly rate via the rate_skill tool.
-  // On failure, mark unrated skills negative. On success, leave them pending
-  // so the agent's self-assessment (or user outcome rating) is the source of truth.
-  if (deps.skillEffectivenessRepo && !success) {
-    deps.skillEffectivenessRepo.recordOutcome(job.id, "negative");
-  }
+  // Skill effectiveness is now driven by:
+  // 1. Agent self-assessment via rate_skill (during execution)
+  // 2. User outcome ratings (after completion)
+  // Job success/failure does NOT auto-rate skills — a job can fail for
+  // reasons unrelated to skill quality (timeout, bridge crash, etc.).
 
   // Cleanup temp files if requested
   if (success && job.runtimeOptions?.cleanupTempFiles) {
