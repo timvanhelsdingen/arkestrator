@@ -772,12 +772,26 @@ export function queueTrainingOrchestrator(
           if (programs.length === 0) programs = ["global"];
           appendJobLog(deps.hub, deps.jobsRepo, created.id, `User-specified programs: ${programs.join(", ")}`);
         } else {
-          // Don't try to pre-determine the program from file signatures.
-          // Train as "global" and let the agent analyze the actual content
-          // to determine what programs/bridges are relevant. The agent will
-          // tag the resulting skills with the correct program(s).
-          programs = ["global"];
-          appendJobLog(deps.hub, deps.jobsRepo, created.id, `Auto-detect mode: training as global — agent will determine relevant programs from content`);
+          // Auto-detect programs from file signatures in source paths.
+          // This ensures training runs with the correct program so that
+          // bridge-based analysis can be used (e.g. Houdini bridge to
+          // read .hiplc scene files, Blender bridge for .blend files, etc.).
+          const programDeps: ProgramDiscoveryDeps = {
+            coordinatorScriptsDir: deps.coordinatorScriptsDir,
+            hub: deps.hub,
+            headlessProgramsRepo: deps.headlessProgramsRepo,
+          };
+          const knownPrograms = getCoordinatorScriptPrograms(programDeps);
+          const detected = detectProgramsInPaths(sourcePaths, knownPrograms);
+          if (detected.length > 0) {
+            programs = detected;
+            appendJobLog(deps.hub, deps.jobsRepo, created.id, `Auto-detected programs from file signatures: ${programs.join(", ")}`);
+          } else {
+            // No specific DCC programs detected — fall back to global.
+            // The agent will do filesystem-only analysis.
+            programs = ["global"];
+            appendJobLog(deps.hub, deps.jobsRepo, created.id, `No specific programs detected from file signatures — training as global (filesystem analysis only)`);
+          }
         }
 
         // Queue per-program training children (passes sourcePaths through)

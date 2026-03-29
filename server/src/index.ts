@@ -44,6 +44,7 @@ import { readSharedConfig, writeSharedConfig, getSharedConfigPath } from "./util
 import { normalizeCodexArgs } from "./utils/codex-args.js";
 import { seedCoordinatorScripts, ensureCoordinatorScript } from "./agents/engines.js";
 import { seedCoordinatorPlaybooks } from "./agents/coordinator-playbooks.js";
+import { seedDefaultTemplates } from "./routes/templates.js";
 import { pullAllBridgeSkills, pullBridgeSkills } from "./skills/skill-registry.js";
 import { runScheduledCoordinatorTrainingTick } from "./agents/coordinator-training.js";
 import { runHousekeepingScheduleTick } from "./agents/housekeeping.js";
@@ -567,6 +568,12 @@ async function main() {
   logger.info("server", `Coordinator scripts seeded at ${config.coordinatorScriptsDir}`);
   seedCoordinatorPlaybooks(config.coordinatorPlaybooksDir);
   logger.info("server", `Coordinator playbooks seeded at ${config.coordinatorPlaybooksDir}`);
+
+  // Seed default prompt templates (idempotent — skips existing slugs)
+  const templatesSeeded = seedDefaultTemplates(templatesRepo);
+  if (templatesSeeded > 0) {
+    logger.info("server", `Seeded ${templatesSeeded} default prompt template(s)`);
+  }
 
   // Auto-pull bridge skills on first run — deferred to after server is fully up
   const shouldAutoPullSkills = skillsRepo.listAll().length === 0;

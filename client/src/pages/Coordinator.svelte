@@ -1480,73 +1480,6 @@
           </div>
         {/if}
 
-        {#if skillViewSlug}
-          <div class="skill-view-modal">
-            <div class="skill-view-header">
-              <h4>{skillViewData?.title ?? skillViewSlug}</h4>
-              <button class="btn secondary" onclick={closeSkillView}>Close</button>
-            </div>
-            {#if skillViewLoading}
-              <p class="muted">Loading...</p>
-            {:else if skillViewData}
-              <div class="skill-detail-grid">
-                <div><strong>Slug:</strong> <span class="mono">{skillViewData.slug}</span></div>
-                <div><strong>Bridge:</strong> {skillViewData.program || "-"}</div>
-                <div><strong>Category:</strong> {skillViewData.category}</div>
-                <div><strong>Source:</strong> {skillViewData.source ?? "-"}</div>
-                <div><strong>Priority:</strong> {skillViewData.priority ?? "-"}</div>
-                <div><strong>Enabled:</strong> {skillViewData.enabled ? "Yes" : "No"}</div>
-                {#if skillViewEffectiveness}
-                  <div><strong>Uses:</strong> {skillViewEffectiveness.totalUsed}</div>
-                  <div><strong>Success Rate:</strong>
-                    {#if skillViewEffectiveness.totalUsed > 0}
-                      {@const pct = Math.round(skillViewEffectiveness.successRate * 100)}
-                      <span class="badge {pct >= 70 ? 'success' : pct >= 40 ? 'warn' : 'bad'}">{pct}%</span>
-                    {:else}
-                      -
-                    {/if}
-                  </div>
-                {/if}
-              </div>
-              {#if skillViewData.description}
-                <div class="skill-detail-desc">{skillViewData.description}</div>
-              {/if}
-              {#if skillViewData.relatedSkills && skillViewData.relatedSkills.length > 0}
-                <div class="skill-detail-section">
-                  <strong>Related Skills:</strong>
-                  {#each skillViewData.relatedSkills as rel}
-                    <button class="btn-link" onclick={() => viewSkill(rel, skillViewData?.program ?? "")}>{rel}</button>
-                  {/each}
-                </div>
-              {/if}
-              {#if skillViewPlaybooks.length > 0}
-                <div class="skill-detail-section">
-                  <strong>Playbooks ({skillViewPlaybooks.length}):</strong>
-                  {#each skillViewPlaybooks as pb}
-                    <div class="playbook-entry">
-                      <button class="playbook-toggle" onclick={() => togglePlaybook(pb.path)}>
-                        <span class="playbook-arrow">{expandedPlaybooks.has(pb.path) ? "v" : ">"}</span>
-                        <span class="mono mini">{pb.path}</span>
-                      </button>
-                      {#if pb.error}
-                        <span class="muted">{pb.error}</span>
-                      {:else if expandedPlaybooks.has(pb.path) && pb.content}
-                        <pre class="playbook-preview expanded">{formatPlaybookContent(pb.content)}</pre>
-                      {/if}
-                    </div>
-                  {/each}
-                </div>
-              {/if}
-              {#if skillViewData.content}
-                <div class="skill-detail-section">
-                  <strong>Content:</strong>
-                  <pre class="skill-content">{skillViewData.content}</pre>
-                </div>
-              {/if}
-            {/if}
-          </div>
-        {/if}
-
         <table class="skill-table">
           <thead><tr><th>Slug</th><th>Title</th><th>Bridge</th><th>Category</th><th>Source</th><th>Uses</th><th>Success</th><th>Actions</th></tr></thead>
           <tbody>
@@ -1708,7 +1641,7 @@
                   apply: (e.target as HTMLInputElement).checked,
                 })}
             />
-            <span>Auto-apply script updates</span>
+            <span>Write to playbook/script files</span>
           </label>
         {/if}
         <div class="actions">
@@ -1831,6 +1764,80 @@
     </div>
   {/if}
 </div>
+
+<!-- Skill detail overlay modal (rendered at root level for proper z-index) -->
+{#if skillViewSlug}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="skill-modal-overlay" onclick={closeSkillView}>
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="skill-modal-dialog" onclick={(e) => e.stopPropagation()}>
+      <div class="skill-view-header">
+        <h4>{skillViewData?.title ?? skillViewSlug}</h4>
+        <button class="btn secondary" onclick={closeSkillView}>Close</button>
+      </div>
+      {#if skillViewLoading}
+        <p class="muted">Loading...</p>
+      {:else if skillViewData}
+        <div class="skill-detail-grid">
+          <div><strong>Slug:</strong> <span class="mono">{skillViewData.slug}</span></div>
+          <div><strong>Bridge:</strong> {skillViewData.program || "-"}</div>
+          <div><strong>Category:</strong> {skillViewData.category}</div>
+          <div><strong>Source:</strong> {skillViewData.source ?? "-"}</div>
+          <div><strong>Priority:</strong> {skillViewData.priority ?? "-"}</div>
+          <div><strong>Enabled:</strong> {skillViewData.enabled ? "Yes" : "No"}</div>
+          {#if skillViewEffectiveness}
+            <div><strong>Uses:</strong> {skillViewEffectiveness.totalUsed}</div>
+            <div><strong>Success Rate:</strong>
+              {#if skillViewEffectiveness.totalUsed > 0}
+                {@const pct = Math.round(skillViewEffectiveness.successRate * 100)}
+                <span class="badge {pct >= 70 ? 'success' : pct >= 40 ? 'warn' : 'bad'}">{pct}%</span>
+              {:else}
+                -
+              {/if}
+            </div>
+          {/if}
+        </div>
+        {#if skillViewData.description}
+          <div class="skill-detail-desc">{skillViewData.description}</div>
+        {/if}
+        {#if skillViewData.relatedSkills && skillViewData.relatedSkills.length > 0}
+          <div class="skill-detail-section">
+            <strong>Related Skills:</strong>
+            {#each skillViewData.relatedSkills as rel}
+              <button class="btn-link" onclick={() => viewSkill(rel, skillViewData?.program ?? "")}>{rel}</button>
+            {/each}
+          </div>
+        {/if}
+        {#if skillViewPlaybooks.length > 0}
+          <div class="skill-detail-section">
+            <strong>Playbooks ({skillViewPlaybooks.length}):</strong>
+            {#each skillViewPlaybooks as pb}
+              <div class="playbook-entry">
+                <button class="playbook-toggle" onclick={() => togglePlaybook(pb.path)}>
+                  <span class="playbook-arrow">{expandedPlaybooks.has(pb.path) ? "v" : ">"}</span>
+                  <span class="mono mini">{pb.path}</span>
+                </button>
+                {#if pb.error}
+                  <span class="muted">{pb.error}</span>
+                {:else if expandedPlaybooks.has(pb.path) && pb.content}
+                  <pre class="playbook-preview expanded">{formatPlaybookContent(pb.content)}</pre>
+                {/if}
+              </div>
+            {/each}
+          </div>
+        {/if}
+        {#if skillViewData.content}
+          <div class="skill-detail-section">
+            <strong>Content:</strong>
+            <pre class="skill-content">{skillViewData.content}</pre>
+          </div>
+        {/if}
+      {/if}
+    </div>
+  </div>
+{/if}
 
 <style>
   .coordinator-page {
@@ -2198,7 +2205,29 @@
   .skill-create-form { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--border); border-radius: 4px; margin-bottom: 12px; background: var(--bg-subtle, rgba(255,255,255,0.03)); }
   .skill-create-form .form-row { display: flex; gap: 8px; }
   .skill-create-form .form-row > label { flex: 1; }
-  .skill-view-modal { padding: 12px; border: 1px solid var(--border); border-radius: 4px; margin-bottom: 12px; background: var(--bg-subtle, rgba(255,255,255,0.03)); max-height: 70vh; overflow-y: auto; }
+  .skill-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 650;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .skill-modal-dialog {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 16px 20px;
+    width: 100%;
+    max-width: 600px;
+    max-height: 85vh;
+    overflow-y: auto;
+  }
   .skill-view-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
   .skill-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; font-size: var(--font-size-sm); margin-bottom: 10px; }
   .skill-detail-grid strong { color: var(--text-secondary); }
