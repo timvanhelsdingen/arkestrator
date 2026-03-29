@@ -1467,7 +1467,13 @@ export async function spawnAgent(
     // are available on-demand via search_skills/get_skill MCP tools — the
     // coordinator agent should pull them during execution when needed.
     const allEnabled = deps.skillsRepo.listAll({ enabled: true });
-    const autoFetchSkills = allEnabled.filter((s) => s.autoFetch);
+    // Only inject auto-fetch skills that match the job's program or are global.
+    // Don't inject houdini skills into blender jobs (they'd just get rated negative).
+    const autoFetchSkills = allEnabled.filter((s) => {
+      if (!s.autoFetch) return false;
+      const sp = s.program.trim().toLowerCase();
+      return !sp || sp === "global" || sp === jobProgram;
+    });
     const rankedSkillCount = allEnabled.filter((s) => {
       if (s.autoFetch) return false;
       const sp = s.program.trim().toLowerCase();
@@ -1520,8 +1526,12 @@ export async function spawnAgent(
         ? `${orchestratorPromptOverride}\n\n${skillBlock}`
         : skillBlock;
 
-      // Record auto-fetch skill usage for effectiveness tracking
-      if (deps.skillEffectivenessRepo) {
+      // Record auto-fetch skill usage for effectiveness tracking.
+      // Skip for housekeeping/training jobs — they review ALL skills as part
+      // of their job, which creates noise in effectiveness data.
+      const jobMeta = (() => { try { return JSON.parse(job.editorContext || "{}").metadata || {}; } catch { return {}; } })();
+      const isSystemJob = jobMeta.housekeeping || jobMeta.coordinator_training_job || jobMeta.coordinator_training_orchestrator || jobMeta.coordinator_training_analysis_job;
+      if (deps.skillEffectivenessRepo && !isSystemJob) {
         for (const skill of autoFetchSkills) {
           deps.skillEffectivenessRepo.recordUsage(skill.id, job.id);
         }
