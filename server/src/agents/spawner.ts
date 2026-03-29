@@ -1526,16 +1526,11 @@ export async function spawnAgent(
         ? `${orchestratorPromptOverride}\n\n${skillBlock}`
         : skillBlock;
 
-      // Record auto-fetch skill usage for effectiveness tracking.
-      // Skip for housekeeping/training jobs — they review ALL skills as part
-      // of their job, which creates noise in effectiveness data.
-      const jobMeta = (() => { try { return JSON.parse(job.editorContext || "{}").metadata || {}; } catch { return {}; } })();
-      const isSystemJob = jobMeta.housekeeping || jobMeta.coordinator_training_job || jobMeta.coordinator_training_orchestrator || jobMeta.coordinator_training_analysis_job;
-      if (deps.skillEffectivenessRepo && !isSystemJob) {
-        for (const skill of autoFetchSkills) {
-          deps.skillEffectivenessRepo.recordUsage(skill.id, job.id);
-        }
-      }
+      // NOTE: Auto-fetch skills are NOT tracked for effectiveness.
+      // They're always injected as background context — tracking them
+      // creates noise (agents rarely rate them, so they show 0%).
+      // Only on-demand skills (fetched via search_skills/get_skill MCP
+      // tools) are tracked for effectiveness.
     }
 
     // Log for observability

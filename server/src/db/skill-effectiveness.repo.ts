@@ -76,7 +76,8 @@ export class SkillEffectivenessRepo {
         averageOutcomes: average,
         poorOutcomes: poor,
         pendingOutcomes: pending,
-        successRate: rated > 0 ? good / rated : 0,
+        // positive=1, average=0.5, negative=0 — weighted success rate
+        successRate: rated > 0 ? (good + average * 0.5) / rated : 0,
       };
     } catch {
       return { totalUsed: 0, goodOutcomes: 0, averageOutcomes: 0, poorOutcomes: 0, pendingOutcomes: 0, successRate: 0 };
@@ -117,7 +118,8 @@ export class SkillEffectivenessRepo {
           averageOutcomes: average,
           poorOutcomes: poor,
           pendingOutcomes: pending,
-          successRate: rated > 0 ? good / rated : 0,
+          // positive=1, average=0.5, negative=0 — weighted success rate
+        successRate: rated > 0 ? (good + average * 0.5) / rated : 0,
         });
       }
     } catch {
