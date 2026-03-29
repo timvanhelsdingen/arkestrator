@@ -2,8 +2,17 @@
   import { nav, type Page } from "../../stores/navigation.svelte";
   import { connection } from "../../stores/connection.svelte";
   import { api } from "../../api/rest";
-  import { disconnect } from "../../api/ws";
+  import { disconnect, connect } from "../../api/ws";
   import appLogo from "../../../assets/brand/arkestrator-logo.svg";
+
+  function toggleWorkerMode() {
+    connection.workerModeEnabled = !connection.workerModeEnabled;
+    connection.saveSession();
+    if (connection.url && connection.apiKey) {
+      disconnect();
+      void connect(connection.url, connection.apiKey);
+    }
+  }
 
   const items: { page: Page; label: string; icon: string }[] = [
     { page: "chat", label: "Chat", icon: "&#9998;" },
@@ -45,6 +54,16 @@
     {/each}
   </div>
   <div class="sidebar-footer">
+    {#if connection.isConnected}
+      <button
+        class="worker-toggle"
+        class:active={connection.workerModeEnabled}
+        onclick={toggleWorkerMode}
+        title={connection.workerModeEnabled ? "Worker mode ON — click to disable" : "Worker mode OFF — click to enable"}
+      >
+        <span class="worker-icon">&#9874;</span>
+      </button>
+    {/if}
     {#if connection.username}
       <div class="user-info" title="{connection.username} ({connection.userRole})">
         <span class="user-avatar">{connection.username[0].toUpperCase()}</span>
@@ -149,6 +168,24 @@
   .logout-icon {
     font-size: 14px;
   }
+  .worker-toggle {
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-md);
+    color: var(--text-muted);
+    background: transparent;
+    transition: all 0.15s;
+    opacity: 0.5;
+  }
+  .worker-toggle:hover { background: var(--bg-hover); opacity: 0.8; }
+  .worker-toggle.active {
+    color: var(--status-completed);
+    opacity: 1;
+  }
+  .worker-icon { font-size: 14px; }
   .status-dot {
     width: 8px;
     height: 8px;

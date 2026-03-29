@@ -1,6 +1,7 @@
 <script lang="ts">
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
   import { connection } from "../lib/stores/connection.svelte";
+  import { getLocalWorkerName } from "../lib/api/ws";
   import { api } from "../lib/api/rest";
 
   type ScopeTab = "server" | "training" | "client";
@@ -139,6 +140,7 @@
   let trainingSourcePaths = $state<string[]>([]);
   let trainingAgentConfigId = $state("");
   let trainingTargetWorkerName = $state("");
+  let trainingExcludeSelf = $state(false);
   let trainingPrompt = $state("");
   let trainingLevel = $state("medium");
   let trainingUploadFiles = $state<File[]>([]);
@@ -904,6 +906,7 @@
             prompt: trimmedPrompt || undefined,
             targetWorkerName: trimmedTargetWorkerName || undefined,
             trainingLevel: trainingLevel || undefined,
+            excludeWorker: trainingExcludeSelf ? getLocalWorkerName() || undefined : undefined,
           });
       const jobId = String(result?.job?.id ?? result?.orchestratorJobId ?? "");
       const uploadedCount = Array.isArray(result?.input?.uploadedFiles) ? result.input.uploadedFiles.length : 0;
@@ -1586,22 +1589,26 @@
             </select>
           </label>
           <label>
-            Worker (optional)
+            Worker
             <select bind:value={trainingTargetWorkerName}>
-              <option value="">Server default</option>
+              <option value="">Auto (pick best available)</option>
               {#each trainingWorkers as worker}
                 <option value={worker.name}>
                   {worker.name}
-                  {worker.localLlmEnabled ? " · local LLM enabled" : " · local LLM disabled"}
                   {worker.status === "online" ? " · online" : " · offline"}
+                  {worker.localLlmEnabled ? " · local LLM" : ""}
                 </option>
               {/each}
             </select>
             <span class="mini">
               {trainingWorkersLoading
                 ? "Loading workers..."
-                : "When set with a local-oss agent, the server routes local LLM calls to this worker endpoint."}
+                : "Auto selects the best available worker with the right bridges and licenses."}
             </span>
+            <label class="toggle-label" style="margin-top: 4px;">
+              <input type="checkbox" bind:checked={trainingExcludeSelf} />
+              <span>Don't use my machine (only dispatch to other workers)</span>
+            </label>
           </label>
         {/if}
         <label>

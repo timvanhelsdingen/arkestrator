@@ -370,6 +370,34 @@
         <label class="toggle-label">
           <input
             type="checkbox"
+            checked={connection.idleWorkerEnabled}
+            onchange={(e: Event) => {
+              connection.idleWorkerEnabled = (e.target as HTMLInputElement).checked;
+              connection.saveSession();
+            }}
+          />
+          <span>Auto-enable worker mode when idle</span>
+        </label>
+        {#if connection.idleWorkerEnabled}
+          <label class="toggle-label inline-setting">
+            <span>Idle timeout:</span>
+            <input
+              type="number"
+              min="1"
+              max="120"
+              value={connection.idleWorkerMinutes}
+              onchange={(e: Event) => {
+                connection.idleWorkerMinutes = Math.max(1, Math.min(120, Number((e.target as HTMLInputElement).value) || 15));
+                connection.saveSession();
+              }}
+              style="width: 60px; padding: 2px 6px;"
+            />
+            <span>minutes</span>
+          </label>
+        {/if}
+        <label class="toggle-label">
+          <input
+            type="checkbox"
             checked={launchOnStartup}
             disabled={launchOnStartupLoading}
             onchange={(e) => setLaunchOnStartup((e.target as HTMLInputElement).checked)}

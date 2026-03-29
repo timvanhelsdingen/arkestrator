@@ -24,6 +24,8 @@ interface SavedSession {
   clientCoordinationEnabled?: boolean;
   canEditCoordinator?: boolean;
   workerModeEnabled?: boolean;
+  idleWorkerEnabled?: boolean;
+  idleWorkerMinutes?: number;
   localLlmEnabled?: boolean;
   totpEnabled?: boolean;
 }
@@ -65,6 +67,12 @@ class ConnectionState {
   clientCoordinationEnabled = $state(false);
   canEditCoordinator = $state(false);
   workerModeEnabled = $state(true);
+  /** When true, auto-enable worker mode after idle timeout and disable on activity */
+  idleWorkerEnabled = $state(false);
+  /** Idle timeout in minutes before auto-enabling worker mode */
+  idleWorkerMinutes = $state(15);
+  /** Worker mode was auto-enabled by idle detection (will auto-disable on activity) */
+  idleWorkerActive = $state(false);
   localLlmEnabled = $state(false);
   totpEnabled = $state(false);
   /** Blocks navigation to main app while forced 2FA setup is in progress */
@@ -83,6 +91,8 @@ class ConnectionState {
       this.clientCoordinationEnabled = !!session.clientCoordinationEnabled;
       this.canEditCoordinator = !!session.canEditCoordinator;
       this.workerModeEnabled = session.workerModeEnabled !== false;
+      this.idleWorkerEnabled = !!session.idleWorkerEnabled;
+      this.idleWorkerMinutes = Number(session.idleWorkerMinutes) || 15;
       this.localLlmEnabled = !!session.localLlmEnabled;
       this.totpEnabled = !!session.totpEnabled;
     } else if (session.lastUsername) {
@@ -121,6 +131,8 @@ class ConnectionState {
       clientCoordinationEnabled: this.clientCoordinationEnabled,
       canEditCoordinator: this.canEditCoordinator,
       workerModeEnabled: this.workerModeEnabled,
+      idleWorkerEnabled: this.idleWorkerEnabled,
+      idleWorkerMinutes: this.idleWorkerMinutes,
       localLlmEnabled: this.localLlmEnabled,
       totpEnabled: this.totpEnabled,
     });

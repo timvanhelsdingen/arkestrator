@@ -3486,6 +3486,7 @@ export function createSettingsTrainingRoutes(deps: SettingsRouteDeps) {
     const trainingPrompt = String(body?.prompt ?? "").trim();
     const targetWorkerName = String(body?.targetWorkerName ?? "").trim();
     const trainingLevel = String(body?.trainingLevel ?? "").trim();
+    const excludeWorker = String(body?.excludeWorker ?? "").trim();
 
     // Use orchestrator so it auto-detects programs from source paths
     // (e.g. .blend → blender, .hip → houdini) and fans out per-program children.
@@ -3511,6 +3512,7 @@ export function createSettingsTrainingRoutes(deps: SettingsRouteDeps) {
           sourcePaths: requestedSourcePaths.length > 0 ? requestedSourcePaths : undefined,
           trainingPrompt: trainingPrompt || undefined,
           targetWorkerName: targetWorkerName || undefined,
+          excludeWorker: excludeWorker || undefined,
           trainingLevel: (trainingLevel || undefined) as import("../agents/coordinator-training.js").TrainingLevel | undefined,
           submittedBy: user.id,
           chainHousekeeping: true,

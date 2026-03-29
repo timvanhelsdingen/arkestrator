@@ -132,6 +132,42 @@
     }
   });
 
+  // Idle detection: auto-enable worker mode when user is inactive
+  $effect(() => {
+    if (!connection.idleWorkerEnabled) return;
+    let lastActivity = Date.now();
+    let idleCheckInterval: ReturnType<typeof setInterval>;
+    const onActivity = () => {
+      lastActivity = Date.now();
+      // If idle-worker was auto-activated, deactivate on user return
+      if (connection.idleWorkerActive) {
+        connection.idleWorkerActive = false;
+        connection.workerModeEnabled = false;
+        connection.saveSession();
+      }
+    };
+    const checkIdle = () => {
+      if (!connection.idleWorkerEnabled || !connection.isConnected) return;
+      const idleMs = Date.now() - lastActivity;
+      const thresholdMs = (connection.idleWorkerMinutes || 15) * 60_000;
+      if (idleMs >= thresholdMs && !connection.idleWorkerActive && !connection.workerModeEnabled) {
+        connection.idleWorkerActive = true;
+        connection.workerModeEnabled = true;
+        connection.saveSession();
+      }
+    };
+    window.addEventListener("mousemove", onActivity);
+    window.addEventListener("keydown", onActivity);
+    window.addEventListener("mousedown", onActivity);
+    idleCheckInterval = setInterval(checkIdle, 30_000);
+    return () => {
+      window.removeEventListener("mousemove", onActivity);
+      window.removeEventListener("keydown", onActivity);
+      window.removeEventListener("mousedown", onActivity);
+      clearInterval(idleCheckInterval);
+    };
+  });
+
   async function validateSessionAndConnect(retryCount = 0) {
     const MAX_RETRIES = 5;
     const BASE_DELAY_MS = 2000;

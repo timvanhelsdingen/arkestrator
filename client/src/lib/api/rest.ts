@@ -812,6 +812,7 @@ export const api = {
         apply?: boolean;
         prompt?: string;
         targetWorkerName?: string;
+        excludeWorker?: string;
         trainingLevel?: string;
       },
     ) =>

@@ -30,6 +30,11 @@ const API_KEY_PATTERN = /^ark_[a-f0-9]{48}$/i;
 /** Cached machine identity (hostname + osUser + machineId) from Tauri. */
 let cachedMachineIdentity: { hostname: string; osUser: string; machineId: string } | null = null;
 
+/** Get the local machine's worker name (hostname). */
+export function getLocalWorkerName(): string {
+  return cachedMachineIdentity?.hostname ?? "";
+}
+
 function normalizeWorkerIdentity(value: string | undefined | null): string {
   return String(value ?? "").trim().toLowerCase().replace(/\s+/g, "-");
 }
