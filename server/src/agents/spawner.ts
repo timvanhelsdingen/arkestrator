@@ -1243,6 +1243,13 @@ export async function spawnAgent(
   config: AgentConfig,
   deps: SpawnerDeps,
 ) {
+  // Server-managed orchestrator jobs (training orchestrator, housekeeping parent)
+  // run server-side in a setTimeout — they must NOT be dispatched as agent processes.
+  if (job.editorContext?.metadata?.coordinator_training_orchestrator) {
+    logger.warn("spawner", `Job ${job.id} is a server-managed orchestrator — skipping agent spawn.`);
+    return;
+  }
+
   let cliWrapper: CliWrapperResult | null = null;
   let mcpConfigBackup: string | null = null;
   let mcpConfigPath: string | null = null;
