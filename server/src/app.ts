@@ -240,6 +240,7 @@ export function createApp(deps: AppDeps) {
     skillIndex,
     settingsRepo: deps.settingsRepo,
     skillEffectivenessRepo: deps.skillEffectivenessRepo,
+    skillsRepo: deps.skillsRepo,
   };
   app.route("/mcp", createMcpRoutes(mcpDeps, deps.apiKeysRepo, deps.usersRepo));
 

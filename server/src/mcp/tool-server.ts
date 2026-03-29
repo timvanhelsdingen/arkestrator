@@ -47,6 +47,8 @@ export interface McpDeps {
   settingsRepo?: import("../db/settings.repo.js").SettingsRepo;
   /** Skill effectiveness repo for agent self-assessment of skill usefulness. */
   skillEffectivenessRepo?: import("../db/skill-effectiveness.repo.js").SkillEffectivenessRepo;
+  /** Skills repo for creating/updating skills from agents. */
+  skillsRepo?: import("../db/skills.repo.js").SkillsRepo;
 }
 
 const CLIENT_API_ALLOW_PREFIXES = [
