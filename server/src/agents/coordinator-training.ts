@@ -917,7 +917,7 @@ export function queueCoordinatorTrainingJob(
   const { program, trigger, sourcePaths, submittedBy } = options;
   const trainingLevel: TrainingLevel = TRAINING_LEVELS.includes(options.trainingLevel as TrainingLevel)
     ? (options.trainingLevel as TrainingLevel) : "medium";
-  const targetWorkerName = String(options.targetWorkerName ?? "").trim();
+  let targetWorkerName = String(options.targetWorkerName ?? "").trim();
   const apply = options.apply !== false;
   const trainingPrompt = normalizeTrainingPrompt(options.trainingPrompt, 2_000);
   const preferredAgentConfigId = String(options.agentConfigId ?? "").trim();
@@ -926,6 +926,29 @@ export function queueCoordinatorTrainingJob(
   // "global" is always valid — used for program-agnostic training (textures, docs, etc.)
   if (normalizedProgram !== "global" && !normalizeProgramList([normalizedProgram], programDeps).includes(normalizedProgram)) {
     throw new Error(`Invalid coordinator program: ${program}`);
+  }
+
+  // Auto worker selection: if no specific worker requested, pick the best
+  // available one that has bridges for this program (or any bridge for global).
+  if (!targetWorkerName) {
+    const bridges = hub.getBridges() as Array<{ workerName?: string; program?: string }>;
+    const clients = hub.getClients() as Array<{ workerName?: string }>;
+    const workerScores = new Map<string, number>();
+    for (const b of bridges) {
+      const wn = String(b.workerName ?? "").trim();
+      if (!wn) continue;
+      const prog = String(b.program ?? "").trim().toLowerCase();
+      const bonus = (normalizedProgram === "global" || prog === normalizedProgram) ? 10 : 1;
+      workerScores.set(wn, (workerScores.get(wn) ?? 0) + bonus);
+    }
+    for (const c of clients) {
+      const wn = String(c.workerName ?? "").trim();
+      if (wn && !workerScores.has(wn)) workerScores.set(wn, 0);
+    }
+    if (workerScores.size > 0) {
+      const sorted = [...workerScores.entries()].sort((a, b) => b[1] - a[1]);
+      targetWorkerName = sorted[0][0];
+    }
   }
 
   // Scheduled training always includes configured source paths alongside vault

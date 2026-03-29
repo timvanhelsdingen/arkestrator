@@ -1586,21 +1586,21 @@
             </select>
           </label>
           <label>
-            Worker (optional)
+            Worker
             <select bind:value={trainingTargetWorkerName}>
-              <option value="">Server default</option>
+              <option value="">Auto (pick best available)</option>
               {#each trainingWorkers as worker}
                 <option value={worker.name}>
                   {worker.name}
-                  {worker.localLlmEnabled ? " · local LLM enabled" : " · local LLM disabled"}
                   {worker.status === "online" ? " · online" : " · offline"}
+                  {worker.localLlmEnabled ? " · local LLM" : ""}
                 </option>
               {/each}
             </select>
             <span class="mini">
               {trainingWorkersLoading
                 ? "Loading workers..."
-                : "When set with a local-oss agent, the server routes local LLM calls to this worker endpoint."}
+                : "Auto selects the best available worker with the right bridges and licenses."}
             </span>
           </label>
         {/if}
