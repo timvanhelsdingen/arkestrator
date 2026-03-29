@@ -175,6 +175,10 @@ export async function pullBridgeSkills(
         const existing = skillsRepo.getAny?.(skillEntry.slug, normalized);
         if (existing && existing.source === "user") continue;
 
+        // Only coordinator skills are auto-fetched into prompt.
+        // Workflow skills (materials, modeling, etc.) are on-demand via
+        // search_skills/get_skill — tracked for effectiveness.
+        const isCoordinator = skillEntry.category === "coordinator" || skillEntry.slug.endsWith("-coordinator");
         skillsRepo.upsertBySlugAndProgram({
           name: skillEntry.slug,
           slug: skillEntry.slug,
@@ -186,7 +190,7 @@ export async function pullBridgeSkills(
           content,
           source: "bridge-repo",
           priority: 50,
-          autoFetch: true,
+          autoFetch: isCoordinator,
           enabled: true,
         });
         pulled++;
