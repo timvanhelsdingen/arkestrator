@@ -142,6 +142,7 @@ export function createApp(deps: AppDeps) {
       deps.config.coordinatorPlaybooksDir,
       deps.config.coordinatorPlaybookSourcePaths,
       deps.processTracker,
+      deps.skillEffectivenessRepo,
     ),
   );
   app.route("/api/agent-configs", createAgentRoutes(deps.agentsRepo, deps.usersRepo, deps.auditRepo, deps.apiKeysRepo, deps.settingsRepo, deps.hub, deps.workersRepo));
@@ -238,6 +239,7 @@ export function createApp(deps: AppDeps) {
     depsRepo: deps.depsRepo,
     skillIndex,
     settingsRepo: deps.settingsRepo,
+    skillEffectivenessRepo: deps.skillEffectivenessRepo,
   };
   app.route("/mcp", createMcpRoutes(mcpDeps, deps.apiKeysRepo, deps.usersRepo));
 

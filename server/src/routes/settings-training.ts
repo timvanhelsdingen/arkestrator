@@ -3487,12 +3487,11 @@ export function createSettingsTrainingRoutes(deps: SettingsRouteDeps) {
     const targetWorkerName = String(body?.targetWorkerName ?? "").trim();
     const trainingLevel = String(body?.trainingLevel ?? "").trim();
 
-    // Call training directly — no orchestrator wrapper needed.
-    // Program defaults to "global" (agent auto-detects from content).
-    const program = requestedPrograms.length > 0 ? requestedPrograms[0] : "global";
+    // Use orchestrator so it auto-detects programs from source paths
+    // (e.g. .blend → blender, .hip → houdini) and fans out per-program children.
     let trainingJob: import("@arkestrator/protocol").Job;
     try {
-      trainingJob = queueCoordinatorTrainingJob(
+      trainingJob = queueTrainingOrchestrator(
         {
           jobsRepo,
           agentsRepo,
@@ -3506,13 +3505,13 @@ export function createSettingsTrainingRoutes(deps: SettingsRouteDeps) {
           processTracker,
         },
         {
-          program,
+          programs: requestedPrograms.length > 0 ? requestedPrograms : undefined,
           trigger: "manual",
           apply,
           sourcePaths: requestedSourcePaths.length > 0 ? requestedSourcePaths : undefined,
           trainingPrompt: trainingPrompt || undefined,
           targetWorkerName: targetWorkerName || undefined,
-          trainingLevel: trainingLevel || undefined,
+          trainingLevel: (trainingLevel || undefined) as import("../agents/coordinator-training.js").TrainingLevel | undefined,
           submittedBy: user.id,
           chainHousekeeping: true,
         },
@@ -3528,7 +3527,7 @@ export function createSettingsTrainingRoutes(deps: SettingsRouteDeps) {
       resource: "settings",
       details: JSON.stringify({
         jobId: trainingJob.id,
-        program,
+        programs: requestedPrograms.length > 0 ? requestedPrograms : "auto-detect",
         autoDetected: requestedPrograms.length === 0,
         apply,
       }),

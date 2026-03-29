@@ -1161,7 +1161,7 @@ async function runLocalAgenticLoop(
 
     async executeTool(tool, args) {
       const action = { type: "tool_call" as const, tool, args } as LocalAgenticToolCall;
-      return executeLocalAgenticToolCall(action, deps, job);
+      return executeLocalAgenticToolCall(action, deps, job) as any;
     },
 
     log(message) {
@@ -1494,6 +1494,17 @@ export async function spawnAgent(
           "get_skill to get execution patterns and known pitfalls. Also search for 'verification' before " +
           "declaring done — verification skills contain programmatic quality checks that prevent false PASS " +
           "claims. Skipping skill search leads to poor results.",
+        );
+      }
+
+      // Tell the agent to rate skills after completing work
+      const autoFetchSlugs = autoFetchSkills.map((s) => s.slug);
+      if (autoFetchSlugs.length > 0) {
+        skillLines.push("## Skill Feedback");
+        skillLines.push(
+          "After completing your task, call rate_skill for each of these auto-fetched skills to indicate whether " +
+          "it was useful, partially useful, or not useful for this specific task: " +
+          autoFetchSlugs.map((s) => `\`${s}\``).join(", ") + ".",
         );
       }
 
@@ -2930,10 +2941,12 @@ function sendComplete(
   // Flush any buffered WS logs before sending the completion message
   flushWsLogNow(deps, job.id);
 
-  // Record skill effectiveness outcome
-  if (deps.skillEffectivenessRepo) {
-    const outcome = success ? "positive" : "negative";
-    deps.skillEffectivenessRepo.recordOutcome(job.id, outcome);
+  // Record skill effectiveness outcome as fallback — only updates skills
+  // that the agent didn't explicitly rate via the rate_skill tool.
+  // On failure, mark unrated skills negative. On success, leave them pending
+  // so the agent's self-assessment (or user outcome rating) is the source of truth.
+  if (deps.skillEffectivenessRepo && !success) {
+    deps.skillEffectivenessRepo.recordOutcome(job.id, "negative");
   }
 
   // Cleanup temp files if requested

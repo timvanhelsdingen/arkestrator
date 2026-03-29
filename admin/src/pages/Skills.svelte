@@ -609,11 +609,13 @@
             <td class="muted">{skill.program || "-"}</td>
             <td><span class="badge badge-cat">{skill.category}</span></td>
             <td><span class="badge {skill.source === 'user' ? 'badge-custom' : skill.source === 'registry' ? 'badge-registry' : skill.source === 'training' ? 'badge-training' : skill.source === 'bridge-repo' ? 'badge-bridge-repo' : 'badge-default'}">{skill.source}</span></td>
-            <td class="mono">{eff?.totalUsed ?? "-"}</td>
+            <td class="mono">{eff?.totalUsed ?? "-"}{eff && eff.pendingOutcomes > 0 ? ` (${eff.totalUsed - eff.pendingOutcomes} rated)` : ""}</td>
             <td>
-              {#if eff && eff.totalUsed > 0}
+              {#if eff && (eff.totalUsed - eff.pendingOutcomes) > 0}
                 {@const pct = Math.round(eff.successRate * 100)}
                 <span class="badge {pct >= 70 ? 'badge-ok' : pct >= 40 ? 'badge-warn' : 'badge-bad'}">{pct}%</span>
+              {:else if eff && eff.totalUsed > 0}
+                <span class="muted" title="{eff.pendingOutcomes} pending">pending</span>
               {:else}
                 <span class="muted">-</span>
               {/if}

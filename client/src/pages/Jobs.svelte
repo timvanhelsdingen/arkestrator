@@ -1137,8 +1137,8 @@
         <button class="btn-start-queue" onclick={startAll}>Start Queue</button>
       {/if}
       {#if isAdmin && jobs.viewMode === "active"}
-        <button class="btn-maintenance" onclick={runMaintenance} disabled={maintenanceRunning} title="Run coordinator maintenance">
-          {maintenanceRunning ? "Running..." : "Maintenance"}
+        <button class="btn-maintenance" onclick={runMaintenance} disabled={maintenanceRunning} title="Run coordinator training">
+          {maintenanceRunning ? "Running..." : "Training"}
         </button>
         <button class="btn-maintenance" onclick={runHousekeeping} disabled={housekeepingRunning} title="Run housekeeping (learning loop)">
           {housekeepingRunning ? "Running..." : "Housekeeping"}
@@ -1175,7 +1175,7 @@
         <select class="filter-select" bind:value={sourceFilter}>
           <option value={ALL_OPTION}>All Types</option>
           <option value="user">User Jobs</option>
-          <option value="training">Maintenance</option>
+          <option value="training">Training</option>
           <option value="housekeeping">Housekeeping</option>
           <option value="sub-job">Sub-jobs</option>
         </select>
