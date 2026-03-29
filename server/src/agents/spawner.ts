@@ -1502,10 +1502,12 @@ export async function spawnAgent(
         ? `${orchestratorPromptOverride}\n\n${skillBlock}`
         : skillBlock;
 
-      // Note: auto-fetch skills are NOT recorded for effectiveness tracking.
-      // They always inject regardless of score, so tracking them inflates
-      // use counts and pollutes effectiveness data. Usage is only recorded
-      // when a skill is actively loaded via MCP tools (search_skills/get_skill).
+      // Record auto-fetch skill usage for effectiveness tracking
+      if (deps.skillEffectivenessRepo) {
+        for (const skill of autoFetchSkills) {
+          deps.skillEffectivenessRepo.recordUsage(skill.id, job.id);
+        }
+      }
     }
 
     // Log for observability
