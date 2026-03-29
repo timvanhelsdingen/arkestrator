@@ -170,14 +170,14 @@
     user: true,
     training: false,
     housekeeping: false,
-    "sub-job": false,
   });
 
   /** Classify a job's source type from its metadata */
   function getJobSourceType(job: any): string {
     if (job.editorContext?.metadata?.coordinator_training_job) return "training";
+    if (job.editorContext?.metadata?.coordinator_training_orchestrator) return "training";
+    if (job.editorContext?.metadata?.coordinator_training_analysis_job) return "training";
     if (job.editorContext?.metadata?.housekeeping) return "housekeeping";
-    if (job.parentJobId) return "sub-job";
     return "user";
   }
 
@@ -345,7 +345,7 @@
     workerFilter = ALL_OPTION;
     bridgeFilter = ALL_OPTION;
     userFilter = ALL_OPTION;
-    sourceToggles = { user: true, training: false, housekeeping: false, "sub-job": false };
+    sourceToggles = { user: true, training: false, housekeeping: false };
   }
 
   function programIcon(program?: string): string {
@@ -1181,7 +1181,7 @@
           {/each}
         </select>
         <div class="source-toggles">
-          {#each [["user", "Jobs"], ["training", "Training"], ["housekeeping", "Housekeeping"], ["sub-job", "Sub-jobs"]] as [key, label]}
+          {#each [["user", "Jobs"], ["training", "Training"], ["housekeeping", "Housekeeping"]] as [key, label]}
             <button
               class="source-toggle"
               class:active={sourceToggles[key]}
