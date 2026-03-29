@@ -336,6 +336,7 @@ export function buildTrainingAgenticAnalyzePrompt(
   trainingPrompt: string,
   mode: "bridge" | "headless" | "filesystem",
   level: TrainingLevel = "medium",
+  availableBridges?: string[],
 ): string {
   const levelCfg = TRAINING_LEVEL_CONFIG[level];
   const isGlobal = program === "global";
@@ -359,7 +360,15 @@ export function buildTrainingAgenticAnalyzePrompt(
     lines.push("");
   }
 
-  if (isGlobal) {
+  if (isGlobal && mode === "bridge" && availableBridges && availableBridges.length > 0) {
+    // Global training with bridge access — the agent decides how to analyze
+    lines.push(`You have access to connected bridges: ${availableBridges.join(", ")}.`);
+    lines.push("Decide which bridge(s) to use based on the source content and training objective.");
+    lines.push("Use execute_command to inspect files through appropriate bridges (e.g. use comfyui to load/analyze images, blender to inspect materials).");
+    lines.push("Use search_skills and get_skill to find relevant analysis techniques.");
+    lines.push("Also perform filesystem analysis — read files, inspect folder structure, analyze metadata.");
+    lines.push("Combine bridge-based and filesystem analysis for the most thorough training output.");
+  } else if (isGlobal) {
     lines.push("Perform deep filesystem analysis. Read files, inspect images, analyze folder structure.");
     lines.push("Do NOT skip analysis because bridge tools are unavailable — work with what's on disk.");
   } else if (mode === "bridge") {
@@ -1046,52 +1055,55 @@ export function queueCoordinatorTrainingJob(
         if (shouldRunAgenticAnalysis) {
           const levelCfg = TRAINING_LEVEL_CONFIG[trainingLevel];
           projectFileBaselines = captureTrainingProjectFileBaselines(normalizedProgram, resolvedSourcePaths);
-          // "global" program has no bridge or headless CLI — always filesystem
+
+          // Gather ALL online bridges so the training agent can decide which to use
+          const allOnlineBridges = hub.getBridges();
+          const allOnlinePrograms = [...new Set(
+            allOnlineBridges
+              .map((b: { program?: string }) => String(b.program ?? "").trim().toLowerCase())
+              .filter(Boolean),
+          )];
+          const anyBridgeOnline = allOnlinePrograms.length > 0;
+
           const isDccProgram = normalizedProgram !== "global";
-          const bridgeOnline = isDccProgram && hub.getBridges().some(
-            (bridge) => String(bridge.program ?? "").trim().toLowerCase() === normalizedProgram,
-          );
+          const programBridgeOnline = isDccProgram && allOnlinePrograms.includes(normalizedProgram);
           const headlessEnabled = isDccProgram && headlessProgramsRepo?.getByProgram(normalizedProgram)?.enabled === true;
-          // Headless mode requires a desktop client connected for the target worker.
-          // If no bridge is online (which implies no client on that worker), headless
-          // dispatch will fail. Fall back to bridge or filesystem in that case.
-          const headlessViable = headlessEnabled && (bridgeOnline || !!targetWorkerName);
-          // Training should prefer headless CLI to avoid interfering with user's live session.
-          // Priority: headless (if viable) > bridge (live) > filesystem
-          const autoMode: "bridge" | "headless" | "filesystem" = headlessViable
-            ? "headless"
-            : bridgeOnline
-            ? "bridge"
-            : "filesystem";
+          const headlessViable = headlessEnabled && (programBridgeOnline || !!targetWorkerName);
+
+          // For global: if ANY bridge is online, use bridge mode so the agent can
+          // decide which bridges to use based on the prompt and source content.
+          // For DCC-specific: prefer headless > bridge > filesystem as before.
+          const autoMode: "bridge" | "headless" | "filesystem" = isDccProgram
+            ? (headlessViable ? "headless" : programBridgeOnline ? "bridge" : "filesystem")
+            : (anyBridgeOnline ? "bridge" : "filesystem");
+
           // Training level can force filesystem mode (e.g. "low" level skips bridge)
           const analysisMode: "bridge" | "headless" | "filesystem" = levelCfg.forceAnalysisMode ?? autoMode;
           analysisModeUsed = analysisMode;
-          if (analysisMode === "bridge") {
-            appendJobLog(
-              hub,
-              jobsRepo,
-              created.id,
+
+          if (analysisMode === "bridge" && !isDccProgram) {
+            appendJobLog(hub, jobsRepo, created.id,
+              `Agentic source analysis mode: bridge (coordinator mode — agent has access to all ${allOnlinePrograms.length} online bridge(s): ${allOnlinePrograms.join(", ")}).`,
+            );
+          } else if (analysisMode === "bridge") {
+            appendJobLog(hub, jobsRepo, created.id,
               `Agentic source analysis mode: bridge (${normalizedProgram} bridge online).`,
             );
           } else if (analysisMode === "headless") {
-            appendJobLog(
-              hub,
-              jobsRepo,
-              created.id,
+            appendJobLog(hub, jobsRepo, created.id,
               `Agentic source analysis mode: headless (${normalizedProgram} CLI preferred for training to avoid interfering with live sessions).`,
             );
           } else {
-            appendJobLog(
-              hub,
-              jobsRepo,
-              created.id,
-              `Agentic source analysis mode: filesystem (${normalizedProgram} bridge/headless unavailable).`,
+            appendJobLog(hub, jobsRepo, created.id,
+              `Agentic source analysis mode: filesystem (no bridges available).`,
             );
           }
 
           if (analysisMode === "filesystem") {
             analysisStatus = "filesystem-fallback";
-            const message = `Agentic source analysis fallback: no online ${normalizedProgram} bridge or enabled headless CLI program. Continuing with direct filesystem summarization.`;
+            const message = anyBridgeOnline
+              ? `Agentic source analysis fallback: training level forces filesystem mode. Continuing with direct filesystem summarization.`
+              : `Agentic source analysis fallback: no online bridges or enabled headless CLI. Continuing with direct filesystem summarization.`;
             artifactNotes.push(message);
             appendJobLog(hub, jobsRepo, created.id, message);
           } else {
@@ -1107,6 +1119,14 @@ export function queueCoordinatorTrainingJob(
             );
             mkdirSync(analysisWorkDir, { recursive: true });
 
+            // For global training, give the agent access to ALL online bridges
+            // so it can decide which to use based on the prompt and source content.
+            // For DCC-specific training, lock to that program's bridge.
+            const targetBridges = isDccProgram
+              ? [normalizedProgram]
+              : allOnlinePrograms.length > 0 ? allOnlinePrograms : [normalizedProgram];
+            const bridgeType = isDccProgram ? normalizedProgram : "global";
+
             const analysisMetadata: Record<string, unknown> = {
               coordinator_analysis_mode: "ai",
               coordinator_training_analysis_job: true,
@@ -1116,13 +1136,13 @@ export function queueCoordinatorTrainingJob(
               coordinator_training_analysis_mode: analysisMode,
               coordinator_training_level: trainingLevel,
               coordinator_training_work_dir: analysisWorkDir,
-              target_bridges: [normalizedProgram],
-              bridge_type: normalizedProgram,
+              target_bridges: targetBridges,
+              bridge_type: bridgeType,
             };
 
             const analysisInput: JobSubmit = {
               name: `[Coordinator] Analyze ${normalizedProgram} training sources`,
-              prompt: buildTrainingAgenticAnalyzePrompt(normalizedProgram, resolvedSourcePaths, trainingPrompt, analysisMode, trainingLevel),
+              prompt: buildTrainingAgenticAnalyzePrompt(normalizedProgram, resolvedSourcePaths, trainingPrompt, analysisMode, trainingLevel, allOnlinePrograms),
               agentConfigId,
               priority: "normal",
               coordinationMode: "server",
