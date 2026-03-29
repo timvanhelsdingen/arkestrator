@@ -219,7 +219,12 @@ export function looksLikeProjectDir(program: string, entries: string[]): boolean
   if (program === "blender") return hasFileWithExt(/\.blend$/i);
   if (program === "houdini") return hasFileWithExt(/\.hip(?:lc|nc)?$/i);
   if (program === "comfyui") return lower.has("workflow_api.json") || (hasDoc && hasFileWithExt(/\.json$/i));
-  return hasDoc;
+  if (program === "fusion" || program === "davinci" || program === "resolve") {
+    return hasFileWithExt(/\.comp$/i) || hasFileWithExt(/\.setting$/i) || lower.has("fuses");
+  }
+  if (program === "nuke") return hasFileWithExt(/\.nk$/i) || hasFileWithExt(/\.nknc$/i);
+  // Unknown programs: don't match on just a README — require program-specific file signatures
+  return false;
 }
 
 /**
