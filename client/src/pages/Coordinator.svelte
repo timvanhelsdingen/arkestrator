@@ -100,7 +100,7 @@
       : !connection.allowClientCoordination
       ? "Client-side coordination is disabled by admin policy."
       : !connection.clientCoordinationEnabled
-      ? "Enable client-side coordination in your user settings to queue training jobs."
+      ? "Enable client-side coordination in your user settings to queue maintenance jobs."
       : "",
   );
 
@@ -515,10 +515,9 @@
       }
       headlessStatusByProgram = nextHeadless;
 
-      // Build programs dropdown from live bridges + headless configs (always dynamic)
+      // Build programs dropdown from live bridges only (not stale headless configs)
       const knownKeys = new Set<string>();
       for (const key of Object.keys(bridgeCounts)) if (key) knownKeys.add(key);
-      for (const key of Object.keys(nextHeadless)) if (key) knownKeys.add(key);
       knownKeys.add("global");
       const derived = [...knownKeys]
         .sort()
@@ -820,7 +819,7 @@
       const selected = await openDialog({
         directory: true,
         multiple: true,
-        title: "Select training source folder(s)",
+        title: "Select source folder(s)",
       });
       if (!selected) return;
       const paths = Array.isArray(selected) ? selected : [selected];
@@ -836,7 +835,7 @@
       const selected = await openDialog({
         directory: false,
         multiple: true,
-        title: "Select training source file(s)",
+        title: "Select source file(s)",
       });
       if (!selected) return;
       const paths = Array.isArray(selected) ? selected : [selected];
@@ -909,8 +908,8 @@
       const uploadedSuffix = uploadedCount > 0 ? ` (${uploadedCount} uploaded input${uploadedCount === 1 ? "" : "s"})` : "";
       const programLabel = hasFiles ? program : "auto-detect";
       info = jobId
-        ? `Queued training job ${jobId.slice(0, 8)} (${programLabel})${uploadedSuffix}.`
-        : `Queued training job (${programLabel})${uploadedSuffix}.`;
+        ? `Queued maintenance job ${jobId.slice(0, 8)} (${programLabel})${uploadedSuffix}.`
+        : `Queued maintenance job (${programLabel})${uploadedSuffix}.`;
       if (jobId) {
         trainingLastQueued = {
           jobId,
@@ -926,9 +925,25 @@
       clearTrainingInputs();
       if (isAdmin) await loadTrainingSchedule();
     } catch (err: any) {
-      error = `Queue training job failed: ${err.message ?? err}`;
+      error = `Queue maintenance job failed: ${err.message ?? err}`;
     } finally {
       trainingJobStarting = false;
+    }
+  }
+
+  let housekeepingRunning = $state(false);
+  async function runHousekeepingNow() {
+    if (housekeepingRunning) return;
+    housekeepingRunning = true;
+    error = "";
+    info = "";
+    try {
+      await api.settings.runHousekeepingNow();
+      info = "Housekeeping job queued.";
+    } catch (err: any) {
+      error = `Housekeeping failed: ${err.message ?? err}`;
+    } finally {
+      housekeepingRunning = false;
     }
   }
 
@@ -1322,7 +1337,7 @@
       <div class="coord-toolbar-row">
         <div class="tabs">
           <button class="tab" class:active={scopeTab === "training"} onclick={() => setScopeTab("training")}>
-            Training
+            Maintenance
           </button>
           <button class="tab" class:active={scopeTab === "server"} onclick={() => setScopeTab("server")}>
             Server Config
@@ -1465,73 +1480,6 @@
           </div>
         {/if}
 
-        {#if skillViewSlug}
-          <div class="skill-view-modal">
-            <div class="skill-view-header">
-              <h4>{skillViewData?.title ?? skillViewSlug}</h4>
-              <button class="btn secondary" onclick={closeSkillView}>Close</button>
-            </div>
-            {#if skillViewLoading}
-              <p class="muted">Loading...</p>
-            {:else if skillViewData}
-              <div class="skill-detail-grid">
-                <div><strong>Slug:</strong> <span class="mono">{skillViewData.slug}</span></div>
-                <div><strong>Bridge:</strong> {skillViewData.program || "-"}</div>
-                <div><strong>Category:</strong> {skillViewData.category}</div>
-                <div><strong>Source:</strong> {skillViewData.source ?? "-"}</div>
-                <div><strong>Priority:</strong> {skillViewData.priority ?? "-"}</div>
-                <div><strong>Enabled:</strong> {skillViewData.enabled ? "Yes" : "No"}</div>
-                {#if skillViewEffectiveness}
-                  <div><strong>Uses:</strong> {skillViewEffectiveness.totalUsed}</div>
-                  <div><strong>Success Rate:</strong>
-                    {#if skillViewEffectiveness.totalUsed > 0}
-                      {@const pct = Math.round(skillViewEffectiveness.successRate * 100)}
-                      <span class="badge {pct >= 70 ? 'success' : pct >= 40 ? 'warn' : 'bad'}">{pct}%</span>
-                    {:else}
-                      -
-                    {/if}
-                  </div>
-                {/if}
-              </div>
-              {#if skillViewData.description}
-                <div class="skill-detail-desc">{skillViewData.description}</div>
-              {/if}
-              {#if skillViewData.relatedSkills && skillViewData.relatedSkills.length > 0}
-                <div class="skill-detail-section">
-                  <strong>Related Skills:</strong>
-                  {#each skillViewData.relatedSkills as rel}
-                    <button class="btn-link" onclick={() => viewSkill(rel, skillViewData?.program ?? "")}>{rel}</button>
-                  {/each}
-                </div>
-              {/if}
-              {#if skillViewPlaybooks.length > 0}
-                <div class="skill-detail-section">
-                  <strong>Playbooks ({skillViewPlaybooks.length}):</strong>
-                  {#each skillViewPlaybooks as pb}
-                    <div class="playbook-entry">
-                      <button class="playbook-toggle" onclick={() => togglePlaybook(pb.path)}>
-                        <span class="playbook-arrow">{expandedPlaybooks.has(pb.path) ? "v" : ">"}</span>
-                        <span class="mono mini">{pb.path}</span>
-                      </button>
-                      {#if pb.error}
-                        <span class="muted">{pb.error}</span>
-                      {:else if expandedPlaybooks.has(pb.path) && pb.content}
-                        <pre class="playbook-preview expanded">{formatPlaybookContent(pb.content)}</pre>
-                      {/if}
-                    </div>
-                  {/each}
-                </div>
-              {/if}
-              {#if skillViewData.content}
-                <div class="skill-detail-section">
-                  <strong>Content:</strong>
-                  <pre class="skill-content">{skillViewData.content}</pre>
-                </div>
-              {/if}
-            {/if}
-          </div>
-        {/if}
-
         <table class="skill-table">
           <thead><tr><th>Slug</th><th>Title</th><th>Bridge</th><th>Category</th><th>Source</th><th>Uses</th><th>Success</th><th>Actions</th></tr></thead>
           <tbody>
@@ -1574,14 +1522,14 @@
       </section>
     {:else if scopeTab === "training"}
       <section class="panel training-dashboard-panel">
-        <h3>Training Dashboard</h3>
+        <h3>Maintenance Dashboard</h3>
         <p class="desc">
-          Queue one coordinator training job from a path and/or attached files.
-          Uploaded inputs are staged in Training Vault before training runs.
+          Queue one coordinator maintenance job from a path and/or attached files.
+          Uploaded inputs are staged in Training Vault before maintenance runs.
         </p>
         {#if !canQueueTraining}
           <p class="mini">
-            {trainingQueueBlockedReason || "Training queue controls are unavailable for this account."}
+            {trainingQueueBlockedReason || "Maintenance queue controls are unavailable for this account."}
           </p>
         {:else if !isAdmin}
           <p class="mini">
@@ -1590,7 +1538,7 @@
         {/if}
         <div class="training-source-paths">
           <div class="source-paths-header">
-            <span class="label">Training Source Paths</span>
+            <span class="label">Source Paths</span>
             <button class="btn secondary btn-sm" onclick={addTrainingFolder}>
               Add Folder
             </button>
@@ -1619,7 +1567,7 @@
         </div>
         {#if canQueueTraining}
           <label>
-            Training Agent / Model
+            Agent / Model
             <select bind:value={trainingAgentConfigId}>
               {#if analyzeAgents.length === 0}
                 <option value="">No agents available</option>
@@ -1632,7 +1580,7 @@
             </select>
           </label>
           <label>
-            Training Compute Worker (optional)
+            Worker (optional)
             <select bind:value={trainingTargetWorkerName}>
               <option value="">Server default</option>
               {#each trainingWorkers as worker}
@@ -1646,12 +1594,12 @@
             <span class="mini">
               {trainingWorkersLoading
                 ? "Loading workers..."
-                : "When set with a local-oss training agent, the server routes local LLM calls to this worker endpoint."}
+                : "When set with a local-oss agent, the server routes local LLM calls to this worker endpoint."}
             </span>
           </label>
         {/if}
         <label>
-          Training Level
+          Analysis Level
           <select bind:value={trainingLevel}>
             <option value="low">Low — Quick filesystem scan (~2-5 min, ~$0.50-$1)</option>
             <option value="medium">Medium — Standard analysis (~5-15 min, ~$1-$3)</option>
@@ -1664,7 +1612,7 @@
           </span>
         </label>
         <label>
-          Training Objective (optional)
+          Objective (optional)
           <textarea
             rows="4"
             bind:value={trainingPrompt}
@@ -1693,13 +1641,18 @@
                   apply: (e.target as HTMLInputElement).checked,
                 })}
             />
-            <span>Auto-apply trained script updates</span>
+            <span>Write to playbook/script files</span>
           </label>
         {/if}
         <div class="actions">
           <button class="btn secondary" onclick={queueTrainingJobForProgram} disabled={trainingJobStarting || !canQueueTraining}>
-            {trainingJobStarting ? "Queueing..." : "Train Now (Queue Job)"}
+            {trainingJobStarting ? "Queueing..." : "Run Maintenance"}
           </button>
+          {#if isAdmin}
+            <button class="btn secondary" onclick={runHousekeepingNow} disabled={housekeepingRunning}>
+              {housekeepingRunning ? "Running..." : "Run Housekeeping"}
+            </button>
+          {/if}
           <button class="btn secondary" onclick={clearTrainingInputs} disabled={trainingJobStarting}>
             Clear Inputs
           </button>
@@ -1721,7 +1674,7 @@
         {/if}
         {#if trainingLastQueued}
           <div class="source-item training-last-queued">
-            <strong>Last Queued Training Job</strong>
+            <strong>Last Queued Maintenance Job</strong>
             <div class="mini mono">{trainingLastQueued.jobId}</div>
             <div class="mini">
               {trainingLastQueued.sourcePathCount} source path{trainingLastQueued.sourcePathCount === 1 ? "" : "s"},
@@ -1811,6 +1764,80 @@
     </div>
   {/if}
 </div>
+
+<!-- Skill detail overlay modal (rendered at root level for proper z-index) -->
+{#if skillViewSlug}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="skill-modal-overlay" onclick={closeSkillView}>
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="skill-modal-dialog" onclick={(e) => e.stopPropagation()}>
+      <div class="skill-view-header">
+        <h4>{skillViewData?.title ?? skillViewSlug}</h4>
+        <button class="btn secondary" onclick={closeSkillView}>Close</button>
+      </div>
+      {#if skillViewLoading}
+        <p class="muted">Loading...</p>
+      {:else if skillViewData}
+        <div class="skill-detail-grid">
+          <div><strong>Slug:</strong> <span class="mono">{skillViewData.slug}</span></div>
+          <div><strong>Bridge:</strong> {skillViewData.program || "-"}</div>
+          <div><strong>Category:</strong> {skillViewData.category}</div>
+          <div><strong>Source:</strong> {skillViewData.source ?? "-"}</div>
+          <div><strong>Priority:</strong> {skillViewData.priority ?? "-"}</div>
+          <div><strong>Enabled:</strong> {skillViewData.enabled ? "Yes" : "No"}</div>
+          {#if skillViewEffectiveness}
+            <div><strong>Uses:</strong> {skillViewEffectiveness.totalUsed}</div>
+            <div><strong>Success Rate:</strong>
+              {#if skillViewEffectiveness.totalUsed > 0}
+                {@const pct = Math.round(skillViewEffectiveness.successRate * 100)}
+                <span class="badge {pct >= 70 ? 'success' : pct >= 40 ? 'warn' : 'bad'}">{pct}%</span>
+              {:else}
+                -
+              {/if}
+            </div>
+          {/if}
+        </div>
+        {#if skillViewData.description}
+          <div class="skill-detail-desc">{skillViewData.description}</div>
+        {/if}
+        {#if skillViewData.relatedSkills && skillViewData.relatedSkills.length > 0}
+          <div class="skill-detail-section">
+            <strong>Related Skills:</strong>
+            {#each skillViewData.relatedSkills as rel}
+              <button class="btn-link" onclick={() => viewSkill(rel, skillViewData?.program ?? "")}>{rel}</button>
+            {/each}
+          </div>
+        {/if}
+        {#if skillViewPlaybooks.length > 0}
+          <div class="skill-detail-section">
+            <strong>Playbooks ({skillViewPlaybooks.length}):</strong>
+            {#each skillViewPlaybooks as pb}
+              <div class="playbook-entry">
+                <button class="playbook-toggle" onclick={() => togglePlaybook(pb.path)}>
+                  <span class="playbook-arrow">{expandedPlaybooks.has(pb.path) ? "v" : ">"}</span>
+                  <span class="mono mini">{pb.path}</span>
+                </button>
+                {#if pb.error}
+                  <span class="muted">{pb.error}</span>
+                {:else if expandedPlaybooks.has(pb.path) && pb.content}
+                  <pre class="playbook-preview expanded">{formatPlaybookContent(pb.content)}</pre>
+                {/if}
+              </div>
+            {/each}
+          </div>
+        {/if}
+        {#if skillViewData.content}
+          <div class="skill-detail-section">
+            <strong>Content:</strong>
+            <pre class="skill-content">{skillViewData.content}</pre>
+          </div>
+        {/if}
+      {/if}
+    </div>
+  </div>
+{/if}
 
 <style>
   .coordinator-page {
@@ -2178,7 +2205,29 @@
   .skill-create-form { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--border); border-radius: 4px; margin-bottom: 12px; background: var(--bg-subtle, rgba(255,255,255,0.03)); }
   .skill-create-form .form-row { display: flex; gap: 8px; }
   .skill-create-form .form-row > label { flex: 1; }
-  .skill-view-modal { padding: 12px; border: 1px solid var(--border); border-radius: 4px; margin-bottom: 12px; background: var(--bg-subtle, rgba(255,255,255,0.03)); max-height: 70vh; overflow-y: auto; }
+  .skill-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 650;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .skill-modal-dialog {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 16px 20px;
+    width: 100%;
+    max-width: 600px;
+    max-height: 85vh;
+    overflow-y: auto;
+  }
   .skill-view-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
   .skill-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; font-size: var(--font-size-sm); margin-bottom: 10px; }
   .skill-detail-grid strong { color: var(--text-secondary); }

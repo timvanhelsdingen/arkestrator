@@ -187,6 +187,20 @@ export function createTemplatesRoutes(
   return router;
 }
 
+/**
+ * Seed default templates on server startup (idempotent — skips existing slugs).
+ * Called from index.ts so templates are available immediately for new installs.
+ */
+export function seedDefaultTemplates(templatesRepo: TemplatesRepo): number {
+  let created = 0;
+  for (const tpl of DEFAULT_TEMPLATES) {
+    if (templatesRepo.slugExists(tpl.slug!)) continue;
+    templatesRepo.create({ ...tpl, createdBy: "system" });
+    created++;
+  }
+  return created;
+}
+
 // ── Default seed templates ──────────────────────────────────────────────────
 
 interface SeedTemplate {

@@ -3,6 +3,7 @@
   import type { Job, JobInterventionSupport } from "@arkestrator/protocol";
   import { jobs } from "../lib/stores/jobs.svelte";
   import { workersStore } from "../lib/stores/workers.svelte";
+  import { connection } from "../lib/stores/connection.svelte";
   import { sendMessage } from "../lib/api/ws";
   import { api } from "../lib/api/rest";
   import { toast } from "../lib/stores/toast.svelte";
@@ -292,6 +293,25 @@
     return current ?? null;
   }
 
+  let isAdmin = $derived(connection.userRole === "admin");
+
+  /** Collect all descendant job IDs (children, grandchildren, etc.) for a given job */
+  function getDescendantIds(jobId: string): string[] {
+    const result: string[] = [];
+    const stack = [jobId];
+    const visited = new Set<string>();
+    while (stack.length > 0) {
+      const current = stack.pop()!;
+      if (visited.has(current)) continue;
+      visited.add(current);
+      for (const child of childJobsByParent.get(current) ?? []) {
+        result.push(child.id);
+        stack.push(child.id);
+      }
+    }
+    return result;
+  }
+
   function formatJobUsage(job: Job): string {
     if (!job.tokenUsage) return "";
     return `${job.tokenUsage.inputTokens.toLocaleString()} in / ${job.tokenUsage.outputTokens.toLocaleString()} out`;
@@ -354,11 +374,65 @@
   }
 
   async function cancelJob(jobId: string) {
+    const delegation = delegationSummaryByJobId.get(jobId) ?? EMPTY_DELEGATION_SUMMARY;
+    if (delegation.activeCount > 0) {
+      showConfirm(
+        "Cancel Job with Active Sub-jobs",
+        `This job has ${delegation.activeCount} active sub-job(s). Cancel all children too?`,
+        async () => {
+          try {
+            // Cancel children first, then parent
+            const descendants = getDescendantIds(jobId);
+            for (const childId of descendants) {
+              const child = jobsById.get(childId);
+              if (child && isActiveJobStatus(child.status)) {
+                try { await api.jobs.cancel(childId); } catch { /* best-effort */ }
+              }
+            }
+            await api.jobs.cancel(jobId);
+            refreshJobs();
+          } catch (err: any) {
+            toast.error(`Failed to cancel job: ${err.message}`);
+          }
+        },
+      );
+      return;
+    }
     try {
       await api.jobs.cancel(jobId);
       refreshJobs();
     } catch (err: any) {
       toast.error(`Failed to cancel job: ${err.message}`);
+    }
+  }
+
+  let maintenanceRunning = $state(false);
+  async function runMaintenance() {
+    if (maintenanceRunning) return;
+    maintenanceRunning = true;
+    try {
+      await api.settings.runCoordinatorTrainingNow();
+      toast.success("Maintenance job queued");
+      refreshJobs();
+    } catch (err: any) {
+      toast.error(`Failed to run maintenance: ${err.message}`);
+    } finally {
+      maintenanceRunning = false;
+    }
+  }
+
+  let housekeepingRunning = $state(false);
+  async function runHousekeeping() {
+    if (housekeepingRunning) return;
+    housekeepingRunning = true;
+    try {
+      await api.settings.runHousekeepingNow();
+      toast.success("Housekeeping job queued");
+      refreshJobs();
+    } catch (err: any) {
+      toast.error(`Failed to run housekeeping: ${err.message}`);
+    } finally {
+      housekeepingRunning = false;
     }
   }
 
@@ -593,7 +667,17 @@
 
   function toggleCheckbox(e: Event, jobId: string) {
     e.stopPropagation();
-    jobs.toggleSelect(jobId);
+    const wasSelected = jobs.selectedIds.has(jobId);
+    const next = new Set(jobs.selectedIds);
+    const descendants = getDescendantIds(jobId);
+    if (wasSelected) {
+      next.delete(jobId);
+      for (const id of descendants) next.delete(id);
+    } else {
+      next.add(jobId);
+      for (const id of descendants) next.add(id);
+    }
+    jobs.selectedIds = next;
   }
 
   function toggleSelectAll() {
@@ -1052,6 +1136,14 @@
       {#if jobs.viewMode === "active" && jobs.all.some((j) => j.status === "paused")}
         <button class="btn-start-queue" onclick={startAll}>Start Queue</button>
       {/if}
+      {#if isAdmin && jobs.viewMode === "active"}
+        <button class="btn-maintenance" onclick={runMaintenance} disabled={maintenanceRunning} title="Run coordinator maintenance">
+          {maintenanceRunning ? "Running..." : "Maintenance"}
+        </button>
+        <button class="btn-maintenance" onclick={runHousekeeping} disabled={housekeepingRunning} title="Run housekeeping (learning loop)">
+          {housekeepingRunning ? "Running..." : "Housekeeping"}
+        </button>
+      {/if}
       <button class="btn-refresh" onclick={refreshCurrentView}>Refresh</button>
     </div>
     {#if jobs.viewMode === "active"}
@@ -1083,7 +1175,7 @@
         <select class="filter-select" bind:value={sourceFilter}>
           <option value={ALL_OPTION}>All Types</option>
           <option value="user">User Jobs</option>
-          <option value="training">Training</option>
+          <option value="training">Maintenance</option>
           <option value="housekeeping">Housekeeping</option>
           <option value="sub-job">Sub-jobs</option>
         </select>
@@ -1616,6 +1708,16 @@
     font-weight: 600;
   }
   .btn-start-queue:hover { opacity: 0.85; }
+  .btn-maintenance {
+    padding: 4px 10px;
+    background: var(--bg-surface);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-sm);
+  }
+  .btn-maintenance:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .btn-maintenance:disabled { opacity: 0.5; cursor: default; }
   .btn-refresh {
     padding: 4px 8px;
     border-radius: var(--radius-sm);
