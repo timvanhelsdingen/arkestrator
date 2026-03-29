@@ -45,6 +45,8 @@ export interface McpDeps {
   skillIndex?: import("../skills/skill-index.js").SkillIndex;
   /** Settings repo for reading server preferences (e.g. prefer_headless_bridges). */
   settingsRepo?: import("../db/settings.repo.js").SettingsRepo;
+  /** Skill effectiveness repo for agent self-assessment of skill usefulness. */
+  skillEffectivenessRepo?: import("../db/skill-effectiveness.repo.js").SkillEffectivenessRepo;
 }
 
 const CLIENT_API_ALLOW_PREFIXES = [
@@ -1140,13 +1142,41 @@ export function createMcpServer(deps: McpDeps): McpServer {
       let content = skill.content;
       try {
         const { resolveSkillTemplateVars } = await import("../skills/skill-templates.js");
-        const bridges = deps.hub.getConnections().filter((c) => c.type === "bridge");
+        const bridges = deps.hub.getBridges();
         const bridgeList = bridges.length > 0
-          ? bridges.map((b) => `${b.program ?? "unknown"} (${b.workerName ?? "?"})`).join(", ")
+          ? bridges.map((b: { program?: string; workerName?: string }) => `${b.program ?? "unknown"} (${b.workerName ?? "?"})`).join(", ")
           : "No bridges connected";
         content = resolveSkillTemplateVars(content, bridgeList, "", "");
       } catch {}
       return { content: [{ type: "text" as const, text: `# ${skill.title}\n\n${content}` }] };
+    },
+  );
+
+  server.tool(
+    "rate_skill",
+    "Rate how useful a skill was for your current task. Call this after completing work to improve skill effectiveness tracking. " +
+      "Rate each auto-fetched skill that was injected into your prompt.",
+    {
+      slug: z.string().describe("The skill slug"),
+      rating: z.enum(["useful", "not_useful", "partial"]).describe("How useful was this skill for the current task"),
+      notes: z.string().optional().describe("Brief reason (e.g. 'naming conventions matched perfectly' or 'not relevant to this task')"),
+    },
+    async ({ slug, rating, notes }) => {
+      if (!deps.skillEffectivenessRepo || !deps.callerJobId) {
+        return { content: [{ type: "text" as const, text: "Skill effectiveness tracking not available" }], isError: true };
+      }
+      if (!deps.skillIndex) {
+        return { content: [{ type: "text" as const, text: "Skills system not initialized" }], isError: true };
+      }
+      const skill = deps.skillIndex.get(slug);
+      if (!skill) {
+        return { content: [{ type: "text" as const, text: `Skill not found: ${slug}` }], isError: true };
+      }
+      const outcomeMap: Record<string, string> = { useful: "positive", not_useful: "negative", partial: "average" };
+      const outcome = outcomeMap[rating] || "average";
+      deps.skillEffectivenessRepo.recordSkillOutcome(skill.id, deps.callerJobId, outcome);
+      const notesSuffix = notes ? ` — ${notes}` : "";
+      return { content: [{ type: "text" as const, text: `Recorded: ${slug} → ${rating}${notesSuffix}` }] };
     },
   );
 

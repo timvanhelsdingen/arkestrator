@@ -33,12 +33,24 @@ export class SkillEffectivenessRepo {
     }
   }
 
-  /** Update the outcome for all skill usages associated with a job. */
+  /** Update the outcome for all skill usages associated with a job (fallback for unrated skills). */
   recordOutcome(jobId: string, outcome: string): void {
     try {
+      // Only update records that haven't been explicitly rated by the agent
       this.db.prepare(
-        `UPDATE skill_effectiveness SET job_outcome = ? WHERE job_id = ?`,
+        `UPDATE skill_effectiveness SET job_outcome = ? WHERE job_id = ? AND job_outcome IS NULL`,
       ).run(outcome, jobId);
+    } catch {
+      // Table may not exist
+    }
+  }
+
+  /** Update the outcome for a specific skill+job pair (agent self-assessment). */
+  recordSkillOutcome(skillId: string, jobId: string, outcome: string): void {
+    try {
+      this.db.prepare(
+        `UPDATE skill_effectiveness SET job_outcome = ? WHERE skill_id = ? AND job_id = ?`,
+      ).run(outcome, skillId, jobId);
     } catch {
       // Table may not exist
     }
@@ -57,13 +69,14 @@ export class SkillEffectivenessRepo {
       const poor = rows.filter((r) => r.job_outcome === "negative" || r.job_outcome === "poor").length;
       const pending = rows.filter((r) => !r.job_outcome).length;
 
+      const rated = total - pending;
       return {
         totalUsed: total,
         goodOutcomes: good,
         averageOutcomes: average,
         poorOutcomes: poor,
         pendingOutcomes: pending,
-        successRate: total > 0 ? good / total : 0,
+        successRate: rated > 0 ? good / rated : 0,
       };
     } catch {
       return { totalUsed: 0, goodOutcomes: 0, averageOutcomes: 0, poorOutcomes: 0, pendingOutcomes: 0, successRate: 0 };
@@ -97,13 +110,14 @@ export class SkillEffectivenessRepo {
         const average = outcomes.filter((o) => o === "average").length;
         const poor = outcomes.filter((o) => o === "negative" || o === "poor").length;
         const pending = outcomes.filter((o) => !o).length;
+        const rated = total - pending;
         result.set(skillId, {
           totalUsed: total,
           goodOutcomes: good,
           averageOutcomes: average,
           poorOutcomes: poor,
           pendingOutcomes: pending,
-          successRate: total > 0 ? good / total : 0,
+          successRate: rated > 0 ? good / rated : 0,
         });
       }
     } catch {

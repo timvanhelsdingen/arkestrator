@@ -13,6 +13,7 @@ import type { SettingsRepo } from "../db/settings.repo.js";
 import type { JobInterventionsRepo } from "../db/job-interventions.repo.js";
 import type { WebSocketHub } from "../ws/hub.js";
 import type { ProcessTracker } from "../agents/process-tracker.js";
+import type { SkillEffectivenessRepo } from "../db/skill-effectiveness.repo.js";
 import { DEFAULT_MAX_RETRIES, DEFAULT_TARGET_WORKER_TTL_MS } from "../queue/retry-policy.js";
 import {
   apiKeyRoleAllowed,
@@ -109,6 +110,7 @@ export function createJobRoutes(
   coordinatorPlaybooksDirOrDefaultSourcePaths?: string | string[],
   defaultCoordinatorPlaybookSourcePathsOrProcessTracker: string[] | ProcessTracker = [],
   processTrackerArg?: ProcessTracker,
+  skillEffectivenessRepo?: SkillEffectivenessRepo,
 ) {
   const isHub = (value: unknown): value is WebSocketHub =>
     !!value && typeof (value as WebSocketHub).broadcastToType === "function";
@@ -1111,6 +1113,17 @@ export function createJobRoutes(
         markedBy,
       );
       if (propagated) propagatedJobIds.push(descendant.id);
+    }
+
+    // Update skill effectiveness for any skills that the agent didn't explicitly rate.
+    // Maps user outcome ratings (good/average/poor) to skill effectiveness outcomes.
+    if (skillEffectivenessRepo) {
+      const skillOutcome = normalizedRating === "good" ? "positive" : normalizedRating === "poor" ? "negative" : "average";
+      skillEffectivenessRepo.recordOutcome(job.id, skillOutcome);
+      for (const descendant of descendantJobs) {
+        if (!isTerminalJobStatus(descendant.status)) continue;
+        skillEffectivenessRepo.recordOutcome(descendant.id, skillOutcome);
+      }
     }
 
     // Feed manual feedback into coordinator learning so future context ranking can

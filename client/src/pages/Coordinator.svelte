@@ -1337,7 +1337,7 @@
       <div class="coord-toolbar-row">
         <div class="tabs">
           <button class="tab" class:active={scopeTab === "training"} onclick={() => setScopeTab("training")}>
-            Maintenance
+            Training & Maintenance
           </button>
           <button class="tab" class:active={scopeTab === "server"} onclick={() => setScopeTab("server")}>
             Server Config
@@ -1522,14 +1522,13 @@
       </section>
     {:else if scopeTab === "training"}
       <section class="panel training-dashboard-panel">
-        <h3>Maintenance Dashboard</h3>
+        <h3>Training & Maintenance</h3>
         <p class="desc">
-          Queue one coordinator maintenance job from a path and/or attached files.
-          Uploaded inputs are staged in Training Vault before maintenance runs.
+          Queue a training job from source paths and/or attached files, or run maintenance to analyze job results and refine skills.
         </p>
         {#if !canQueueTraining}
           <p class="mini">
-            {trainingQueueBlockedReason || "Maintenance queue controls are unavailable for this account."}
+            {trainingQueueBlockedReason || "Training controls are unavailable for this account."}
           </p>
         {:else if !isAdmin}
           <p class="mini">
@@ -1646,7 +1645,7 @@
         {/if}
         <div class="actions">
           <button class="btn secondary" onclick={queueTrainingJobForProgram} disabled={trainingJobStarting || !canQueueTraining}>
-            {trainingJobStarting ? "Queueing..." : "Run Maintenance"}
+            {trainingJobStarting ? "Queueing..." : "Run Training"}
           </button>
           {#if isAdmin}
             <button class="btn secondary" onclick={runHousekeepingNow} disabled={housekeepingRunning}>
@@ -1674,7 +1673,7 @@
         {/if}
         {#if trainingLastQueued}
           <div class="source-item training-last-queued">
-            <strong>Last Queued Maintenance Job</strong>
+            <strong>Last Queued Training Job</strong>
             <div class="mini mono">{trainingLastQueued.jobId}</div>
             <div class="mini">
               {trainingLastQueued.sourcePathCount} source path{trainingLastQueued.sourcePathCount === 1 ? "" : "s"},
