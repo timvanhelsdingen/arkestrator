@@ -1148,7 +1148,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
           : "No bridges connected";
         content = resolveSkillTemplateVars(content, bridgeList, "", "");
       } catch {}
-      return { content: [{ type: "text" as const, text: `# ${skill.title}\n\n${content}` }] };
+      const rateReminder = `\n\n---\n_After using this skill, call \`rate_skill("${slug}", "positive"|"average"|"negative")\` to help improve future recommendations._`;
+      return { content: [{ type: "text" as const, text: `# ${skill.title}\n\n${content}${rateReminder}` }] };
     },
   );
 

@@ -1510,16 +1510,8 @@ export async function spawnAgent(
         );
       }
 
-      // Tell the agent to rate skills after completing work
-      const autoFetchSlugs = autoFetchSkills.map((s) => s.slug);
-      if (autoFetchSlugs.length > 0) {
-        skillLines.push("## Skill Feedback");
-        skillLines.push(
-          "After completing your task, call rate_skill for each of these auto-fetched skills to indicate whether " +
-          "it was useful, partially useful, or not useful for this specific task: " +
-          autoFetchSlugs.map((s) => `\`${s}\``).join(", ") + ".",
-        );
-      }
+      // Auto-fetch skills are not tracked for effectiveness —
+      // only on-demand skills (via get_skill) prompt agents to rate them.
 
       const skillBlock = skillLines.join("\n").trim();
       orchestratorPromptOverride = orchestratorPromptOverride
