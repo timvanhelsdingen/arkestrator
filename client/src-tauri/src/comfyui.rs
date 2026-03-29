@@ -62,6 +62,9 @@ pub fn detect_comfyui_paths() -> Vec<DetectedComfyPath> {
     if let Some(home) = home_dir() {
         candidates.push(home.join("ComfyUI"));
         candidates.push(home.join("comfyui"));
+        // Common dev/git checkout locations
+        candidates.push(home.join("Documents").join("Github").join("ComfyUI"));
+        candidates.push(home.join("Documents").join("github").join("ComfyUI"));
 
         #[cfg(target_os = "windows")]
         {
@@ -270,9 +273,13 @@ pub fn is_comfyui_running() -> bool {
 /// Check if arkestrator custom nodes are installed in ComfyUI.
 #[tauri::command]
 pub fn check_comfyui_nodes(comfyui_path: String) -> Result<Value, String> {
-    let nodes_dir = PathBuf::from(&comfyui_path)
-        .join("custom_nodes")
-        .join("arkestrator");
+    let base = PathBuf::from(&comfyui_path).join("custom_nodes");
+    // Check both directory names — zip extracts as arkestrator_bridge, legacy used arkestrator
+    let nodes_dir = if base.join("arkestrator_bridge").exists() {
+        base.join("arkestrator_bridge")
+    } else {
+        base.join("arkestrator")
+    };
 
     if !nodes_dir.exists() {
         return Ok(json!({ "installed": false }));
