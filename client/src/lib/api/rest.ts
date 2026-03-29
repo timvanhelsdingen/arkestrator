@@ -819,6 +819,8 @@ export const api = {
         method: "POST",
         body: JSON.stringify(options ?? {}),
       }),
+    runHousekeepingNow: () =>
+      request("/api/settings/housekeeping/run-now", { method: "POST" }),
     getCoordinatorEditors: () => request("/api/settings/coordinator-editors"),
     setCoordinatorEditors: (userIds: string[]) =>
       request("/api/settings/coordinator-editors", {

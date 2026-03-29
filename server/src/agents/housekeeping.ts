@@ -225,6 +225,14 @@ export function runHousekeepingScheduleTick(deps: HousekeepingDeps): { jobId: st
   });
   if (hasRunning) return null;
 
+  // Skip if no user jobs have completed since the last housekeeping run
+  if (schedule.lastRunAt) {
+    const completedSince = deps.jobsRepo.countCompletedSince(schedule.lastRunAt);
+    if (completedSince === 0) {
+      return null;
+    }
+  }
+
   return queueHousekeepingJob(deps);
 }
 

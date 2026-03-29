@@ -192,6 +192,8 @@ export class JobsRepo {
   private listArchivedStmt;
   private countArchivedStmt;
   private purgeOldTrashStmt;
+  private countCompletedSinceStmt;
+  private countCompletedSinceForProgramStmt;
 
   constructor(private db: Database) {
     this.insertStmt = db.prepare(
@@ -349,6 +351,17 @@ export class JobsRepo {
     );
     this.purgeOldTrashStmt = db.prepare(
       `DELETE FROM jobs WHERE deleted_at IS NOT NULL AND deleted_at < ?`,
+    );
+    this.countCompletedSinceStmt = db.prepare(
+      `SELECT COUNT(*) as total FROM jobs
+       WHERE status = 'completed' AND completed_at > ?
+       AND (bridge_program IS NULL OR bridge_program NOT IN ('coordinator-training', 'housekeeping'))`,
+    );
+    this.countCompletedSinceForProgramStmt = db.prepare(
+      `SELECT COUNT(*) as total FROM jobs
+       WHERE status = 'completed' AND completed_at > ?
+       AND (bridge_program IS NULL OR bridge_program NOT IN ('coordinator-training', 'housekeeping'))
+       AND EXISTS (SELECT 1 FROM json_each(used_bridges) WHERE value = ?)`,
     );
   }
 
@@ -658,6 +671,20 @@ export class JobsRepo {
     const cutoff = new Date(Date.now() - daysOld * 24 * 60 * 60_000).toISOString();
     const result = this.purgeOldTrashStmt.run(cutoff);
     return result.changes;
+  }
+
+  /**
+   * Count completed user jobs since a given timestamp.
+   * Excludes training/housekeeping jobs (bridge_program = 'coordinator-training' or 'housekeeping').
+   * Optionally filter by bridge program (checks used_bridges JSON array).
+   */
+  countCompletedSince(sinceIso: string, bridgeProgram?: string): number {
+    if (bridgeProgram) {
+      const row = this.countCompletedSinceForProgramStmt.get(sinceIso, bridgeProgram) as { total: number };
+      return row.total;
+    }
+    const row = this.countCompletedSinceStmt.get(sinceIso) as { total: number };
+    return row.total;
   }
 
   /** Get dashboard stats efficiently using SQL COUNT queries */

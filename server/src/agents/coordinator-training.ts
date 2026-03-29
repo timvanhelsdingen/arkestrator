@@ -1531,10 +1531,27 @@ export function runScheduledCoordinatorTrainingTick(
 
   if (duePrograms.length === 0) return [];
 
+  // Filter out programs where no user jobs have completed since last training run
+  const activeDuePrograms = duePrograms.filter((program) => {
+    const lastIso = lastRunByProgram[program];
+    if (!lastIso) return true; // never ran — allow first run
+    const count = deps.jobsRepo.countCompletedSince(lastIso, program);
+    if (count === 0) {
+      logger.debug(
+        "coordinator-training",
+        `Skipping training for "${program}" — no user jobs completed since last run (${lastIso})`,
+      );
+      return false;
+    }
+    return true;
+  });
+
+  if (activeDuePrograms.length === 0) return [];
+
   // Create one orchestrator for all due programs
   try {
     const orchestratorJob = queueTrainingOrchestrator(deps, {
-      programs: duePrograms,
+      programs: activeDuePrograms,
       apply: schedule.apply,
       trigger: "scheduled",
       chainHousekeeping: true,
@@ -1542,12 +1559,12 @@ export function runScheduledCoordinatorTrainingTick(
 
     // Update last-run timestamps for all due programs
     const nowIso = now.toISOString();
-    for (const program of duePrograms) {
+    for (const program of activeDuePrograms) {
       lastRunByProgram[program] = nowIso;
     }
     setCoordinatorTrainingLastRunByProgram(deps.settingsRepo, lastRunByProgram);
 
-    return duePrograms.map((program) => ({ program, jobId: orchestratorJob.id }));
+    return activeDuePrograms.map((program) => ({ program, jobId: orchestratorJob.id }));
   } catch (err: any) {
     logger.warn(
       "coordinator-training",
