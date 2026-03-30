@@ -146,8 +146,9 @@ export function tryDeliverGuidanceViaStdin(
 
   try {
     const message = text.endsWith("\n") ? text : `${text}\n`;
-    proc.stdin.write(message);
-    proc.stdin.flush();
+    const stdin = proc.stdin as import("bun").FileSink;
+    stdin.write(message);
+    stdin.flush();
 
     const delivered = jobInterventionsRepo.markDelivered(
       [interventionId],

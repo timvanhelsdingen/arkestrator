@@ -65,6 +65,12 @@ const STATIC_PROVIDER_CATALOGS: Record<AgentEngine, ProviderModelCatalog> = {
     source: "official-static",
     preferredDefaultModel: "gemini-2.5-pro",
   },
+  grok: {
+    engine: "grok",
+    models: [],
+    reasoningLevels: [],
+    source: "official-static",
+  },
   "local-oss": {
     engine: "local-oss",
     models: [],

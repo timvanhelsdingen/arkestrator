@@ -624,7 +624,7 @@ export function createSkillsRoutes(
       config[field] = stored ?? DEFAULT_SKILL_RANKING_CONFIG[field as keyof SkillRankingConfig];
     }
 
-    logger.info(`Skill ranking config updated: ${updated.join(", ")}`);
+    logger.info("skills", `Skill ranking config updated: ${updated.join(", ")}`);
     return c.json({ ok: true, updated, config });
   });
 
@@ -637,7 +637,7 @@ export function createSkillsRoutes(
     for (const [field, dbKey] of Object.entries(SKILL_RANKING_SETTINGS_KEYS)) {
       settingsRepo.setNumber(dbKey, DEFAULT_SKILL_RANKING_CONFIG[field as keyof SkillRankingConfig]);
     }
-    logger.info("Skill ranking config reset to defaults");
+    logger.info("skills", "Skill ranking config reset to defaults");
     return c.json({ ok: true, config: DEFAULT_SKILL_RANKING_CONFIG });
   });
 

@@ -3998,7 +3998,7 @@ export function createSettingsGeneralRoutes(deps: SettingsRouteDeps) {
   }
 
   router.get("/comfyui-url", (c) => {
-    const user = getAuthenticatedUser(c);
+    const user = getAuthenticatedUser(c, usersRepo);
     if (!user) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
     return c.json(getComfyUiUrlConfig());
   });
@@ -4034,7 +4034,7 @@ export function createSettingsGeneralRoutes(deps: SettingsRouteDeps) {
   });
 
   router.post("/comfyui-url/test", async (c) => {
-    const user = getAuthenticatedUser(c);
+    const user = getAuthenticatedUser(c, usersRepo);
     if (!user) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
 
     const { effectiveUrl } = getComfyUiUrlConfig();
@@ -4059,7 +4059,7 @@ export function createSettingsGeneralRoutes(deps: SettingsRouteDeps) {
   // --- ComfyUI install path ---
 
   router.get("/comfyui-path", (c) => {
-    const user = getAuthenticatedUser(c);
+    const user = getAuthenticatedUser(c, usersRepo);
     if (!user) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
     const path = settingsRepo.get(COMFYUI_PATH_SETTINGS_KEY) || null;
     return c.json({ path });

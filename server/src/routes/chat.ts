@@ -246,7 +246,7 @@ export function createChatRoutes(deps: ChatDeps) {
           const prompt = (job.prompt ?? "").replace(/\s+/g, " ").trim().slice(0, 300);
           const bridge = job.bridgeProgram ?? job.usedBridges?.[0] ?? "";
           const model = job.actualModel ?? "";
-          const duration = job.durationMs ? `${Math.round(job.durationMs / 1000)}s` : "";
+          const duration = job.tokenUsage?.durationMs ? `${Math.round(job.tokenUsage.durationMs / 1000)}s` : "";
           const err = job.error ? `Error: ${job.error.slice(0, 200)}` : "";
 
           // For completed/failed jobs, include tail of logs for context

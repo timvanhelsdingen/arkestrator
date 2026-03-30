@@ -793,11 +793,16 @@ export async function runChatAgenticLoop(
       return mkResult({ success: false, error: "Model completed without calling any tools" });
     }
 
-    // 8d. Tools were called, model is done — determine status from content
+    // 8d. Tools were called, model is done — determine status from content.
+    // Only mark as failed when the model clearly reports task failure, not
+    // incidental use of common words like "need" or "missing" in a summary.
     const lower = content.toLowerCase();
-    const failed = /\b(failed|error|unable|cannot|couldn'?t)\b/.test(lower);
-    const blocked = /\b(blocked|waiting|need|require|missing)\b/.test(lower);
-    const status = failed ? "failed" : blocked ? "blocked" : "completed";
+    // Require strong failure signals: "the task failed", "I was unable to", etc.
+    // Avoid matching conversational phrases like "let me know if you need"
+    const failed =
+      /\b(task failed|execution failed|could not complete|unable to (?:complete|finish|execute|perform))\b/.test(lower) ||
+      /\b(?:fatal|critical) error\b/.test(lower);
+    const status = failed ? "failed" : "completed";
 
     deps.log(`${prefix} final(${status}): ${content.slice(0, 300)}`);
     return mkResult({

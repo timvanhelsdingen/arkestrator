@@ -667,6 +667,9 @@ async function main() {
     config,
     resourceLeaseManager,
     localLlmGate,
+    skillsRepo,
+    skillIndex,
+    skillEffectivenessRepo,
   };
 
   // 10. Start server with Bun.serve (handles both HTTP and WebSocket)
@@ -877,23 +880,24 @@ async function main() {
               ensureCoordinatorScript(config.coordinatorScriptsDir, ws.data.program, undefined, skillsRepo);
               // Auto-pull skills for this bridge from the repo (once per program per session)
               const autoPull = settingsRepo.get("auto_pull_bridge_skills");
-              if (autoPull !== "false" && !skillsPulledThisSession.has(ws.data.program)) {
-                skillsPulledThisSession.add(ws.data.program);
-                pullBridgeSkills(ws.data.program, skillsRepo, settingsRepo, false)
+              const bridgeProgram = ws.data.program!;
+              if (autoPull !== "false" && !skillsPulledThisSession.has(bridgeProgram)) {
+                skillsPulledThisSession.add(bridgeProgram);
+                pullBridgeSkills(bridgeProgram, skillsRepo, settingsRepo, false)
                   .then((r) => {
                     if (r.pulled > 0) {
-                      logger.info("skills", `Auto-pulled ${r.pulled} skills for ${ws.data.program}`);
+                      logger.info("skills", `Auto-pulled ${r.pulled} skills for ${bridgeProgram}`);
                       // Notify clients so admin/coordinator pages can refresh skill lists
                       hub.broadcastToType("client", {
                         type: "skills_updated",
                         id: "",
-                        payload: { program: ws.data.program, pulled: r.pulled, source: "auto-pull" },
+                        payload: { program: bridgeProgram, pulled: r.pulled, source: "auto-pull" },
                       });
                     }
                   })
                   .catch((err) => {
-                    skillsPulledThisSession.delete(ws.data.program); // retry on next connect
-                    logger.warn("skills", `Auto-pull failed for ${ws.data.program}: ${err}`);
+                    skillsPulledThisSession.delete(bridgeProgram); // retry on next connect
+                    logger.warn("skills", `Auto-pull failed for ${bridgeProgram}: ${err}`);
                   });
               }
             }
@@ -963,8 +967,9 @@ async function main() {
 
   // Update shared config if the server landed on a different port
   if (actualPort !== config.port) {
-    const rawKey = apiKeysRepo.list().find((k) => k.role === "admin")?.rawKey;
-    if (rawKey) writeSharedConfig(actualPort, rawKey);
+    const existingSharedConfig = readSharedConfig();
+    const sharedKey = existingSharedConfig?.apiKey;
+    if (sharedKey) writeSharedConfig(actualPort, sharedKey);
   }
 
   // 11. Start worker loop

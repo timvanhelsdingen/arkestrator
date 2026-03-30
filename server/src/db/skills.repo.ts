@@ -272,7 +272,7 @@ export class SkillsRepo {
     values.push(new Date().toISOString());
     values.push(existing.id);
 
-    this.db.prepare(`UPDATE skills SET ${sets.join(", ")} WHERE id = ?`).run(...values);
+    this.db.prepare(`UPDATE skills SET ${sets.join(", ")} WHERE id = ?`).run(...(values as import("bun:sqlite").SQLQueryBindings[]));
     return this.get(slug, program ?? existing.program);
   }
 
@@ -298,7 +298,7 @@ export class SkillsRepo {
     if (opts.program) { conditions.push("program = ?"); params.push(opts.program); }
     if (opts.source) { conditions.push("source = ?"); params.push(opts.source); }
     const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-    return (this.db.prepare(`SELECT * FROM skills ${where} ORDER BY priority DESC, title ASC`).all(...params) as SkillRow[]).map(rowToSkill);
+    return (this.db.prepare(`SELECT * FROM skills ${where} ORDER BY priority DESC, title ASC`).all(...(params as import("bun:sqlite").SQLQueryBindings[])) as SkillRow[]).map(rowToSkill);
   }
 
   /** Get any skill by slug+program regardless of source. */

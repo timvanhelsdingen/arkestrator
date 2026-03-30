@@ -1121,7 +1121,7 @@ export async function executeLocalAgenticToolCall(
     return {
       ok: true,
       data: results.map((r) => ({
-        slug: r.slug, program: r.program, title: r.title, score: r.score?.toFixed(2),
+        slug: r.slug, program: r.program, title: r.title, score: r.relevanceScore?.toFixed(2),
       })),
     };
   }
@@ -1185,14 +1185,11 @@ async function runLocalAgenticLoop(
   const startTime = Date.now();
   const modelName = config.model ?? "";
   const perModelMaxTurns = config.modelOverrides?.[modelName]?.maxTurns;
-  let maxTurns = Math.min(
-    Math.max(perModelMaxTurns || config.maxTurns || LOCAL_AGENTIC_DEFAULTS.DEFAULT_TURNS, 1),
-    LOCAL_AGENTIC_DEFAULTS.MAX_TURNS,
-  );
+  let maxTurns = Math.max(perModelMaxTurns || config.maxTurns || LOCAL_AGENTIC_DEFAULTS.DEFAULT_TURNS, 1);
   // Training level can scale maxTurns: low=0.5x, medium=1x, high=2x
   const trainingLevel = (job as any).editorContext?.metadata?.coordinator_training_level;
   if (trainingLevel === "low") maxTurns = Math.max(Math.round(maxTurns * 0.5), 10);
-  else if (trainingLevel === "high") maxTurns = Math.min(maxTurns * 2, LOCAL_AGENTIC_DEFAULTS.MAX_TURNS);
+  else if (trainingLevel === "high") maxTurns = maxTurns * 2;
   // Also scale job timeout for training analysis jobs
   let effectiveJobTimeoutMs = getEffectiveJobTimeoutMs(deps, job);
   if (trainingLevel === "high") effectiveJobTimeoutMs = Math.round(effectiveJobTimeoutMs * 2);
@@ -1918,15 +1915,12 @@ export async function spawnAgent(
 
       if (dispatchWorkerName) {
         const perModelMaxTurns = config.modelOverrides?.[resolvedModel]?.maxTurns;
-        let maxTurns = Math.min(
-          Math.max(perModelMaxTurns || config.maxTurns || LOCAL_AGENTIC_DEFAULTS.DEFAULT_TURNS, 1),
-          LOCAL_AGENTIC_DEFAULTS.MAX_TURNS,
-        );
+        let maxTurns = Math.max(perModelMaxTurns || config.maxTurns || LOCAL_AGENTIC_DEFAULTS.DEFAULT_TURNS, 1);
         // Training level can scale maxTurns for client-dispatched jobs too
         const cliTrainingLevel = (job as any).editorContext?.metadata?.coordinator_training_level;
         let cliJobTimeoutMs = getEffectiveJobTimeoutMs(deps, job);
         if (cliTrainingLevel === "low") { maxTurns = Math.max(Math.round(maxTurns * 0.5), 10); cliJobTimeoutMs = Math.round(cliJobTimeoutMs * 0.5); }
-        else if (cliTrainingLevel === "high") { maxTurns = Math.min(maxTurns * 2, LOCAL_AGENTIC_DEFAULTS.MAX_TURNS); cliJobTimeoutMs = Math.round(cliJobTimeoutMs * 2); }
+        else if (cliTrainingLevel === "high") { maxTurns = maxTurns * 2; cliJobTimeoutMs = Math.round(cliJobTimeoutMs * 2); }
         const turnTimeoutMs = Math.min(
           Math.max(Math.floor(cliJobTimeoutMs / Math.max(1, maxTurns)), LOCAL_AGENTIC_DEFAULTS.MIN_TURN_TIMEOUT_MS),
           LOCAL_AGENTIC_DEFAULTS.MAX_TURN_TIMEOUT_MS,

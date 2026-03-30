@@ -46,6 +46,9 @@ export interface HandlerDeps {
   config: Config;
   resourceLeaseManager: WorkerResourceLeaseManager;
   localLlmGate?: import("../agents/local-llm-gate.js").LocalLlmGate;
+  skillsRepo?: import("../db/skills.repo.js").SkillsRepo;
+  skillIndex?: import("../skills/skill-index.js").SkillIndex;
+  skillEffectivenessRepo?: import("../db/skill-effectiveness.repo.js").SkillEffectivenessRepo;
 }
 
 function send(ws: ServerWebSocket<WsData>, message: object) {
@@ -182,7 +185,7 @@ export function handleMessage(
         handleBridgeFileReadResponse(ws, msg, deps);
         break;
       case "worker_headless_result":
-        handleWorkerHeadlessResult(ws, msg, deps);
+        handleWorkerHeadlessResult(ws, msg as any, deps);
         break;
       case "bridge_context_item_add":
         handleBridgeContextItemAdd(ws, msg, deps);
@@ -224,6 +227,9 @@ export function handleMessage(
               jobInterventionsRepo: deps.jobInterventionsRepo,
               resourceLeaseManager: deps.resourceLeaseManager,
               localLlmGate: deps.localLlmGate,
+              skillsRepo: deps.skillsRepo,
+              skillIndex: deps.skillIndex,
+              skillEffectivenessRepo: deps.skillEffectivenessRepo,
             } satisfies Partial<SpawnerDeps> as SpawnerDeps;
             const toolCall = LocalAgenticToolCall.parse({ type: "tool_call", tool, args });
             const result = await executeLocalAgenticToolCall(
@@ -373,7 +379,7 @@ function handleJobReprioritize(
 ) {
   const updated = deps.jobsRepo.reprioritize(
     msg.payload.jobId,
-    msg.payload.priority,
+    msg.payload.priority as import("@arkestrator/protocol").JobPriority,
   );
   if (!updated) {
     errorReply(ws, "REPRIORITIZE_FAILED", "Cannot reprioritize job", msg.id);

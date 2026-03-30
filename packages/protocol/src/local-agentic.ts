@@ -318,7 +318,7 @@ export function compactJson(data: unknown, maxLen: number): string {
 // ---------------------------------------------------------------------------
 
 export const LOCAL_AGENTIC_DEFAULTS = {
-  MAX_TURNS: 40,
+  MAX_TURNS: 300,
   DEFAULT_TURNS: 12,
   DEFAULT_TURN_TIMEOUT_MS: 120_000,
   MAX_TURN_TIMEOUT_MS: 300_000,

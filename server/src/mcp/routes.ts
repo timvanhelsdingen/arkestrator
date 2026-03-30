@@ -148,7 +148,7 @@ export function createMcpRoutes(
       const transport = new StatelessTransport();
       await server.connect(transport);
 
-      const response = await transport.handleMessage(body);
+      const response = await transport.handleMessage(body as JSONRPCMessage);
 
       await transport.close();
 

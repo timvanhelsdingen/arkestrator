@@ -4,6 +4,10 @@
 Central hub. Receives jobs via REST+WS, queues them in SQLite, spawns AI CLI tools as subprocesses, streams results back to bridges+clients. Manages all state.
 
 ## Recent Updates (2026-03-30)
+- Fix client-dispatched skill tools (2026-03-30): `src/ws/handler.ts` — `HandlerDeps` now includes `skillsRepo`, `skillIndex`, `skillEffectivenessRepo`. These are passed through to `spawnerDeps` in `client_tool_request` handler so `search_skills`/`get_skill`/`create_skill`/`rate_skill` work for client-dispatched local model jobs. `src/index.ts` passes them into `handlerDeps`.
+- Remove maxTurns hard cap (2026-03-30): `src/agents/spawner.ts` — removed `Math.min(..., LOCAL_AGENTIC_DEFAULTS.MAX_TURNS)` caps on both server-side and client-dispatched turn limits. Agent config `maxTurns` is now respected directly. `packages/protocol/src/local-agentic.ts` — `MAX_TURNS` raised from 40 to 300.
+- Fix blocked false positives (2026-03-30): `packages/protocol/src/local-agentic-loop.ts` — removed naive keyword regex (`blocked|waiting|need|require|missing`) that falsely marked successful completions as "blocked". Now only flags explicit failure phrases like "task failed", "unable to complete", "fatal error".
+- Fix production type errors (2026-03-30): Fixed ~35 TypeScript errors across production source files: added `VALIDATION`/`BAD_REQUEST`/`UPSTREAM_ERROR`/`INTERNAL` to `ErrorCode` union (`src/utils/errors.ts`), added `grok` to model catalog, fixed `FileSink` narrowing in job-interventions, SQL binding casts in skills.repo, null checks in settings-snapshots, missing `usersRepo` args in settings-general, fixed `relevanceScore` property in spawner, `tokenUsage.durationMs` in chat routes.
 - Model-aware housekeeping (2026-03-30): `src/agents/housekeeping.ts` — `buildJobSummary()` now includes engine/model info per job, groups failures by engine, and tags local model failures with `[LOCAL MODEL]`. New `resolveEngine()` and `isLocalModel()` helpers. Housekeeping prompt updated with "Model-Aware Failure Analysis" guidelines instructing the AI not to blame skills for local model capability limitations.
 
 ## Recent Updates (2026-03-28)

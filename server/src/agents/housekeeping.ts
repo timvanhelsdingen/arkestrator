@@ -80,8 +80,10 @@ export function queueHousekeepingJob(
       prompt,
       agentConfigId: agent.id,
       priority: "low",
+      coordinationMode: "server",
       name: `[Housekeeping] System Review`,
       editorContext: {
+        projectRoot: "",
         metadata: {
           housekeeping: true,
           trigger: options?.parentJobId ? "chained" : "manual",

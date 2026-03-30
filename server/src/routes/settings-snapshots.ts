@@ -3821,13 +3821,12 @@ export function createSettingsSnapshotsRoutes(deps: SettingsRouteDeps) {
 
     // Clean up disk-based data
     const { rmSync } = await import("node:fs");
-    const dirsToClean = [
-      config.syncTempDir,
-      config.headlessTempDir,
-      config.snapshotsDir,
-    ];
+    const dirsToClean: string[] = [];
+    if (config) {
+      dirsToClean.push(config.syncTempDir, config.headlessTempDir, config.snapshotsDir);
+    }
     if (clearTrainingData) {
-      const learningDir = `${config.coordinatorPlaybooksDir}/_learning`;
+      const learningDir = config ? `${config.coordinatorPlaybooksDir}/_learning` : `${coordinatorPlaybooksDir}/_learning`;
       dirsToClean.push(learningDir);
     }
     for (const dir of dirsToClean) {
