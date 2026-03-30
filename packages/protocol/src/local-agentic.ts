@@ -256,9 +256,21 @@ export function buildLocalAgenticTurnPrompt(
     );
   }
 
+  // Trim custom system prompt to avoid overwhelming local models with huge
+  // coordinator scripts. Keep first 2000 chars which contain the essentials.
+  const MAX_CUSTOM_PROMPT_CHARS = 2000;
+  const trimmedCustomPrompt = customSystemPrompt
+    ? customSystemPrompt.length > MAX_CUSTOM_PROMPT_CHARS
+      ? customSystemPrompt.slice(0, MAX_CUSTOM_PROMPT_CHARS) + "\n...(trimmed for local model context)"
+      : customSystemPrompt
+    : undefined;
+
   return [
+    // Qwen3 models: disable extended thinking to avoid slow <think> blocks
+    "/no_think",
+    "",
     LOCAL_AGENTIC_PROTOCOL_INSTRUCTIONS,
-    ...(customSystemPrompt ? ["", "## Additional Instructions", customSystemPrompt] : []),
+    ...(trimmedCustomPrompt ? ["", "## Additional Instructions", trimmedCustomPrompt] : []),
     "",
     "## Available Tools",
     ...toolLines,
