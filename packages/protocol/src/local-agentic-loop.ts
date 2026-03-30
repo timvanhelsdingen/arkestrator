@@ -677,10 +677,11 @@ export async function runChatAgenticLoop(
     // Reject premature completion if no tools were called
     if (executedCommands.length === 0 && !delegatedWorkCreated && successfulToolCalls === 0) {
       deps.log(`${prefix} turn ${turn}: premature completion rejected — no tools called yet`);
-      messages.push(msg);
+      // Don't append the model's text response to history — it's just a plan/description.
+      // Instead, send a firm instruction to actually call a tool.
       messages.push({
         role: "user",
-        content: "You must call tools to complete this task. Start by calling list_bridges() to see available applications, then search_skills() to find relevant patterns.",
+        content: "STOP. Do NOT describe code or write plans. You MUST call the execute_command tool right now with the script. Do not respond with text — use the tool.",
       });
       if (turn < config.maxTurns) continue;
       return mkResult({ success: false, error: "Model completed without calling any tools" });
