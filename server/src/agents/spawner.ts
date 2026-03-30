@@ -1842,8 +1842,8 @@ export async function spawnAgent(
         if (cliTrainingLevel === "low") { maxTurns = Math.max(Math.round(maxTurns * 0.5), 10); cliJobTimeoutMs = Math.round(cliJobTimeoutMs * 0.5); }
         else if (cliTrainingLevel === "high") { maxTurns = Math.min(maxTurns * 2, LOCAL_AGENTIC_DEFAULTS.MAX_TURNS); cliJobTimeoutMs = Math.round(cliJobTimeoutMs * 2); }
         const turnTimeoutMs = Math.min(
-          Math.max(Math.floor(cliJobTimeoutMs / Math.max(1, maxTurns)), 15_000),
-          LOCAL_AGENTIC_DEFAULTS.DEFAULT_TURN_TIMEOUT_MS,
+          Math.max(Math.floor(cliJobTimeoutMs / Math.max(1, maxTurns)), LOCAL_AGENTIC_DEFAULTS.MIN_TURN_TIMEOUT_MS),
+          LOCAL_AGENTIC_DEFAULTS.MAX_TURN_TIMEOUT_MS,
         );
         const perModelPrompt = config.modelOverrides?.[resolvedModel]?.systemPrompt
           ?? config.modelSystemPrompts?.[resolvedModel]
