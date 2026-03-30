@@ -27,6 +27,31 @@
   - Bridge step auto-fetches registry from GitHub + auto-detects all DCC install paths, batch installs selected
   - Client REST API: added `agents.templates()` and `agents.cliAuthStatus()` methods
 
+## Planned: Agent Skills Open Standard Migration
+
+Migrate Arkestrator's skills system to the [Agent Skills](https://agentskills.io) open standard (`SKILL.md` format) used by Claude Code, Cursor, Gemini CLI, VS Code Copilot, OpenAI Codex, and 30+ other tools. This enables pulling community/open-source skills and publishing Arkestrator-generated skills back to the ecosystem.
+
+**Current state**: Skills stored as SQLite rows with markdown `content` field + JSON playbook vault references. Custom API-managed, not interoperable.
+
+**Target state**: Skills stored as `SKILL.md` files on disk (YAML frontmatter + markdown body) with co-located supporting files (JSON playbooks, scripts, examples). SQLite becomes a search/effectiveness index cache rebuilt from disk on startup.
+
+**Key changes:**
+- ⬜ Storage: `coordinator-playbooks/skills/<slug>/SKILL.md` as source of truth, SQLite as index/cache
+- ⬜ Frontmatter mapping: `name`→slug, `description`, `program` (custom extension), `category`, `keywords`, `disable-model-invocation`↔autoFetch
+- ⬜ Playbooks: move from vault path references to co-located files in skill directory
+- ⬜ Training pipeline: housekeeping/training agents write `SKILL.md` files instead of DB inserts
+- ⬜ Import: pull standard `SKILL.md` skills from public GitHub repos (e.g. github.com/anthropics/skills)
+- ⬜ Export: publish generated skills as standard format others can use in Claude Code, Cursor, etc.
+- ⬜ Bridge skill packs: community skill repos per DCC app (blender-skills, houdini-skills, etc.)
+- ⬜ Coordinator/bridge scripts: evaluate whether these become skills with `disable-model-invocation: true` or stay as separate CLAUDE.md-style instructions
+- ⬜ Backward compat: migration script to convert existing DB skills to SKILL.md files
+
+**What stays the same:**
+- Effectiveness tracking (runtime overlay in SQLite, not part of skill files)
+- Search/ranking logic (indexes rebuilt from SKILL.md files)
+- Auto-fetch injection for coordinator/bridge context
+- REST API for CRUD (reads/writes SKILL.md files instead of DB rows)
+
 ## Recent Update (2026-03-30)
 
 - Hybrid tool calling mode for Ollama thinking models (qwen3, etc.): `runChatAgenticLoop()` now auto-detects when a model returns text instead of `tool_calls` and switches to hybrid mode — tool definitions embedded in the system prompt as text, tool calls parsed from content via `parseLocalAgenticAction()`. This preserves the model's thinking/reasoning while working around Ollama's broken thinking+tools interaction (ollama#10976, #14493, #14601). New `buildOllamaHybridSystemMessage()` in the protocol package. Transport layer (`ollamaChatWithTools`) omits the `tools` key from the request body when the array is empty to avoid Ollama's broken serialization. Non-thinking models (llama3.2:3b) continue to use native tool calling with no regression.

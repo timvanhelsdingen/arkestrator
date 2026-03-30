@@ -621,6 +621,13 @@ async function main() {
     materializeSkills({ skillsRepo }),
   );
 
+  // 8a. Create SkillStore (dual-write: SQLite + SKILL.md on disk)
+  const { SkillStore } = await import("./skills/skill-store.js");
+  const skillStore = new SkillStore(skillsRepo, skillIndex, {
+    skillsDir: config.skillsDir,
+    coordinatorPlaybooksDir: config.coordinatorPlaybooksDir,
+  });
+
   // 8b. Create worker loop
   const worker = new WorkerLoop({
     scheduler,

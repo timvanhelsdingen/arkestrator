@@ -21,6 +21,7 @@ export interface Config {
   headlessExecutableHints: Record<string, string[]>;
   coordinatorScriptsDir: string;
   coordinatorPlaybooksDir: string;
+  skillsDir: string;
   coordinatorImportsDir: string;
   snapshotsDir: string;
   coordinatorReferencePaths: string[];
@@ -105,6 +106,7 @@ export function loadConfig(): Config {
     headlessExecutableHints: parseExecutableHints(process.env.HEADLESS_EXECUTABLE_HINTS_JSON),
     coordinatorScriptsDir: process.env.COORDINATOR_SCRIPTS_DIR ?? join(dataDir, "coordinator-scripts"),
     coordinatorPlaybooksDir: process.env.COORDINATOR_PLAYBOOKS_DIR ?? join(dataDir, "coordinator-playbooks"),
+    skillsDir: process.env.SKILLS_DIR ?? join(dataDir, "skills"),
     coordinatorImportsDir: process.env.COORDINATOR_IMPORTS_DIR ?? join(dataDir, "coordinator-imports"),
     snapshotsDir: process.env.SNAPSHOTS_DIR ?? join(dataDir, "snapshots"),
     coordinatorReferencePaths: parsePathList(process.env.COORDINATOR_REFERENCE_PATHS),
