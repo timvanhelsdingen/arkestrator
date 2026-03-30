@@ -1109,6 +1109,67 @@ export async function executeLocalAgenticToolCall(
     };
   }
 
+  // ── Skill tools (direct repo access, no HTTP round-trip) ─────────────
+  if (call.tool === "search_skills") {
+    const query = parseStringArg(args.query);
+    if (!query) return { ok: false, error: "search_skills requires a query" };
+    if (!deps.skillIndex) return { ok: false, error: "Skills system not available" };
+    const program = parseStringArg(args.program) || undefined;
+    const results = deps.skillIndex.search(query, { limit: 8, program });
+    if (results.length === 0) return { ok: true, data: "No matching skills found." };
+    return {
+      ok: true,
+      data: results.map((r) => ({
+        slug: r.slug, program: r.program, title: r.title, score: r.score?.toFixed(2),
+      })),
+    };
+  }
+
+  if (call.tool === "get_skill") {
+    const slug = parseStringArg(args.slug);
+    if (!slug) return { ok: false, error: "get_skill requires a slug" };
+    if (!deps.skillIndex) return { ok: false, error: "Skills system not available" };
+    const program = parseStringArg(args.program) || undefined;
+    const skill = deps.skillIndex.get(slug, program);
+    if (!skill) return { ok: false, error: `Skill not found: ${slug}` };
+    return { ok: true, data: `# ${skill.title || slug} [${skill.program}]\n\n${skill.content || "(empty)"}` };
+  }
+
+  if (call.tool === "create_skill") {
+    const slug = parseStringArg(args.slug);
+    const title = parseStringArg(args.title);
+    const program = parseStringArg(args.program);
+    const content = parseStringArg(args.content);
+    if (!slug || !title || !program || !content) {
+      return { ok: false, error: "create_skill requires slug, title, program, content" };
+    }
+    if (!deps.skillsRepo) return { ok: false, error: "Skills system not available" };
+    try {
+      deps.skillsRepo.upsertBySlugAndProgram({
+        name: slug, slug, program, title, description: title, content,
+        category: parseStringArg(args.category) || "custom",
+        keywords: Array.isArray(args.keywords) ? args.keywords : [program, slug],
+        source: "agent", priority: 50, autoFetch: false, enabled: true,
+      });
+      deps.skillIndex?.refresh();
+      return { ok: true, data: `Skill created: ${slug} [${program}]` };
+    } catch (err: any) {
+      return { ok: false, error: `create_skill failed: ${err.message}` };
+    }
+  }
+
+  if (call.tool === "rate_skill") {
+    const slug = parseStringArg(args.slug);
+    const rating = parseStringArg(args.rating);
+    if (!slug || !rating) return { ok: false, error: "rate_skill requires slug and rating" };
+    if (!deps.skillIndex || !deps.skillEffectivenessRepo) return { ok: false, error: "Skills system not available" };
+    const skill = deps.skillIndex.get(slug);
+    if (!skill) return { ok: false, error: `Skill not found: ${slug}` };
+    const outcomeMap: Record<string, string> = { useful: "positive", not_useful: "negative", partial: "average" };
+    deps.skillEffectivenessRepo.recordSkillOutcome(skill.id, job.id, outcomeMap[rating] || "average");
+    return { ok: true, data: `Rated: ${slug} → ${rating}` };
+  }
+
   return { ok: false, error: `Unsupported tool: ${call.tool}` };
 }
 

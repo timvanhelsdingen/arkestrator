@@ -6,6 +6,10 @@ export const LocalAgenticToolName = z.enum([
   "execute_command",
   "execute_multiple_commands",
   "run_headless_check",
+  "search_skills",
+  "get_skill",
+  "create_skill",
+  "rate_skill",
   "list_agent_configs",
   "create_job",
   "get_job_status",
@@ -246,6 +250,10 @@ export function buildLocalAgenticTurnPrompt(
     "- execute_command(target, language, script, description?, timeout?)",
     "- execute_multiple_commands(target, commands[], timeout?)",
     "- run_headless_check(program, args[], project_path?, timeout?)",
+    "- search_skills(query, program?) — search learned skills for patterns, techniques, known pitfalls",
+    "- get_skill(slug, program?) — load full skill content",
+    "- create_skill(slug, title, program, content, keywords?, category?) — save something you learned",
+    "- rate_skill(slug, rating: useful|not_useful|partial) — rate a skill after using it",
   ];
   if (allowDelegationTools) {
     toolLines.push(
@@ -272,6 +280,12 @@ export function buildLocalAgenticTurnPrompt(
     "- So write one complete self-contained Python script per execute_command call.",
     "- For Godot/GDScript: `script` must be valid GDScript with `func run(editor: EditorInterface) -> void:` as the entrypoint.",
     "- Keep `target` as bridge program name (for example `godot`, `blender`, `houdini`).",
+    "",
+    "## Skills — search before executing",
+    "- FIRST call search_skills with your task type (e.g. 'blender donut', 'houdini terrain').",
+    "- If results found, call get_skill to load patterns and known pitfalls BEFORE writing code.",
+    "- After completing work, call create_skill if you learned something non-trivial.",
+    "- Rate skills you used with rate_skill(slug, 'useful'|'not_useful'|'partial').",
     "",
     allowDelegationTools
       ? "Use create_job/list_jobs/get_job_status when work splits cleanly across bridges, agents, workers, or long-running background tasks. If one branch can keep progressing while another renders, simulates, bakes, or generates assets, proactively fan out and then join with get_job_status."
