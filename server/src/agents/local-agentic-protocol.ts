@@ -12,6 +12,9 @@ export {
   compactJson,
   promptRequestsDelegation,
   runAgenticLoop,
+  runChatAgenticLoop,
+  getOllamaToolSchemas,
+  buildOllamaSystemMessage,
 } from "@arkestrator/protocol";
 export type {
   ParsedLocalAgenticAction,
@@ -22,4 +25,8 @@ export type {
   AgenticLoopLlmResponse,
   AgenticLoopToolResult,
   AgenticLoopCommandRecord,
+  AgenticLoopChatResponse,
+  OllamaChatMessage,
+  OllamaToolSchema,
+  OllamaToolCall,
 } from "@arkestrator/protocol";
