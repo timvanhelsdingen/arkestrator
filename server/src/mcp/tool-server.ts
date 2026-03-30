@@ -1136,9 +1136,15 @@ export function createMcpServer(deps: McpDeps): McpServer {
       if (!skill) {
         return { content: [{ type: "text" as const, text: `Skill not found: ${slug}` }], isError: true };
       }
-      // Record usage for effectiveness tracking
-      if (deps.skillEffectivenessRepo && deps.callerJobId) {
-        deps.skillEffectivenessRepo.recordUsage(skill.id, deps.callerJobId);
+      // Record usage for effectiveness tracking — skip for system jobs
+      // (housekeeping/training review all skills as part of their job)
+      if (deps.skillEffectivenessRepo && deps.callerJobId && deps.jobsRepo) {
+        const callerJob = deps.jobsRepo.get(deps.callerJobId);
+        const meta = (() => { try { return JSON.parse(callerJob?.editorContext || "{}").metadata || {}; } catch { return {}; } })();
+        const isSystem = meta.housekeeping || meta.coordinator_training_job || meta.coordinator_training_orchestrator || meta.coordinator_training_analysis_job;
+        if (!isSystem) {
+          deps.skillEffectivenessRepo.recordUsage(skill.id, deps.callerJobId);
+        }
       }
       // Resolve template variables using live bridge state
       let content = skill.content;
