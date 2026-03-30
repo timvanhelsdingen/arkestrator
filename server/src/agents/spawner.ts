@@ -2281,15 +2281,10 @@ export async function spawnAgent(
         searchText.includes("Max turns") ||
         searchText.includes("max_turns");
 
-      // Check if coordinator intentionally exited after dispatching all sub-jobs
-      const intentionalExit =
-        searchText.includes("All sub-jobs dispatched") ||
-        searchText.includes("Pipeline complete") ||
-        searchText.includes("pipeline complete") ||
-        searchText.includes("all jobs created") ||
-        searchText.includes("All jobs created");
-
-      if (intentionalExit && !hitMaxTurns) {
+      // Exit code 0 means the agent finished normally. If it dispatched children
+      // and exited cleanly, that's intentional — children run independently.
+      // Only treat as failure if it hit max-turns (agent ran out of budget).
+      if (!hitMaxTurns) {
         // Coordinator is done dispatching — mark as completed, children run independently
         logger.info("spawner", `Job ${job.id}: coordinator dispatched all sub-jobs and exited cleanly`);
         deps.jobsRepo.complete(job.id, [], logBuffer);
