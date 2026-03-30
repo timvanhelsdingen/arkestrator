@@ -266,9 +266,6 @@ export function buildLocalAgenticTurnPrompt(
     : undefined;
 
   return [
-    // Qwen3 models: disable extended thinking to avoid slow <think> blocks
-    "/no_think",
-    "",
     LOCAL_AGENTIC_PROTOCOL_INSTRUCTIONS,
     ...(trimmedCustomPrompt ? ["", "## Additional Instructions", trimmedCustomPrompt] : []),
     "",
