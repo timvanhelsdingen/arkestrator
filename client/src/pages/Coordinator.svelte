@@ -4,7 +4,7 @@
   import { getLocalWorkerName } from "../lib/api/ws";
   import { api } from "../lib/api/rest";
 
-  type ScopeTab = "server" | "training" | "client";
+  type ScopeTab = "server" | "training";
   type AnalyzeStatus = "queued" | "running" | "completed" | "failed";
   type AnalyzeMode = "fast" | "ai";
 
@@ -106,7 +106,7 @@
   );
 
   let program = $state<string>("global");
-  let scopeTab = $state<ScopeTab>("training");
+  let scopeTab = $state<ScopeTab>("server");
   type ScriptEditorTarget = "global" | "bridge" | null;
   let scriptEditorTarget = $state<ScriptEditorTarget>(null);
   let scriptEditorDraft = $state("");
@@ -1346,14 +1346,11 @@
     <div class="coord-toolbar-bar">
       <div class="coord-toolbar-row">
         <div class="tabs">
+          <button class="tab" class:active={scopeTab === "server"} onclick={() => setScopeTab("server")}>
+            Skills
+          </button>
           <button class="tab" class:active={scopeTab === "training"} onclick={() => setScopeTab("training")}>
             Training & Maintenance
-          </button>
-          <button class="tab" class:active={scopeTab === "server"} onclick={() => setScopeTab("server")}>
-            Server Config
-          </button>
-          <button class="tab" class:active={scopeTab === "client"} onclick={() => setScopeTab("client")}>
-            Client Config
           </button>
         </div>
         {#if scopeTab !== "training"}
