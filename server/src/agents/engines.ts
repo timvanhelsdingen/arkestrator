@@ -641,6 +641,10 @@ am exec blender --lang python -f /tmp/script.py
 - \`am jobs status <jobId>\` — poll sub-job
 - \`am jobs list\` — list jobs
 - \`am headless-check <program>\` — validate headless execution
+- \`am skills search '<query>'\` — search learned skills
+- \`am skills get <slug>\` — load a skill's content
+- \`am skills create --slug <slug> --title '<title>' --program <program> --content '<content>'\` — save a new skill
+- \`am skills rate <slug> <useful|not_useful|partial>\` — rate a skill after using it
 
 **REST API fallback** (if \`am\` is unavailable): use curl with \`$ARKESTRATOR_URL\` and \`$ARKESTRATOR_API_KEY\` env vars:
 \`\`\`bash

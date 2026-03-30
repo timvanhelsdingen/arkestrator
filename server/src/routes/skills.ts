@@ -517,6 +517,37 @@ export function createSkillsRoutes(
     return c.json({ stats, records });
   });
 
+  // POST /:slug/rate — rate a skill's usefulness for a job (for non-MCP agents via am CLI)
+  router.post("/:slug/rate", async (c) => {
+    const auth = await requireAuth(c);
+    if (!auth) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+
+    const slug = c.req.param("slug");
+    let body: any;
+    try { body = await c.req.json(); } catch { return errorResponse(c, 400, "Invalid JSON", "INVALID_INPUT"); }
+
+    const program = body?.program;
+    const rating = body?.rating; // "useful" | "not_useful" | "partial"
+    const jobId = body?.jobId || c.req.header("x-job-id");
+
+    if (!rating || !jobId) {
+      return errorResponse(c, 400, "Missing required fields: rating, jobId", "INVALID_INPUT");
+    }
+
+    const skill = skillIndex.get(slug, program || undefined);
+    if (!skill) return errorResponse(c, 404, `Skill not found: ${slug}`, "NOT_FOUND");
+
+    if (!skillEffectivenessRepo) {
+      return errorResponse(c, 500, "Skill effectiveness tracking not available", "INTERNAL");
+    }
+
+    const outcomeMap: Record<string, string> = { useful: "positive", not_useful: "negative", partial: "average", positive: "positive", negative: "negative", average: "average" };
+    const outcome = outcomeMap[rating] || "average";
+    skillEffectivenessRepo.recordSkillOutcome(skill.id, jobId, outcome);
+
+    return c.json({ ok: true, slug, rating, outcome });
+  });
+
   // GET /:slug/playbook-content — load referenced playbook artifact content
   router.get("/:slug/playbook-content", async (c) => {
     const auth = await requireAuth(c);

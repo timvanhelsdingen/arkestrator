@@ -38,6 +38,13 @@ function printUsage() {
   console.log("  am jobs create -f <job.json>");
   console.log("  am headless-check <program> --args '[\\"--headless\\",\\"--path\\",\\"/project\\"]'");
   console.log("  am headless-check <program> -f <headless-check.json>");
+  console.log("  am skills search <query> [--program <program>]");
+  console.log("  am skills get <slug> [--program <program>]");
+  console.log("  am skills create --slug <slug> --title <title> --program <program> --content <content> [--keywords <k1,k2>]");
+  console.log("  am skills create -f <skill.json>");
+  console.log("  am skills update <slug> [--program <program>] [--content <content>] [--title <title>] [--keywords <k1,k2>]");
+  console.log("  am skills rate <slug> <useful|not_useful|partial> [--program <program>]");
+  console.log("  am skills list [--program <program>]");
   console.log("  am help");
 }
 
@@ -354,6 +361,113 @@ async function cmdHeadlessCheck(rest) {
   else console.log(JSON.stringify(data, null, 2));
 }
 
+async function cmdSkills(rest) {
+  const sub = rest[0];
+  if (!sub) throw new Error("Usage: am skills <search|get|create|update|rate|list> ...");
+
+  if (sub === "list") {
+    const program = takeOption(rest.slice(1), ["--program", "-p"]);
+    const qs = program ? "?program=" + encodeURIComponent(program) : "";
+    const data = await request("/api/skills" + qs);
+    const skills = data.skills || data || [];
+    for (const s of skills) {
+      console.log(s.slug + " [" + s.program + "] " + (s.title || s.name));
+    }
+    return;
+  }
+
+  if (sub === "search") {
+    const query = rest.slice(1).filter(a => !a.startsWith("--")).join(" ");
+    const args = rest.slice(1);
+    const program = takeOption(args, ["--program", "-p"]);
+    if (!query) throw new Error("Usage: am skills search <query> [--program <program>]");
+    const body = { query, limit: 10 };
+    if (program) body.program = program;
+    const data = await request("/api/skills/search", { method: "POST", body: JSON.stringify(body) });
+    const results = data.results || [];
+    if (results.length === 0) { console.log("No matching skills found."); return; }
+    for (const r of results) {
+      console.log(r.slug + " [" + r.program + "] score=" + (r.score || 0).toFixed(2) + " — " + (r.title || r.name));
+    }
+    return;
+  }
+
+  if (sub === "get") {
+    const slug = rest[1];
+    const args = rest.slice(1);
+    const program = takeOption(args, ["--program", "-p"]);
+    if (!slug) throw new Error("Usage: am skills get <slug> [--program <program>]");
+    const qs = program ? "?program=" + encodeURIComponent(program) : "";
+    const data = await request("/api/skills/" + encodeURIComponent(slug) + qs);
+    if (data.content) {
+      console.log("# " + (data.title || data.slug) + " [" + data.program + "]");
+      console.log(data.content);
+    } else {
+      console.log(JSON.stringify(data, null, 2));
+    }
+    return;
+  }
+
+  if (sub === "create") {
+    const args = rest.slice(1);
+    const file = takeOption(args, ["-f", "--file"]);
+    let body;
+    if (file) {
+      body = JSON.parse(fs.readFileSync(file, "utf-8"));
+    } else {
+      const slug = takeOption(args, ["--slug"]);
+      const title = takeOption(args, ["--title"]);
+      const program = takeOption(args, ["--program"]);
+      const content = takeOption(args, ["--content"]);
+      const keywordsRaw = takeOption(args, ["--keywords"]);
+      const category = takeOption(args, ["--category"]) || "custom";
+      if (!slug || !title || !program || !content) {
+        throw new Error("Usage: am skills create --slug <slug> --title <title> --program <program> --content <content>");
+      }
+      body = { slug, title, program, content, category, keywords: keywordsRaw ? keywordsRaw.split(",") : [program, slug] };
+    }
+    const data = await request("/api/skills", { method: "POST", body: JSON.stringify(body) });
+    console.log("Skill created: " + (data.slug || body.slug));
+    return;
+  }
+
+  if (sub === "update") {
+    const slug = rest[1];
+    if (!slug) throw new Error("Usage: am skills update <slug> [--content <content>] [--title <title>]");
+    const args = rest.slice(2);
+    const program = takeOption(args, ["--program", "-p"]);
+    const content = takeOption(args, ["--content"]);
+    const title = takeOption(args, ["--title"]);
+    const keywordsRaw = takeOption(args, ["--keywords"]);
+    const body = {};
+    if (content) body.content = content;
+    if (title) body.title = title;
+    if (keywordsRaw) body.keywords = keywordsRaw.split(",");
+    if (program) body.program = program;
+    const qs = program ? "?program=" + encodeURIComponent(program) : "";
+    const data = await request("/api/skills/" + encodeURIComponent(slug) + qs, { method: "PUT", body: JSON.stringify(body) });
+    console.log("Skill updated: " + slug);
+    return;
+  }
+
+  if (sub === "rate") {
+    const slug = rest[1];
+    const rating = rest[2]; // useful, not_useful, partial
+    if (!slug || !rating) throw new Error("Usage: am skills rate <slug> <useful|not_useful|partial> [--program <program>]");
+    const args = rest.slice(3);
+    const program = takeOption(args, ["--program", "-p"]);
+    const body = { rating, jobId: JOB_ID, program: program || undefined };
+    if (!JOB_ID) {
+      console.error("Warning: ARKESTRATOR_JOB_ID not set, rating may not be linked to a job");
+    }
+    const data = await request("/api/skills/" + encodeURIComponent(slug) + "/rate", { method: "POST", body: JSON.stringify(body) });
+    console.log("Rated: " + slug + " → " + rating);
+    return;
+  }
+
+  throw new Error("Unknown skills subcommand: " + sub + ". Use: search, get, create, update, rate, list");
+}
+
 async function main() {
   const [,, cmd, ...rest] = process.argv;
   if (!cmd || cmd === "help" || cmd === "--help") {
@@ -370,6 +484,7 @@ async function main() {
     if (cmd === "agent-configs" || cmd === "configs") return await cmdAgentConfigs();
     if (cmd === "jobs") return await cmdJobs(rest);
     if (cmd === "headless-check") return await cmdHeadlessCheck(rest);
+    if (cmd === "skills" || cmd === "skill") return await cmdSkills(rest);
 
     throw new Error("Unknown command: " + cmd + ". Run 'am help' for usage.");
   } catch (err) {
