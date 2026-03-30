@@ -193,6 +193,13 @@ export async function runAgenticLoop(
       return mkResult({ success: false, error: llmResult.error });
     }
     if (llmResult.timedOut) {
+      // If we already executed commands successfully, a timeout on a follow-up
+      // turn is likely just the model being slow to produce a summary. Treat as
+      // success rather than failing a job that actually did its work.
+      if (executedCommands.length > 0) {
+        deps.log(`${prefix} Turn ${turn} timed out after ${turnTimeoutMs}ms but commands already executed — treating as done`);
+        return mkResult({ success: true });
+      }
       return mkResult({
         success: false,
         error: `Local runtime turn ${turn} timed out after ${turnTimeoutMs}ms`,
