@@ -822,6 +822,13 @@ export const api = {
       }),
     runHousekeepingNow: () =>
       request("/api/settings/housekeeping/run-now", { method: "POST" }),
+    getHousekeepingSchedule: () =>
+      request("/api/settings/housekeeping-schedule") as Promise<{ enabled: boolean; intervalMinutes: number; lastRunAt?: string }>,
+    setHousekeepingSchedule: (payload: { enabled?: boolean; intervalMinutes?: number }) =>
+      request("/api/settings/housekeeping-schedule", {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      }),
     getCoordinatorEditors: () => request("/api/settings/coordinator-editors"),
     setCoordinatorEditors: (userIds: string[]) =>
       request("/api/settings/coordinator-editors", {

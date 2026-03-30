@@ -3,7 +3,11 @@
 ## Purpose
 Primary user-facing desktop dashboard (Tauri v2 + Svelte 5). Users manage jobs, configure agents, view workers, manage projects. Connects to server via REST + WebSocket.
 
-## Recent Updates (2026-03-29)
+## Recent Updates (2026-03-30)
+- Coordinator page renamed to "Skills & Training" (2026-03-30): Page header changed from "Coordinator" to "Skills & Training". Sidebar already had this label.
+- Coordinator 3-tab split (2026-03-30): "Training & Maintenance" tab split into separate "Training" and "Maintenance" tabs. Training tab keeps the training job queue form. New Maintenance tab (admin-only) exposes housekeeping schedule (enable/disable, interval, last run, Run Now) and training schedule (enable/disable, interval, auto-apply toggle, per-program selection, last/next run per program) with a Save button. `lib/api/rest.ts` adds `getHousekeepingSchedule()` and `setHousekeepingSchedule()` methods.
+
+## Updates (2026-03-29)
 - Sub-job cascade selection in Jobs page (2026-03-29): `pages/Jobs.svelte` `toggleCheckbox()` now cascades selection to all descendant jobs when toggling a parent job checkbox on or off. New `getDescendantIds(jobId)` helper collects all child/grandchild IDs using `childJobsByParent` map. `cancelJob()` now shows a confirm dialog when the job has active sub-jobs, asking if children should be cancelled too; if confirmed, cancels all active descendants before cancelling the parent. Bulk delete/archive automatically includes children via the cascaded selection.
 - Run Maintenance/Housekeeping from Jobs and Coordinator pages (2026-03-29): `pages/Jobs.svelte` adds admin-only "Maintenance" and "Housekeeping" buttons in the toolbar (filter bar area). Imports `connection` store for role check. `pages/Coordinator.svelte` adds admin-only "Run Housekeeping" button alongside "Run Maintenance" in the actions area. `lib/api/rest.ts` adds `runHousekeepingNow()` method calling `POST /api/settings/housekeeping/run-now`.
 - Coordinator "Training" tab renamed to "Maintenance" (2026-03-29): All user-visible labels in `pages/Coordinator.svelte` updated: tab button text, section header ("Maintenance Dashboard"), form labels ("Source Paths", "Agent / Model", "Worker", "Analysis Level", "Objective"), action button ("Run Maintenance"), toast messages, and blocked-reason text. Internal variable names, API paths, and CSS classes unchanged. "Training" still used for actual file/folder training concepts (Training Vault, skill categories). `pages/Jobs.svelte` filter dropdown option also renamed from "Training" to "Maintenance".

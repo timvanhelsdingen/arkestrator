@@ -4,7 +4,7 @@
   import { getLocalWorkerName } from "../lib/api/ws";
   import { api } from "../lib/api/rest";
 
-  type ScopeTab = "server" | "training";
+  type ScopeTab = "server" | "training" | "maintenance";
   type AnalyzeStatus = "queued" | "running" | "completed" | "failed";
   type AnalyzeMode = "fast" | "ai";
 
@@ -156,6 +156,12 @@
   });
   let trainingLastRunByProgram = $state<Record<string, string>>({});
   let trainingNextRunByProgram = $state<Record<string, string | null>>({});
+  let trainingKnownPrograms = $state<string[]>([]);
+  let housekeepingSchedule = $state<{ enabled: boolean; intervalMinutes: number; lastRunAt?: string }>({
+    enabled: true,
+    intervalMinutes: 24 * 60,
+  });
+  let maintenanceSaving = $state(false);
 
   // Server source entries (admin)
   let serverSources = $state<SourceEntry[]>([]);
@@ -640,7 +646,7 @@
           loadTrainingAgentOptions(),
           loadTrainingWorkerOptions(),
         ]);
-        await loadTrainingSchedule();
+        await Promise.all([loadTrainingSchedule(), loadHousekeepingSchedule()]);
       } else {
         trainingLastRunByProgram = {};
         trainingNextRunByProgram = {};
@@ -766,6 +772,46 @@
     trainingNextRunByProgram = result?.nextRunByProgram && typeof result.nextRunByProgram === "object"
       ? result.nextRunByProgram as Record<string, string | null>
       : {};
+    trainingKnownPrograms = Array.isArray(result?.knownPrograms) ? result.knownPrograms : [];
+  }
+
+  async function loadHousekeepingSchedule() {
+    if (!isAdmin) return;
+    try {
+      const result = await api.settings.getHousekeepingSchedule();
+      if (result) {
+        housekeepingSchedule = {
+          enabled: result.enabled !== false,
+          intervalMinutes: Number.isFinite(Number(result.intervalMinutes))
+            ? Math.max(5, Number(result.intervalMinutes))
+            : 24 * 60,
+          lastRunAt: result.lastRunAt,
+        };
+      }
+    } catch { /* ignore */ }
+  }
+
+  async function saveMaintenanceSettings() {
+    maintenanceSaving = true;
+    try {
+      await Promise.all([
+        api.settings.setHousekeepingSchedule({
+          enabled: housekeepingSchedule.enabled,
+          intervalMinutes: housekeepingSchedule.intervalMinutes,
+        }),
+        api.settings.setCoordinatorTrainingSchedule({
+          enabled: trainingSchedule.enabled,
+          intervalMinutes: trainingSchedule.intervalMinutes,
+          apply: trainingSchedule.apply,
+          programs: trainingSchedule.programs,
+        }),
+      ]);
+      await Promise.all([loadHousekeepingSchedule(), loadTrainingSchedule()]);
+    } catch (err) {
+      console.error("Failed to save maintenance settings:", err);
+    } finally {
+      maintenanceSaving = false;
+    }
   }
 
 
@@ -1144,6 +1190,10 @@
   function setScopeTab(nextTab: ScopeTab) {
     scopeTab = nextTab;
     if (nextTab !== "server") closeScriptEditor();
+    if (nextTab === "maintenance" && isAdmin) {
+      loadHousekeepingSchedule();
+      loadTrainingSchedule();
+    }
   }
 
   async function loadSkills() {
@@ -1336,7 +1386,7 @@
 </script>
 
 <div class="coordinator-page">
-  <h2>Coordinator</h2>
+  <h2>Skills & Training</h2>
   {#if !canManage}
     <div class="panel">
       <p>You don't have permission to manage coordinator resources.</p>
@@ -1350,10 +1400,15 @@
             Skills
           </button>
           <button class="tab" class:active={scopeTab === "training"} onclick={() => setScopeTab("training")}>
-            Training & Maintenance
+            Training
           </button>
+          {#if isAdmin}
+            <button class="tab" class:active={scopeTab === "maintenance"} onclick={() => setScopeTab("maintenance")}>
+              Maintenance
+            </button>
+          {/if}
         </div>
-        {#if scopeTab !== "training"}
+        {#if scopeTab === "server"}
           <div class="toolbar-select">
             <label>
               Bridge
@@ -1529,9 +1584,9 @@
       </section>
     {:else if scopeTab === "training"}
       <section class="panel training-dashboard-panel">
-        <h3>Training & Maintenance</h3>
+        <h3>Training</h3>
         <p class="desc">
-          Queue a training job from source paths and/or attached files, or run maintenance to analyze job results and refine skills.
+          Queue a training job from source paths and/or attached files to teach the coordinator new patterns.
         </p>
         {#if !canQueueTraining}
           <p class="mini">
@@ -1658,11 +1713,6 @@
           <button class="btn secondary" onclick={queueTrainingJobForProgram} disabled={trainingJobStarting || !canQueueTraining}>
             {trainingJobStarting ? "Queueing..." : "Run Training"}
           </button>
-          {#if isAdmin}
-            <button class="btn secondary" onclick={runHousekeepingNow} disabled={housekeepingRunning}>
-              {housekeepingRunning ? "Running..." : "Run Housekeeping"}
-            </button>
-          {/if}
           <button class="btn secondary" onclick={clearTrainingInputs} disabled={trainingJobStarting}>
             Clear Inputs
           </button>
@@ -1674,14 +1724,6 @@
             ? ` + ${trainingUploadFiles.length} uploaded input${trainingUploadFiles.length === 1 ? "" : "s"}`
             : ""}.
         </p>
-        {#if isAdmin}
-          <p class="mini">
-            Last run ({program}): {formatDateTime(trainingLastRunByProgram[normalizeProgramKey(program)])}
-          </p>
-          <p class="mini">
-            Next run ({program}): {formatDateTime(trainingNextRunByProgram[normalizeProgramKey(program)])}
-          </p>
-        {/if}
         {#if trainingLastQueued}
           <div class="source-item training-last-queued">
             <strong>Last Queued Training Job</strong>
@@ -1705,6 +1747,146 @@
             <div class="mini">Queued at {formatDateTime(trainingLastQueued.queuedAt)}</div>
           </div>
         {/if}
+      </section>
+    {:else if scopeTab === "maintenance"}
+      <section class="panel maintenance-panel">
+        <h3>Maintenance</h3>
+        <p class="desc">
+          Schedule and run housekeeping and training jobs automatically.
+        </p>
+
+        <div class="maintenance-section">
+          <h4>Housekeeping Schedule</h4>
+          <p class="mini">Housekeeping reviews recent job results and refines skills automatically.</p>
+          <label class="toggle">
+            <input
+              type="checkbox"
+              checked={housekeepingSchedule.enabled}
+              onchange={(e) =>
+                (housekeepingSchedule = {
+                  ...housekeepingSchedule,
+                  enabled: (e.target as HTMLInputElement).checked,
+                })}
+            />
+            <span>Enable scheduled housekeeping</span>
+          </label>
+          <label>
+            Interval (minutes)
+            <input
+              type="number"
+              min="5"
+              max="10080"
+              value={housekeepingSchedule.intervalMinutes}
+              oninput={(e) =>
+                (housekeepingSchedule = {
+                  ...housekeepingSchedule,
+                  intervalMinutes: Math.max(5, Number((e.target as HTMLInputElement).value) || 1440),
+                })}
+            />
+            <span class="mini">
+              {housekeepingSchedule.intervalMinutes >= 1440
+                ? `Every ${(housekeepingSchedule.intervalMinutes / 1440).toFixed(1).replace(/\.0$/, "")} day${housekeepingSchedule.intervalMinutes >= 2880 ? "s" : ""}`
+                : housekeepingSchedule.intervalMinutes >= 60
+                  ? `Every ${(housekeepingSchedule.intervalMinutes / 60).toFixed(1).replace(/\.0$/, "")} hour${housekeepingSchedule.intervalMinutes >= 120 ? "s" : ""}`
+                  : `Every ${housekeepingSchedule.intervalMinutes} minutes`}
+            </span>
+          </label>
+          {#if housekeepingSchedule.lastRunAt}
+            <p class="mini">Last run: {formatDateTime(housekeepingSchedule.lastRunAt)}</p>
+          {/if}
+          <div class="actions" style="margin-top: 8px;">
+            <button class="btn secondary" onclick={runHousekeepingNow} disabled={housekeepingRunning}>
+              {housekeepingRunning ? "Running..." : "Run Housekeeping Now"}
+            </button>
+          </div>
+        </div>
+
+        <div class="maintenance-section">
+          <h4>Training Schedule</h4>
+          <p class="mini">Automatically run training on a recurring interval.</p>
+          <label class="toggle">
+            <input
+              type="checkbox"
+              checked={trainingSchedule.enabled}
+              onchange={(e) =>
+                (trainingSchedule = {
+                  ...trainingSchedule,
+                  enabled: (e.target as HTMLInputElement).checked,
+                })}
+            />
+            <span>Enable scheduled training</span>
+          </label>
+          <label>
+            Interval (minutes)
+            <input
+              type="number"
+              min="5"
+              max="10080"
+              value={trainingSchedule.intervalMinutes}
+              oninput={(e) =>
+                (trainingSchedule = {
+                  ...trainingSchedule,
+                  intervalMinutes: Math.max(5, Number((e.target as HTMLInputElement).value) || 1440),
+                })}
+            />
+            <span class="mini">
+              {trainingSchedule.intervalMinutes >= 1440
+                ? `Every ${(trainingSchedule.intervalMinutes / 1440).toFixed(1).replace(/\.0$/, "")} day${trainingSchedule.intervalMinutes >= 2880 ? "s" : ""}`
+                : trainingSchedule.intervalMinutes >= 60
+                  ? `Every ${(trainingSchedule.intervalMinutes / 60).toFixed(1).replace(/\.0$/, "")} hour${trainingSchedule.intervalMinutes >= 120 ? "s" : ""}`
+                  : `Every ${trainingSchedule.intervalMinutes} minutes`}
+            </span>
+          </label>
+          <label class="toggle">
+            <input
+              type="checkbox"
+              checked={trainingSchedule.apply}
+              onchange={(e) =>
+                (trainingSchedule = {
+                  ...trainingSchedule,
+                  apply: (e.target as HTMLInputElement).checked,
+                })}
+            />
+            <span>Auto-apply to playbook/script files</span>
+          </label>
+          {#if trainingKnownPrograms.length > 0}
+            <div class="program-checkboxes">
+              <span class="label">Programs</span>
+              {#each trainingKnownPrograms as prog}
+                <label class="toggle">
+                  <input
+                    type="checkbox"
+                    checked={trainingSchedule.programs.includes(prog)}
+                    onchange={(e) => {
+                      const checked = (e.target as HTMLInputElement).checked;
+                      trainingSchedule = {
+                        ...trainingSchedule,
+                        programs: checked
+                          ? [...trainingSchedule.programs, prog]
+                          : trainingSchedule.programs.filter((p) => p !== prog),
+                      };
+                    }}
+                  />
+                  <span>{prog}</span>
+                </label>
+              {/each}
+            </div>
+          {/if}
+          {#each Object.entries(trainingLastRunByProgram) as [prog, ts]}
+            <p class="mini">Last run ({prog}): {formatDateTime(ts)}</p>
+          {/each}
+          {#each Object.entries(trainingNextRunByProgram) as [prog, ts]}
+            {#if ts}
+              <p class="mini">Next run ({prog}): {formatDateTime(ts)}</p>
+            {/if}
+          {/each}
+        </div>
+
+        <div class="actions" style="margin-top: 16px;">
+          <button class="btn primary" onclick={saveMaintenanceSettings} disabled={maintenanceSaving}>
+            {maintenanceSaving ? "Saving..." : "Save Schedules"}
+          </button>
+        </div>
       </section>
     {:else}
       <section class="panel">
@@ -1972,6 +2154,32 @@
   .training-dashboard-panel {
     display: grid;
     gap: 8px;
+  }
+  .maintenance-panel {
+    display: grid;
+    gap: 12px;
+  }
+  .maintenance-section {
+    display: grid;
+    gap: 8px;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .maintenance-section h4 {
+    margin: 0;
+    font-size: var(--font-size-base);
+    color: var(--fg);
+  }
+  .program-checkboxes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    align-items: center;
+  }
+  .program-checkboxes .label {
+    font-size: var(--font-size-sm);
+    color: var(--fg-muted);
   }
   .training-source-paths {
     margin-bottom: 8px;
