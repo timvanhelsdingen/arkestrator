@@ -13,6 +13,7 @@ export interface AgentTemplate {
   model?: string;
   maxTurns: number;
   systemPrompt?: string;
+  localModelHost?: "server" | "client";
   priority: number;
   onboarding?: AgentTemplateOnboarding;
 }
@@ -147,6 +148,7 @@ export const AGENT_TEMPLATES: AgentTemplate[] = [
     command: "ollama",
     args: ["run", "{{MODEL}}"],
     model: "llama3.2:latest",
+    localModelHost: "server",
     maxTurns: 300,
     priority: 50,
   },

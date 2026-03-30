@@ -6,6 +6,10 @@ export interface SkillEffectivenessRecord {
   skillId: string;
   jobId: string;
   jobOutcome: string | null;
+  ratingNotes: string | null;
+  relevance: string | null;
+  accuracy: string | null;
+  completeness: string | null;
   createdAt: string;
 }
 
@@ -46,11 +50,30 @@ export class SkillEffectivenessRepo {
   }
 
   /** Update the outcome for a specific skill+job pair (agent self-assessment). */
-  recordSkillOutcome(skillId: string, jobId: string, outcome: string): void {
+  recordSkillOutcome(
+    skillId: string,
+    jobId: string,
+    outcome: string,
+    extra?: { notes?: string; relevance?: string; accuracy?: string; completeness?: string },
+  ): void {
     try {
       this.db.prepare(
-        `UPDATE skill_effectiveness SET job_outcome = ? WHERE skill_id = ? AND job_id = ?`,
-      ).run(outcome, skillId, jobId);
+        `UPDATE skill_effectiveness
+         SET job_outcome = ?,
+             rating_notes = COALESCE(?, rating_notes),
+             relevance = COALESCE(?, relevance),
+             accuracy = COALESCE(?, accuracy),
+             completeness = COALESCE(?, completeness)
+         WHERE skill_id = ? AND job_id = ?`,
+      ).run(
+        outcome,
+        extra?.notes ?? null,
+        extra?.relevance ?? null,
+        extra?.accuracy ?? null,
+        extra?.completeness ?? null,
+        skillId,
+        jobId,
+      );
     } catch {
       // Table may not exist
     }
@@ -134,17 +157,102 @@ export class SkillEffectivenessRepo {
       const rows = this.db.prepare(
         `SELECT * FROM skill_effectiveness WHERE skill_id = ? ORDER BY created_at DESC LIMIT ?`,
       ).all(skillId, limit) as Array<{
-        id: string; skill_id: string; job_id: string; job_outcome: string | null; created_at: string;
+        id: string; skill_id: string; job_id: string; job_outcome: string | null;
+        rating_notes: string | null; relevance: string | null; accuracy: string | null; completeness: string | null;
+        created_at: string;
       }>;
       return rows.map((r) => ({
         id: r.id,
         skillId: r.skill_id,
         jobId: r.job_id,
         jobOutcome: r.job_outcome,
+        ratingNotes: r.rating_notes,
+        relevance: r.relevance,
+        accuracy: r.accuracy,
+        completeness: r.completeness,
         createdAt: r.created_at,
       }));
     } catch {
       return [];
     }
+  }
+
+  /** Get the last N ratings for a skill including all feedback fields (for housekeeping). */
+  getRecentFeedback(skillId: string, limit = 10): SkillEffectivenessRecord[] {
+    try {
+      const rows = this.db.prepare(
+        `SELECT * FROM skill_effectiveness
+         WHERE skill_id = ? AND job_outcome IS NOT NULL
+         ORDER BY created_at DESC LIMIT ?`,
+      ).all(skillId, limit) as Array<{
+        id: string; skill_id: string; job_id: string; job_outcome: string | null;
+        rating_notes: string | null; relevance: string | null; accuracy: string | null; completeness: string | null;
+        created_at: string;
+      }>;
+      return rows.map((r) => ({
+        id: r.id,
+        skillId: r.skill_id,
+        jobId: r.job_id,
+        jobOutcome: r.job_outcome,
+        ratingNotes: r.rating_notes,
+        relevance: r.relevance,
+        accuracy: r.accuracy,
+        completeness: r.completeness,
+        createdAt: r.created_at,
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Aggregated feedback summary per skill: count of each relevance/accuracy/completeness value,
+   * plus the most recent notes. Returns a Map keyed by skillId.
+   */
+  getSkillFeedbackSummary(skillIds: string[]): Map<string, {
+    total: number;
+    relevance: Record<string, number>;
+    accuracy: Record<string, number>;
+    completeness: Record<string, number>;
+    recentNotes: string[];
+  }> {
+    const result = new Map<string, {
+      total: number;
+      relevance: Record<string, number>;
+      accuracy: Record<string, number>;
+      completeness: Record<string, number>;
+      recentNotes: string[];
+    }>();
+    if (skillIds.length === 0) return result;
+
+    try {
+      const placeholders = skillIds.map(() => "?").join(",");
+      const rows = this.db.prepare(
+        `SELECT skill_id, rating_notes, relevance, accuracy, completeness, created_at
+         FROM skill_effectiveness
+         WHERE skill_id IN (${placeholders}) AND job_outcome IS NOT NULL
+         ORDER BY created_at DESC`,
+      ).all(...skillIds) as Array<{
+        skill_id: string; rating_notes: string | null;
+        relevance: string | null; accuracy: string | null; completeness: string | null;
+        created_at: string;
+      }>;
+
+      for (const row of rows) {
+        let entry = result.get(row.skill_id);
+        if (!entry) {
+          entry = { total: 0, relevance: {}, accuracy: {}, completeness: {}, recentNotes: [] };
+          result.set(row.skill_id, entry);
+        }
+        entry.total++;
+        if (row.relevance) entry.relevance[row.relevance] = (entry.relevance[row.relevance] || 0) + 1;
+        if (row.accuracy) entry.accuracy[row.accuracy] = (entry.accuracy[row.accuracy] || 0) + 1;
+        if (row.completeness) entry.completeness[row.completeness] = (entry.completeness[row.completeness] || 0) + 1;
+        if (row.rating_notes && entry.recentNotes.length < 5) entry.recentNotes.push(row.rating_notes);
+      }
+    } catch {
+      // Table may not exist
+    }
+    return result;
   }
 }

@@ -372,6 +372,11 @@ const COLUMN_ADDITIONS = [
   `CREATE INDEX IF NOT EXISTS idx_skill_versions_skill ON skill_versions(skill_id)`,
   `CREATE INDEX IF NOT EXISTS idx_skill_effectiveness_skill ON skill_effectiveness(skill_id)`,
   `CREATE INDEX IF NOT EXISTS idx_skill_effectiveness_job ON skill_effectiveness(job_id)`,
+  // Richer skill effectiveness ratings
+  `ALTER TABLE skill_effectiveness ADD COLUMN rating_notes TEXT`,
+  `ALTER TABLE skill_effectiveness ADD COLUMN relevance TEXT`,
+  `ALTER TABLE skill_effectiveness ADD COLUMN accuracy TEXT`,
+  `ALTER TABLE skill_effectiveness ADD COLUMN completeness TEXT`,
 ];
 
 // Reset any jobs stuck in 'running' state (server crashed while they were active)

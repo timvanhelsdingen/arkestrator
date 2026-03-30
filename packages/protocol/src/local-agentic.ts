@@ -253,7 +253,7 @@ export function buildLocalAgenticTurnPrompt(
     "- search_skills(query, program?) — search learned skills for patterns, techniques, known pitfalls",
     "- get_skill(slug, program?) — load full skill content",
     "- create_skill(slug, title, program, content, keywords?, category?) — save something you learned",
-    "- rate_skill(slug, rating: useful|not_useful|partial) — rate a skill after using it",
+    "- rate_skill(slug, rating: useful|not_useful|partial, notes?, relevance?: relevant|partial|irrelevant, accuracy?: accurate|partially_accurate|inaccurate, completeness?: complete|incomplete|missing_critical) — rate a skill after using it",
   ];
   if (allowDelegationTools) {
     toolLines.push(
@@ -559,12 +559,16 @@ const SKILL_TOOL_SCHEMAS: OllamaToolSchema[] = [
     type: "function",
     function: {
       name: "rate_skill",
-      description: "Rate how useful a skill was for your current task",
+      description: "Rate how useful a skill was for your current task. Optionally provide detailed feedback on relevance, accuracy, and completeness.",
       parameters: {
         type: "object",
         properties: {
           slug: { type: "string", description: "Skill slug" },
           rating: { type: "string", description: "How useful was this skill", enum: ["useful", "not_useful", "partial"] },
+          notes: { type: "string", description: "Free text explaining why you gave this rating" },
+          relevance: { type: "string", description: "Was the skill relevant to the task", enum: ["relevant", "partial", "irrelevant"] },
+          accuracy: { type: "string", description: "Was the skill content accurate", enum: ["accurate", "partially_accurate", "inaccurate"] },
+          completeness: { type: "string", description: "Was the skill content complete", enum: ["complete", "incomplete", "missing_critical"] },
         },
         required: ["slug", "rating"],
       },

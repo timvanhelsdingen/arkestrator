@@ -1150,7 +1150,11 @@ export async function executeLocalAgenticToolCall(
     try {
       const input = {
         name: slug, slug, program, title, description: title, content,
-        category: parseStringArg(args.category) || "custom",
+        category: (() => {
+          const raw = parseStringArg(args.category) || "custom";
+          const validCategories = ["coordinator", "bridge", "training", "playbook", "verification", "project", "project-reference", "housekeeping", "custom"];
+          return validCategories.includes(raw) ? raw : "custom";
+        })(),
         keywords: Array.isArray(args.keywords) ? args.keywords : [program, slug],
         source: "agent", priority: 50, autoFetch: false, enabled: true,
       };
@@ -1174,7 +1178,16 @@ export async function executeLocalAgenticToolCall(
     const skill = deps.skillIndex.get(slug);
     if (!skill) return { ok: false, error: `Skill not found: ${slug}` };
     const outcomeMap: Record<string, string> = { useful: "positive", not_useful: "negative", partial: "average" };
-    deps.skillEffectivenessRepo.recordSkillOutcome(skill.id, job.id, outcomeMap[rating] || "average");
+    const extra: { notes?: string; relevance?: string; accuracy?: string; completeness?: string } = {};
+    const notes = parseStringArg(args.notes);
+    const relevance = parseStringArg(args.relevance);
+    const accuracy = parseStringArg(args.accuracy);
+    const completeness = parseStringArg(args.completeness);
+    if (notes) extra.notes = notes;
+    if (relevance) extra.relevance = relevance;
+    if (accuracy) extra.accuracy = accuracy;
+    if (completeness) extra.completeness = completeness;
+    deps.skillEffectivenessRepo.recordSkillOutcome(skill.id, job.id, outcomeMap[rating] || "average", extra);
     return { ok: true, data: `Rated: ${slug} → ${rating}` };
   }
 
