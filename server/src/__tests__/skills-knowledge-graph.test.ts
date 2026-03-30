@@ -119,7 +119,7 @@ describe("skills knowledge graph", () => {
     expect(skill.relatedSkills).toEqual([]);
   });
 
-  it("housekeeping parses playbooks and related_skills from skill blocks", () => {
+  it("housekeeping parses playbooks and related_skills from skill blocks", async () => {
     const output = `
 ## Analysis
 
@@ -140,7 +140,7 @@ Short description of FLIP fluid workflows in Houdini.
 Keep training on more FLIP examples.
 `;
 
-    const result = processHousekeepingOutput(output, skillsRepo);
+    const result = await processHousekeepingOutput(output, skillsRepo);
     expect(result.created).toBe(1);
 
     const skill = skillsRepo.get("flip-fluid-guide", "houdini");
@@ -153,7 +153,7 @@ Keep training on more FLIP examples.
     expect(skill!.content).toContain("FLIP fluid workflows");
   });
 
-  it("housekeeping updates existing skill with playbook refs", () => {
+  it("housekeeping updates existing skill with playbook refs", async () => {
     // Create existing skill without playbooks
     skillsRepo.create({
       name: "Existing",
@@ -178,7 +178,7 @@ Updated content with new analysis.
 \`\`\`
 `;
 
-    const result = processHousekeepingOutput(output, skillsRepo);
+    const result = await processHousekeepingOutput(output, skillsRepo);
     expect(result.updated).toBe(1);
 
     const skill = skillsRepo.get("existing-skill", "houdini");

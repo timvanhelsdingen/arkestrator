@@ -46,6 +46,7 @@ import { readSharedConfig, resolveSpawnedAgentServerUrl } from "../utils/shared-
 import type { HeadlessProgramsRepo } from "../db/headless-programs.repo.js";
 import type { SettingsRepo } from "../db/settings.repo.js";
 import type { SkillsRepo } from "../db/skills.repo.js";
+import type { SkillStore } from "../skills/skill-store.js";
 import type { WorkersRepo } from "../db/workers.repo.js";
 import type { JobInterventionsRepo } from "../db/job-interventions.repo.js";
 import type { WorkerResourceLeaseManager } from "./resource-control.js";
@@ -190,6 +191,7 @@ export interface SpawnerDeps {
   headlessProgramsRepo?: HeadlessProgramsRepo;
   settingsRepo?: SettingsRepo;
   skillsRepo?: SkillsRepo;
+  skillStore?: SkillStore;
   skillEffectivenessRepo?: import("../db/skill-effectiveness.repo.js").SkillEffectivenessRepo;
   skillIndex?: import("../skills/skill-index.js").SkillIndex;
   workersRepo?: WorkersRepo;
@@ -1144,15 +1146,20 @@ export async function executeLocalAgenticToolCall(
     if (!slug || !title || !program || !content) {
       return { ok: false, error: "create_skill requires slug, title, program, content" };
     }
-    if (!deps.skillsRepo) return { ok: false, error: "Skills system not available" };
+    if (!deps.skillsRepo && !deps.skillStore) return { ok: false, error: "Skills system not available" };
     try {
-      deps.skillsRepo.upsertBySlugAndProgram({
+      const input = {
         name: slug, slug, program, title, description: title, content,
         category: parseStringArg(args.category) || "custom",
         keywords: Array.isArray(args.keywords) ? args.keywords : [program, slug],
         source: "agent", priority: 50, autoFetch: false, enabled: true,
-      });
-      deps.skillIndex?.refresh();
+      };
+      if (deps.skillStore) {
+        await deps.skillStore.upsertBySlugAndProgram(input);
+      } else {
+        deps.skillsRepo!.upsertBySlugAndProgram(input);
+        deps.skillIndex?.refresh();
+      }
       return { ok: true, data: `Skill created: ${slug} [${program}]` };
     } catch (err: any) {
       return { ok: false, error: `create_skill failed: ${err.message}` };

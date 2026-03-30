@@ -49,6 +49,8 @@ export interface McpDeps {
   skillEffectivenessRepo?: import("../db/skill-effectiveness.repo.js").SkillEffectivenessRepo;
   /** Skills repo for creating/updating skills from agents. */
   skillsRepo?: import("../db/skills.repo.js").SkillsRepo;
+  /** SkillStore facade for dual-write (SQLite + disk) skill mutations. */
+  skillStore?: import("../skills/skill-store.js").SkillStore;
 }
 
 const CLIENT_API_ALLOW_PREFIXES = [
@@ -1203,11 +1205,11 @@ export function createMcpServer(deps: McpDeps): McpServer {
       category: z.string().optional().default("custom").describe("Skill category"),
     },
     async ({ slug, title, program, content, keywords, category }) => {
-      if (!deps.skillsRepo) {
+      if (!deps.skillsRepo && !deps.skillStore) {
         return { content: [{ type: "text" as const, text: "Skills system not available" }], isError: true };
       }
       try {
-        deps.skillsRepo.upsertBySlugAndProgram({
+        const input = {
           name: slug,
           slug,
           program,
@@ -1220,9 +1222,13 @@ export function createMcpServer(deps: McpDeps): McpServer {
           priority: 50,
           autoFetch: false,
           enabled: true,
-        });
-        // Refresh index so the skill is immediately searchable
-        deps.skillIndex?.refresh();
+        };
+        if (deps.skillStore) {
+          await deps.skillStore.upsertBySlugAndProgram(input);
+        } else {
+          deps.skillsRepo!.upsertBySlugAndProgram(input);
+          deps.skillIndex?.refresh();
+        }
         return { content: [{ type: "text" as const, text: `Skill created: ${slug} [${program}] — "${title}"` }] };
       } catch (err: any) {
         return { content: [{ type: "text" as const, text: `Failed to create skill: ${err.message}` }], isError: true };
@@ -1242,7 +1248,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
       keywords: z.array(z.string()).optional().describe("New keywords/tags (replaces existing)"),
     },
     async ({ slug, program, content, title, keywords }) => {
-      if (!deps.skillsRepo || !deps.skillIndex) {
+      if ((!deps.skillsRepo && !deps.skillStore) || !deps.skillIndex) {
         return { content: [{ type: "text" as const, text: "Skills system not available" }], isError: true };
       }
       const skill = deps.skillIndex.get(slug, program || undefined);
@@ -1257,8 +1263,12 @@ export function createMcpServer(deps: McpDeps): McpServer {
         return { content: [{ type: "text" as const, text: "No updates provided" }], isError: true };
       }
       try {
-        deps.skillsRepo.update(skill.id, updates);
-        deps.skillIndex.refresh();
+        if (deps.skillStore) {
+          await deps.skillStore.update(skill.id, updates);
+        } else {
+          deps.skillsRepo!.update(skill.id, updates);
+          deps.skillIndex.refresh();
+        }
         return { content: [{ type: "text" as const, text: `Updated skill: ${slug} — fields: ${Object.keys(updates).join(", ")}` }] };
       } catch (err: any) {
         return { content: [{ type: "text" as const, text: `Failed to update skill: ${err.message}` }], isError: true };

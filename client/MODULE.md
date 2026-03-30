@@ -4,6 +4,7 @@
 Primary user-facing desktop dashboard (Tauri v2 + Svelte 5). Users manage jobs, configure agents, view workers, manage projects. Connects to server via REST + WebSocket.
 
 ## Recent Updates (2026-03-30)
+- Agent Skills import API method (2026-03-30): `lib/api/rest.ts` adds `api.skills.importFromGitHub(repoUrl, program, subPath)` calling `POST /api/skills/import`.
 - Skills detail parity with admin (2026-03-30): Skill detail modal in `pages/Coordinator.svelte` now shows Name, Keywords, Auto-fetch, and Source Path fields — matching the admin Skills detail view. Auto-fetch skills (coordinator/bridge scripts) hide Uses and Success Rate columns in both the table and detail modal since effectiveness tracking is not applicable for always-injected skills.
 - Coordinator page renamed to "Skills & Training" (2026-03-30): Page header changed from "Coordinator" to "Skills & Training". Sidebar already had this label.
 - Coordinator 3-tab split (2026-03-30): "Training & Maintenance" tab split into separate "Training" and "Maintenance" tabs. Training tab keeps the training job queue form. New Maintenance tab (admin-only) exposes housekeeping schedule (enable/disable, interval, last run, Run Now) and training schedule (enable/disable, interval, auto-apply toggle, per-program selection, last/next run per program) with a Save button. `lib/api/rest.ts` adds `getHousekeepingSchedule()` and `setHousekeepingSchedule()` methods.

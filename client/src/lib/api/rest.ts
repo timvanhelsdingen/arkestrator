@@ -958,6 +958,11 @@ export const api = {
     pullProgram: (program: string) =>
       request(`/api/skills/pull/${encodeURIComponent(program)}`, { method: "POST" }),
     refreshIndex: () => request("/api/skills/refresh-index", { method: "POST" }),
+    importFromGitHub: (repoUrl: string, program = "global", subPath?: string) =>
+      request("/api/skills/import", {
+        method: "POST",
+        body: JSON.stringify({ repoUrl, program, subPath }),
+      }),
     batchEffectiveness: (skillIds: string[]) =>
       request("/api/skills/batch-effectiveness", {
         method: "POST",

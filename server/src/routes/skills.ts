@@ -9,11 +9,12 @@ import type { UsersRepo } from "../db/users.repo.js";
 import type { ApiKeysRepo } from "../db/apikeys.repo.js";
 import type { SettingsRepo } from "../db/settings.repo.js";
 import type { WorkersRepo } from "../db/workers.repo.js";
+import type { SkillStore } from "../skills/skill-store.js";
 import { validateSkill, previewSkillInjection } from "../skills/skill-validator.js";
 import { requireAnyPrincipal, requirePrincipalAccess } from "../middleware/auth.js";
 import { errorResponse } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
-import { pullBridgeSkills, pullAllBridgeSkills, BRIDGE_REGISTRY_URL, BRIDGE_RAW_BASE_URL } from "../skills/skill-registry.js";
+import { pullBridgeSkills, pullAllBridgeSkills, importSkillsFromGitHub, BRIDGE_REGISTRY_URL, BRIDGE_RAW_BASE_URL } from "../skills/skill-registry.js";
 
 // --- Registry cache (URLs shared with skill-registry.ts) ---
 const REGISTRY_URL = BRIDGE_REGISTRY_URL;
@@ -144,6 +145,7 @@ export function createSkillsRoutes(
   workersRepo?: WorkersRepo,
   skillEffectivenessRepo?: SkillEffectivenessRepo,
   coordinatorPlaybooksDir?: string,
+  skillStore?: SkillStore,
 ) {
   const router = new Hono();
 
@@ -188,8 +190,10 @@ export function createSkillsRoutes(
     }
 
     try {
-      const skill = skillsRepo.create(parsed.data);
-      skillIndex.refresh();
+      const skill = skillStore
+        ? await skillStore.create(parsed.data)
+        : skillsRepo.create(parsed.data);
+      if (!skillStore) skillIndex.refresh();
       return c.json({ skill }, 201);
     } catch (err: any) {
       return errorResponse(c, 500, err?.message ?? "Failed to create skill", "INTERNAL_ERROR");
@@ -216,12 +220,14 @@ export function createSkillsRoutes(
       return errorResponse(c, 400, parsed.error.message, "VALIDATION_ERROR");
     }
 
-    const updated = skillsRepo.update(slug, parsed.data, program || undefined);
+    const updated = skillStore
+      ? await skillStore.update(slug, parsed.data, program || undefined)
+      : skillsRepo.update(slug, parsed.data, program || undefined);
     if (!updated) {
       return errorResponse(c, 404, `Custom skill not found: ${slug}`, "NOT_FOUND");
     }
 
-    skillIndex.refresh();
+    if (!skillStore) skillIndex.refresh();
     return c.json({ skill: updated });
   });
 
@@ -233,13 +239,13 @@ export function createSkillsRoutes(
     const slug = c.req.param("slug");
     const program = c.req.query("program");
     const deleted = program
-      ? skillsRepo.deleteAny(slug, program)
-      : skillsRepo.delete(slug);
+      ? (skillStore ? await skillStore.deleteAny(slug, program) : skillsRepo.deleteAny(slug, program))
+      : (skillStore ? await skillStore.delete(slug) : skillsRepo.delete(slug));
     if (!deleted) {
       return errorResponse(c, 404, `Skill not found: ${slug}`, "NOT_FOUND");
     }
 
-    skillIndex.refresh();
+    if (!skillStore) skillIndex.refresh();
     return c.json({ ok: true });
   });
 
@@ -352,7 +358,7 @@ export function createSkillsRoutes(
     const registryEntry = registry.skills.find((s) => s.slug === slug && s.program === program);
 
     try {
-      const skill = skillsRepo.create({
+      const skillInput = {
         name: slug,
         slug,
         program,
@@ -361,8 +367,11 @@ export function createSkillsRoutes(
         description: registryEntry?.description ?? "",
         content,
         sourcePath: contentUrl,
-      }, "registry");
-      skillIndex.refresh();
+      };
+      const skill = skillStore
+        ? await skillStore.create(skillInput, "registry")
+        : skillsRepo.create(skillInput, "registry");
+      if (!skillStore) skillIndex.refresh();
       return c.json({ skill }, 201);
     } catch (err: any) {
       return errorResponse(c, 500, err?.message ?? "Failed to install skill", "INTERNAL_ERROR");
@@ -380,7 +389,7 @@ export function createSkillsRoutes(
     }
 
     try {
-      const result = await pullBridgeSkills(program, skillsRepo, settingsRepo, true);
+      const result = await pullBridgeSkills(program, skillsRepo, settingsRepo, true, skillStore);
       skillIndex.refresh();
       return c.json({ ok: true, program, ...result });
     } catch (err: any) {
@@ -395,11 +404,35 @@ export function createSkillsRoutes(
 
     try {
       const connectedPrograms = workersRepo?.getDistinctPrograms() ?? [];
-      const result = await pullAllBridgeSkills(skillsRepo, settingsRepo, connectedPrograms);
+      const result = await pullAllBridgeSkills(skillsRepo, settingsRepo, connectedPrograms, skillStore);
       skillIndex.refresh();
       return c.json({ ok: true, ...result });
     } catch (err: any) {
       return errorResponse(c, 500, err?.message ?? "Failed to pull bridge skills", "INTERNAL_ERROR");
+    }
+  });
+
+  // POST /import — import standard Agent Skills from a GitHub repo
+  router.post("/import", async (c) => {
+    const auth = await requireWriteAccess(c);
+    if (!auth) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+    if (!skillStore) return errorResponse(c, 500, "SkillStore not available", "INTERNAL");
+
+    const body = await c.req.json().catch(() => null);
+    const repoUrl = body?.repoUrl || body?.url;
+    const targetProgram = body?.program || "global";
+    const subPath = body?.subPath;
+
+    if (!repoUrl || typeof repoUrl !== "string") {
+      return errorResponse(c, 400, "repoUrl is required", "BAD_REQUEST");
+    }
+
+    try {
+      const result = await importSkillsFromGitHub(repoUrl, targetProgram, skillStore, { subPath });
+      skillIndex.refresh();
+      return c.json({ ok: true, ...result });
+    } catch (err: any) {
+      return errorResponse(c, 500, err?.message ?? "Import failed", "INTERNAL");
     }
   });
 

@@ -47,6 +47,7 @@ export interface HandlerDeps {
   resourceLeaseManager: WorkerResourceLeaseManager;
   localLlmGate?: import("../agents/local-llm-gate.js").LocalLlmGate;
   skillsRepo?: import("../db/skills.repo.js").SkillsRepo;
+  skillStore?: import("../skills/skill-store.js").SkillStore;
   skillIndex?: import("../skills/skill-index.js").SkillIndex;
   skillEffectivenessRepo?: import("../db/skill-effectiveness.repo.js").SkillEffectivenessRepo;
 }
@@ -228,6 +229,7 @@ export function handleMessage(
               resourceLeaseManager: deps.resourceLeaseManager,
               localLlmGate: deps.localLlmGate,
               skillsRepo: deps.skillsRepo,
+              skillStore: deps.skillStore,
               skillIndex: deps.skillIndex,
               skillEffectivenessRepo: deps.skillEffectivenessRepo,
             } satisfies Partial<SpawnerDeps> as SpawnerDeps;

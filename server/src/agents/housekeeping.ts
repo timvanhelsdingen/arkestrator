@@ -1,6 +1,7 @@
 import { logger } from "../utils/logger.js";
 import type { JobsRepo } from "../db/jobs.repo.js";
 import type { SkillsRepo } from "../db/skills.repo.js";
+import type { SkillStore } from "../skills/skill-store.js";
 import type { AgentsRepo } from "../db/agents.repo.js";
 import type { SettingsRepo } from "../db/settings.repo.js";
 import type { WebSocketHub } from "../ws/hub.js";
@@ -8,6 +9,7 @@ import type { WebSocketHub } from "../ws/hub.js";
 export interface HousekeepingDeps {
   jobsRepo: JobsRepo;
   skillsRepo: SkillsRepo;
+  skillStore?: SkillStore;
   agentsRepo: AgentsRepo;
   settingsRepo: SettingsRepo;
   hub: WebSocketHub;
@@ -287,11 +289,12 @@ export function runHousekeepingScheduleTick(deps: HousekeepingDeps): { jobId: st
 /**
  * Parse housekeeping job output to extract skill suggestions and create them.
  */
-export function processHousekeepingOutput(
+export async function processHousekeepingOutput(
   output: string,
   skillsRepo: SkillsRepo,
   program?: string,
-): { created: number; updated: number } {
+  skillStore?: SkillStore,
+): Promise<{ created: number; updated: number }> {
   const skillBlocks = output.match(/```skill\n([\s\S]*?)```/g) || [];
   let created = 0;
   let updated = 0;
@@ -328,15 +331,20 @@ export function processHousekeepingOutput(
     try {
       const existing = skillsRepo.get(slug, skillProgram);
       if (existing) {
-        skillsRepo.update(slug, {
+        const updateData = {
           content: body,
           title,
           playbooks: playbooks.length > 0 ? playbooks : undefined,
           relatedSkills: relatedSkills.length > 0 ? relatedSkills : undefined,
-        }, skillProgram);
+        };
+        if (skillStore) {
+          await skillStore.update(slug, updateData, skillProgram);
+        } else {
+          skillsRepo.update(slug, updateData, skillProgram);
+        }
         updated++;
       } else {
-        skillsRepo.create({
+        const createData = {
           name: title,
           slug,
           program: skillProgram,
@@ -347,7 +355,12 @@ export function processHousekeepingOutput(
           playbooks,
           relatedSkills,
           source: "housekeeping",
-        });
+        };
+        if (skillStore) {
+          await skillStore.create(createData, "housekeeping");
+        } else {
+          skillsRepo.create(createData, "housekeeping");
+        }
         created++;
       }
     } catch (err) {

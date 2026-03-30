@@ -38,6 +38,7 @@ export interface WorkerDeps {
   headlessProgramsRepo: HeadlessProgramsRepo;
   settingsRepo?: SettingsRepo;
   skillsRepo?: SkillsRepo;
+  skillStore?: import("../skills/skill-store.js").SkillStore;
   skillEffectivenessRepo?: import("../db/skill-effectiveness.repo.js").SkillEffectivenessRepo;
   skillIndex?: import("../skills/skill-index.js").SkillIndex;
   resourceLeaseManager: WorkerResourceLeaseManager;
@@ -244,6 +245,7 @@ export class WorkerLoop {
       headlessProgramsRepo: this.deps.headlessProgramsRepo,
       settingsRepo: this.deps.settingsRepo,
       skillsRepo: this.deps.skillsRepo,
+      skillStore: this.deps.skillStore,
       skillEffectivenessRepo: this.deps.skillEffectivenessRepo,
       skillIndex: this.deps.skillIndex,
       workersRepo: this.deps.workersRepo,

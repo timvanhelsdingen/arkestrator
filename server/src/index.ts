@@ -628,6 +628,35 @@ async function main() {
     coordinatorPlaybooksDir: config.coordinatorPlaybooksDir,
   });
 
+  // 8a-i. Export existing DB skills to SKILL.md files (one-time migration)
+  try {
+    const { exportAllSkillsToDisk } = await import("./skills/skill-export-migration.js");
+    await exportAllSkillsToDisk(skillsRepo, config.skillsDir, {
+      coordinatorPlaybooksDir: config.coordinatorPlaybooksDir,
+      settingsRepo,
+      skillEffectivenessRepo,
+    });
+  } catch (err) {
+    logger.warn("server", `Skill export migration: ${err}`);
+  }
+
+  // 8a-ii. Rebuild SQLite index from SKILL.md files on disk
+  try {
+    const { rebuildSkillsIndexFromDisk } = await import("./skills/skill-disk-loader.js");
+    const diskResult = await rebuildSkillsIndexFromDisk(config.skillsDir, skillsRepo);
+    if (diskResult.loaded > 0 || diskResult.removed > 0) {
+      logger.info("server", `Disk skill sync: ${diskResult.loaded} loaded, ${diskResult.removed} removed, ${diskResult.skipped} skipped`);
+      skillIndex.refresh();
+    }
+  } catch (err) {
+    logger.warn("server", `Disk skill rebuild: ${err}`);
+  }
+
+  // 8a-iii. Start file watcher for external SKILL.md edits
+  const { SkillWatcher } = await import("./skills/skill-watcher.js");
+  const skillWatcher = new SkillWatcher(config.skillsDir, skillsRepo, skillIndex);
+  skillWatcher.start();
+
   // 8b. Create worker loop
   const worker = new WorkerLoop({
     scheduler,
@@ -643,6 +672,7 @@ async function main() {
     headlessProgramsRepo,
     settingsRepo,
     skillsRepo,
+    skillStore,
     skillEffectivenessRepo,
     skillIndex,
     syncManager,
@@ -655,7 +685,7 @@ async function main() {
   });
 
   // 9. Create Hono app
-  const app = createApp({ db, jobsRepo, agentsRepo, apiKeysRepo, usersRepo, policiesRepo, auditRepo, projectsRepo, templatesRepo, workersRepo, usageRepo, depsRepo, syncManager, hub, headlessProgramsRepo, settingsRepo, skillsRepo, skillEffectivenessRepo, skillIndex, jobInterventionsRepo, config, resourceLeaseManager, processTracker, dispatchJob: (id) => worker.dispatchById(id) });
+  const app = createApp({ db, jobsRepo, agentsRepo, apiKeysRepo, usersRepo, policiesRepo, auditRepo, projectsRepo, templatesRepo, workersRepo, usageRepo, depsRepo, syncManager, hub, headlessProgramsRepo, settingsRepo, skillsRepo, skillStore, skillEffectivenessRepo, skillIndex, jobInterventionsRepo, config, resourceLeaseManager, processTracker, dispatchJob: (id) => worker.dispatchById(id) });
 
   // Handler deps for WebSocket messages
   const handlerDeps = {
@@ -675,6 +705,7 @@ async function main() {
     resourceLeaseManager,
     localLlmGate,
     skillsRepo,
+    skillStore,
     skillIndex,
     skillEffectivenessRepo,
   };
@@ -890,7 +921,7 @@ async function main() {
               const bridgeProgram = ws.data.program!;
               if (autoPull !== "false" && !skillsPulledThisSession.has(bridgeProgram)) {
                 skillsPulledThisSession.add(bridgeProgram);
-                pullBridgeSkills(bridgeProgram, skillsRepo, settingsRepo, false)
+                pullBridgeSkills(bridgeProgram, skillsRepo, settingsRepo, false, skillStore)
                   .then((r) => {
                     if (r.pulled > 0) {
                       logger.info("skills", `Auto-pulled ${r.pulled} skills for ${bridgeProgram}`);
@@ -1000,6 +1031,7 @@ async function main() {
         agentsRepo,
         settingsRepo,
         skillsRepo,
+        skillStore,
         headlessProgramsRepo,
         hub,
         coordinatorScriptsDir: config.coordinatorScriptsDir,
@@ -1007,7 +1039,7 @@ async function main() {
         defaultCoordinatorPlaybookSourcePaths: config.coordinatorPlaybookSourcePaths,
         processTracker,
         housekeepingDeps: skillsRepo
-          ? { jobsRepo, skillsRepo, agentsRepo, settingsRepo, hub }
+          ? { jobsRepo, skillsRepo, skillStore, agentsRepo, settingsRepo, hub }
           : undefined,
       });
       if (queued.length > 0) {
@@ -1027,6 +1059,7 @@ async function main() {
       const result = runHousekeepingScheduleTick({
         jobsRepo,
         skillsRepo,
+        skillStore,
         agentsRepo,
         settingsRepo,
         hub,
@@ -1071,7 +1104,7 @@ async function main() {
   if (shouldAutoPullSkills) {
     setTimeout(() => {
       logger.info("server", "No skills found — auto-pulling from bridge registry...");
-      pullAllBridgeSkills(skillsRepo, settingsRepo)
+      pullAllBridgeSkills(skillsRepo, settingsRepo, undefined, skillStore)
         .then((result) => {
           logger.info("server", `Auto-pull complete: ${result.total} skills pulled, ${result.errors.length} errors`);
         })

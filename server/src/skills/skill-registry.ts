@@ -6,8 +6,10 @@
  */
 
 import type { SkillsRepo } from "../db/skills.repo.js";
+import type { SkillStore } from "./skill-store.js";
 import type { SettingsRepo } from "../db/settings.repo.js";
 import { logger } from "../utils/logger.js";
+import { parseSkillFile, skillFileToSkillFields, writeSkillToDisk, skillDirPath } from "./skill-file.js";
 
 // ---------------------------------------------------------------------------
 // Bridge registry types
@@ -99,6 +101,7 @@ export async function pullBridgeSkills(
   skillsRepo: SkillsRepo,
   settingsRepo?: SettingsRepo,
   force?: boolean,
+  skillStore?: SkillStore,
 ): Promise<PullResult> {
   const normalized = program.trim().toLowerCase();
   let pulled = 0;
@@ -135,7 +138,7 @@ export async function pullBridgeSkills(
         // Don't overwrite user-edited skills
         const existing = skillsRepo.getAny?.(`${normalized}-coordinator`, normalized);
         if (!existing || existing.source !== "user") {
-          skillsRepo.upsertBySlugAndProgram({
+          const input = {
             name: `${normalized}-coordinator`,
             slug: `${normalized}-coordinator`,
             program: normalized,
@@ -148,7 +151,12 @@ export async function pullBridgeSkills(
             priority: 70,
             autoFetch: true,
             enabled: true,
-          });
+          };
+          if (skillStore) {
+            await skillStore.upsertBySlugAndProgram(input);
+          } else {
+            skillsRepo.upsertBySlugAndProgram(input);
+          }
           pulled++;
           logger.info("skill-registry", `Pulled coordinator for ${normalized} from bridge repo`);
         }
@@ -182,7 +190,7 @@ export async function pullBridgeSkills(
         // Workflow skills (materials, modeling, etc.) are on-demand.
         const isCoordinator = skillEntry.category === "coordinator" || skillEntry.slug.endsWith("-coordinator");
         const isVerification = skillEntry.slug === "verification" || skillEntry.category === "verification";
-        skillsRepo.upsertBySlugAndProgram({
+        const skillInput = {
           name: skillEntry.slug,
           slug: skillEntry.slug,
           program: normalized,
@@ -195,7 +203,12 @@ export async function pullBridgeSkills(
           priority: 50,
           autoFetch: isCoordinator || isVerification,
           enabled: true,
-        });
+        };
+        if (skillStore) {
+          await skillStore.upsertBySlugAndProgram(skillInput);
+        } else {
+          skillsRepo.upsertBySlugAndProgram(skillInput);
+        }
         pulled++;
         logger.info("skill-registry", `Pulled skill ${skillEntry.slug} for ${normalized}`);
       } catch (err: any) {
@@ -226,6 +239,7 @@ export async function pullAllBridgeSkills(
   skillsRepo: SkillsRepo,
   settingsRepo?: SettingsRepo,
   connectedPrograms?: string[],
+  skillStore?: SkillStore,
 ): Promise<{ total: number; errors: string[] }> {
   const registry = await fetchBridgeRegistry();
   let total = 0;
@@ -245,10 +259,134 @@ export async function pullAllBridgeSkills(
     const inRegistry = registry.bridges.some((b) => b.program === program);
     if (!inRegistry) continue;
 
-    const result = await pullBridgeSkills(program, skillsRepo, settingsRepo, true);
+    const result = await pullBridgeSkills(program, skillsRepo, settingsRepo, true, skillStore);
     total += result.pulled;
     allErrors.push(...result.errors);
   }
 
   return { total, errors: allErrors };
+}
+
+// ---------------------------------------------------------------------------
+// Standard Agent Skills import (agentskills.io)
+// ---------------------------------------------------------------------------
+
+export interface ImportResult {
+  imported: number;
+  skipped: number;
+  errors: string[];
+}
+
+/**
+ * Import standard Agent Skills from a GitHub repo.
+ *
+ * Supports two directory layouts:
+ * 1. Flat: repo contains skill directories at root, each with SKILL.md
+ *    e.g. github.com/anthropics/skills → explain-code/SKILL.md
+ * 2. Nested: repo has a subdirectory path containing skills
+ *    e.g. github.com/org/repo → skills/blender/SKILL.md
+ *
+ * Uses the GitHub API to list directories, then fetches SKILL.md from each.
+ * Standard frontmatter fields are mapped; Arkestrator metadata extensions are
+ * preserved if present.
+ *
+ * @param repoUrl — GitHub repo URL (e.g. "https://github.com/anthropics/skills")
+ * @param targetProgram — Program to assign imported skills to (e.g. "global", "blender")
+ * @param skillStore — SkillStore for dual-write (DB + disk)
+ * @param opts.subPath — Optional subdirectory within the repo
+ * @param opts.skillsDir — Skills directory on disk (for SKILL.md writes)
+ */
+export async function importSkillsFromGitHub(
+  repoUrl: string,
+  targetProgram: string,
+  skillStore: SkillStore,
+  opts?: { subPath?: string; skillsDir?: string },
+): Promise<ImportResult> {
+  let imported = 0;
+  let skipped = 0;
+  const errors: string[] = [];
+
+  // Parse GitHub URL → owner/repo
+  const match = repoUrl.match(/github\.com\/([^/]+)\/([^/]+)/);
+  if (!match) {
+    return { imported: 0, skipped: 0, errors: ["Invalid GitHub URL"] };
+  }
+  const [, owner, repo] = match;
+  const repoName = repo.replace(/\.git$/, "");
+  const subPath = opts?.subPath ?? "";
+  const apiPath = subPath ? `${subPath}` : "";
+
+  // Fetch directory listing from GitHub API
+  const apiUrl = `https://api.github.com/repos/${owner}/${repoName}/contents/${apiPath}`;
+  let entries: Array<{ name: string; type: string; path: string }>;
+  try {
+    const res = await fetch(apiUrl, {
+      headers: { Accept: "application/vnd.github.v3+json", "User-Agent": "Arkestrator" },
+    });
+    if (!res.ok) {
+      return { imported: 0, skipped: 0, errors: [`GitHub API ${res.status}: ${res.statusText}`] };
+    }
+    entries = (await res.json()) as any[];
+    if (!Array.isArray(entries)) {
+      return { imported: 0, skipped: 0, errors: ["GitHub API returned non-array"] };
+    }
+  } catch (err: any) {
+    return { imported: 0, skipped: 0, errors: [`GitHub API error: ${err?.message}`] };
+  }
+
+  // Filter to directories (potential skill directories)
+  const dirs = entries.filter((e) => e.type === "dir");
+
+  for (const dir of dirs) {
+    if (dir.name.startsWith(".")) continue;
+
+    // Try to fetch SKILL.md from this directory
+    const rawUrl = `https://raw.githubusercontent.com/${owner}/${repoName}/main/${dir.path}/SKILL.md`;
+    try {
+      const res = await fetch(rawUrl);
+      if (!res.ok) {
+        // No SKILL.md in this directory — skip silently
+        skipped++;
+        continue;
+      }
+      const raw = await res.text();
+      const parsed = parseSkillFile(raw);
+      if (!parsed) {
+        errors.push(`Failed to parse SKILL.md in ${dir.name}`);
+        continue;
+      }
+
+      const fields = skillFileToSkillFields(parsed);
+
+      // Override program to target if not explicitly set in the skill metadata
+      if (!parsed.frontmatter.metadata?.program) {
+        fields.program = targetProgram;
+      }
+
+      // Mark source as registry import
+      fields.source = "registry";
+
+      // Don't overwrite user-edited skills
+      const existing = skillStore.getAny(fields.slug, fields.program);
+      if (existing && existing.source === "user") {
+        skipped++;
+        continue;
+      }
+
+      await skillStore.upsertBySlugAndProgram({
+        ...fields,
+        sourcePath: rawUrl,
+      });
+      imported++;
+      logger.info("skill-registry", `Imported skill ${fields.slug} from ${owner}/${repoName}`);
+    } catch (err: any) {
+      errors.push(`Failed to import ${dir.name}: ${err?.message}`);
+    }
+  }
+
+  if (errors.length > 0) {
+    logger.warn("skill-registry", `Import errors from ${repoUrl}: ${errors.join("; ")}`);
+  }
+
+  return { imported, skipped, errors };
 }
