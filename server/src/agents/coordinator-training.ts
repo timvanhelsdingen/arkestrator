@@ -835,6 +835,9 @@ export function queueTrainingOrchestrator(
 
         // Wait for all training children
         if (children.length > 0) {
+          // Signal must be present BEFORE children finish so the spawner's exit
+          // handler doesn't race and fail us for having pending children.
+          appendJobLog(deps.hub, deps.jobsRepo, created.id, `All sub-jobs dispatched (${children.length}).`);
           appendJobLog(deps.hub, deps.jobsRepo, created.id, `Waiting for ${children.length} training job(s)...`);
           for (const child of children) {
             const terminal = await waitForCoordinatorTrainingJobTerminalState(deps.jobsRepo, child.jobId, 60 * 60_000);
@@ -1201,6 +1204,8 @@ export function queueCoordinatorTrainingJob(
               created.id,
               `Queued agentic source analysis job ${analysisJobId} for ${resolvedSourcePaths.length} path(s).`,
             );
+            // Signal for spawner's exit handler so it doesn't fail us for pending children
+            appendJobLog(hub, jobsRepo, created.id, `All sub-jobs dispatched.`);
             broadcastJobUpdated(hub, jobsRepo, analysisJobId);
             const analysisTimeoutMs = Math.round(TRAINING_AGENTIC_ANALYSIS_TIMEOUT_MS * levelCfg.timeoutMultiplier);
             // Suspend our process tracker slot so the child analysis job can
