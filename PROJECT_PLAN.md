@@ -27,7 +27,11 @@
   - Bridge step auto-fetches registry from GitHub + auto-detects all DCC install paths, batch installs selected
   - Client REST API: added `agents.templates()` and `agents.cliAuthStatus()` methods
 
-## Recent Update (2026-03-24)
+## Recent Update (2026-03-30)
+
+- Hybrid tool calling mode for Ollama thinking models (qwen3, etc.): `runChatAgenticLoop()` now auto-detects when a model returns text instead of `tool_calls` and switches to hybrid mode — tool definitions embedded in the system prompt as text, tool calls parsed from content via `parseLocalAgenticAction()`. This preserves the model's thinking/reasoning while working around Ollama's broken thinking+tools interaction (ollama#10976, #14493, #14601). New `buildOllamaHybridSystemMessage()` in the protocol package. Transport layer (`ollamaChatWithTools`) omits the `tools` key from the request body when the array is empty to avoid Ollama's broken serialization. Non-thinking models (llama3.2:3b) continue to use native tool calling with no regression.
+
+## Update (2026-03-24)
 
 - **Major refactor — 7 phases:**
   - **Phase 1: Client Performance Fix** — Server WS log broadcasts batched at 200ms intervals. Client `jobs.upsert()` uses in-place `Object.assign`. New `replaceAll()` + `listStructureVersion` for coarse-grained derived store updates. `workerOptions`/`bridgeOptions`/`userOptions` only recompute on structural changes. Autoscroll uses RAF polling instead of MutationObserver.

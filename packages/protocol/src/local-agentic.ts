@@ -640,6 +640,76 @@ export function getOllamaToolSchemas(options: {
   return tools;
 }
 
+/**
+ * Build a system message for hybrid mode — tool definitions embedded in text
+ * so thinking models (qwen3, etc.) can reason AND call tools via JSON protocol.
+ *
+ * Unlike native tool calling, the model outputs `{"type":"tool_call",...}` as text
+ * which is parsed by `parseLocalAgenticAction()`.
+ */
+export function buildOllamaHybridSystemMessage(options: {
+  allowDelegation?: boolean;
+  allowSkills?: boolean;
+  customInstructions?: string;
+} = {}): string {
+  const schemas = getOllamaToolSchemas({
+    allowDelegation: options.allowDelegation,
+    allowSkills: options.allowSkills,
+  });
+
+  // Format each tool as a readable signature with descriptions
+  const toolDefs = schemas.map((s) => {
+    const fn = s.function;
+    const props = fn.parameters.properties;
+    const required = new Set(fn.parameters.required);
+    const paramList = Object.entries(props)
+      .map(([name, p]) => `${name}: ${p.type}${required.has(name) ? "" : "?"}`)
+      .join(", ");
+    return `- ${fn.name}(${paramList})\n  ${fn.description}`;
+  }).join("\n");
+
+  const lines = [
+    LOCAL_AGENTIC_PROTOCOL_INSTRUCTIONS,
+    "",
+    "## Available Tools",
+    toolDefs,
+    "",
+    "## CRITICAL: You MUST use tools to execute code",
+    "- You are connected to live applications (Blender, Houdini, Godot, ComfyUI) via bridges.",
+    "- To make changes, you MUST call execute_command with actual executable code.",
+    "- NEVER just describe code or write instructions. Always call the tool.",
+    "- Each command runs in its own isolated scope. Variables do NOT persist between commands.",
+    "- Write one complete self-contained script per execute_command call.",
+    "- For Godot/GDScript: entrypoint must be `func run(editor: EditorInterface) -> void:`",
+    "",
+    "## Workflow",
+    "1. Call list_bridges to see connected apps",
+    "2. Call search_skills to find relevant patterns",
+    "3. Call execute_command with the actual script to run in the app",
+    "4. If it fails, fix the script and try again with a DIFFERENT approach",
+    '5. When done, return {"type":"final","status":"completed","summary":"what you did"}',
+    "",
+    "## Skills",
+    "- FIRST search_skills for your task type before writing code.",
+    "- After completing work, call create_skill if you learned something non-trivial.",
+    "- Rate skills you used with rate_skill.",
+  ];
+
+  if (options.allowDelegation) {
+    lines.push(
+      "",
+      "## Delegation",
+      "Use create_job/list_jobs/get_job_status when work splits across bridges or agents.",
+    );
+  }
+
+  if (options.customInstructions) {
+    lines.push("", "## Additional Context", options.customInstructions);
+  }
+
+  return lines.join("\n");
+}
+
 /** Build a concise system message for Ollama native tool calling (no protocol instructions needed). */
 export function buildOllamaSystemMessage(customInstructions?: string): string {
   const lines = [

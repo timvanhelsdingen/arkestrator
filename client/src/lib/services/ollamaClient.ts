@@ -124,7 +124,9 @@ export async function ollamaChatWithTools(
       body: JSON.stringify({
         model: options.model,
         messages: options.messages,
-        tools: options.tools,
+        // Omit tools key entirely when empty — avoids triggering Ollama's
+        // broken tool serialization for thinking models (qwen3, etc.)
+        ...(options.tools?.length ? { tools: options.tools } : {}),
         stream: false,
       }),
       signal: controller.signal,

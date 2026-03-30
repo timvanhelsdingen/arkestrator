@@ -333,9 +333,26 @@ function buildClaudeCommand(
     args.push("--disallowedTools", allRestrictions.join(","));
   }
 
-  // Pass prompt with -p flag to avoid shell escaping issues on Windows
+  // Pass prompt with -p flag to avoid shell escaping issues on Windows.
+  // On Windows, CreateProcess has a 32767-char command-line limit. When the
+  // total argument size exceeds a safe threshold, write the prompt to a file
+  // in the job's cwd and pass a short reference via -p instead.
   const prompt = buildPrompt(job, workspace);
-  args.push("-p", prompt);
+  const PROMPT_ARG_SAFE = 30_000; // ~30KB — safe for Windows CreateProcess limit
+  const totalArgBytes = args.reduce((n, a) => n + Buffer.byteLength(a, "utf-8"), 0)
+    + Buffer.byteLength(prompt, "utf-8");
+
+  if (totalArgBytes > PROMPT_ARG_SAFE) {
+    mkdirSync(cwd, { recursive: true });
+    const promptFilePath = join(cwd, ".arkestrator-prompt.md");
+    writeFileSync(promptFilePath, prompt, "utf-8");
+    env.__ARKESTRATOR_PROMPT_FILE = promptFilePath;
+    // Tell Claude to read the full task from the file
+    args.push("-p", `Read and execute the task described in the file: ${promptFilePath}`);
+    logger.info("engines", `Prompt too large for CLI args (${totalArgBytes} bytes), wrote to ${promptFilePath}`);
+  } else {
+    args.push("-p", prompt);
+  }
 
   return {
     command: config.command || "claude",

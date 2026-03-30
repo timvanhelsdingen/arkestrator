@@ -14,6 +14,7 @@ import {
   LOCAL_AGENTIC_DELEGATION_TOOLS,
   getOllamaToolSchemas,
   buildOllamaSystemMessage,
+  buildOllamaHybridSystemMessage,
   type LocalAgenticToolCall,
   type LocalAgenticHistoryEntry,
   type OllamaChatMessage,
@@ -491,6 +492,7 @@ export async function runChatAgenticLoop(
   let lastErrorMessage = "";
   let lastToolCallKey = "";
   let sameToolCallCount = 0;
+  let hybridMode = false;
 
   const mkResult = (
     partial: Omit<AgenticLoopResult, "commands" | "durationMs">,
@@ -545,8 +547,8 @@ export async function runChatAgenticLoop(
 
     deps.log(`${prefix} turn ${turn}/${config.maxTurns} (timeout: ${turnTimeoutMs}ms)`);
 
-    // 5. Call LLM with chat messages + tools
-    const chatResult = await deps.generateChatResponse(messages, toolSchemas, turnTimeoutMs);
+    // 5. Call LLM with chat messages + tools (empty in hybrid mode to avoid Ollama thinking+tools bug)
+    const chatResult = await deps.generateChatResponse(messages, hybridMode ? [] : toolSchemas, turnTimeoutMs);
 
     if (chatResult.error) {
       // If first turn fails with tool-related error, fall back to text-prompt
@@ -580,23 +582,24 @@ export async function runChatAgenticLoop(
       deps.log(`${prefix} chat mode activated`);
     }
 
-    // 7. Check for tool calls
-    const toolCalls = msg.tool_calls;
-    if (toolCalls && toolCalls.length > 0) {
-      const call = toolCalls[0]; // Process one tool at a time
-      const toolName = call.function.name;
-      // Parse arguments — Ollama may return object or JSON string
-      const toolArgs: Record<string, unknown> = typeof call.function.arguments === "string"
-        ? JSON.parse(call.function.arguments)
-        : call.function.arguments ?? {};
-
-      // Check delegation restriction
+    // -------------------------------------------------------------------
+    // Shared tool execution helper (used by both native and hybrid paths)
+    // Returns "abort" result or undefined (continue loop).
+    // -------------------------------------------------------------------
+    const executeAndTrack = async (
+      toolName: string,
+      toolArgs: Record<string, unknown>,
+      assistantMsg: OllamaChatMessage,
+      resultRole: "tool" | "user",
+    ): Promise<AgenticLoopResult | "continue"> => {
+      // Delegation restriction
       if (!config.allowDelegationTools && LOCAL_AGENTIC_DELEGATION_TOOLS.has(toolName as any)) {
         const reason = `tool ${toolName} is disabled for this task`;
         deps.log(`${prefix} tool_error(${toolName}): ${reason}`);
-        messages.push(msg); // assistant message
-        messages.push({ role: "tool", content: JSON.stringify({ ok: false, error: reason }) });
-        continue;
+        messages.push(assistantMsg);
+        const errContent = JSON.stringify({ ok: false, error: reason });
+        messages.push({ role: resultRole, content: resultRole === "user" ? `Tool result: ${errContent}\n\nContinue with the next JSON action.` : errContent });
+        return "continue";
       }
 
       // Loop detection
@@ -615,7 +618,6 @@ export async function runChatAgenticLoop(
 
       deps.log(`${prefix} turn ${turn} tool_call: ${toolName}(${compactJson(toolArgs, 200)})`);
 
-      // Execute tool
       const toolResult = await deps.executeTool(toolName, toolArgs);
 
       // Track bridges and commands
@@ -623,19 +625,21 @@ export async function runChatAgenticLoop(
       if (toolResult.commandResults?.length) executedCommands.push(...toolResult.commandResults);
       if (toolName === "create_job" && toolResult.ok) delegatedWorkCreated = true;
 
-      // Build result string for chat history
+      // Build result string
       const resultStr = toolResult.ok
         ? JSON.stringify({ ok: true, data: toolResult.data })
         : JSON.stringify({ ok: false, error: toolResult.error ?? "unknown error" });
-
-      // Truncate large results in history
       const truncatedResult = resultStr.length > 4000
         ? resultStr.slice(0, 4000) + "...(truncated)"
         : resultStr;
 
-      // Append assistant + tool result to messages
-      messages.push(msg);
-      messages.push({ role: "tool", content: truncatedResult });
+      // Append to messages
+      messages.push(assistantMsg);
+      if (resultRole === "tool") {
+        messages.push({ role: "tool", content: truncatedResult });
+      } else {
+        messages.push({ role: "user", content: `Tool result: ${truncatedResult}\n\nRespond with exactly one JSON object for the next action.` });
+      }
 
       // Error tracking
       if (!toolResult.ok) {
@@ -657,37 +661,139 @@ export async function runChatAgenticLoop(
         deps.log(`${prefix} tool_ok(${toolName}): ${compactJson(toolResult.data, 800)}`);
       }
 
-      // Slide window: keep system + user + last ~20 turn pairs
+      // Slide window
       if (messages.length > 42) {
-        const preserved = [messages[0], messages[1]]; // system + user
+        const preserved = [messages[0], messages[1]];
         messages.splice(0, messages.length, ...preserved, ...messages.slice(-40));
       }
 
+      return "continue";
+    };
+
+    // 7. Check for native tool calls
+    const toolCalls = msg.tool_calls;
+    if (toolCalls && toolCalls.length > 0) {
+      const call = toolCalls[0];
+      const toolName = call.function.name;
+      const toolArgs: Record<string, unknown> = typeof call.function.arguments === "string"
+        ? JSON.parse(call.function.arguments)
+        : call.function.arguments ?? {};
+
+      const execResult = await executeAndTrack(toolName, toolArgs, msg, "tool");
+      if (execResult !== "continue") return execResult;
       continue;
     }
 
-    // 8. No tool calls — this is a final response (model is done)
+    // 8. No native tool calls — check content
     const content = msg.content?.trim() ?? "";
 
+    // 8a. In hybrid mode, parse tool calls from text content
+    if (hybridMode && content) {
+      const parsed = parseLocalAgenticAction(content);
+
+      if (parsed.action?.type === "tool_call") {
+        const action = parsed.action as LocalAgenticToolCall;
+        const execResult = await executeAndTrack(
+          action.tool,
+          action.args as Record<string, unknown>,
+          msg,
+          "user", // hybrid: results go as user messages, not tool role
+        );
+        if (execResult !== "continue") return execResult;
+        continue;
+      }
+
+      if (parsed.action?.type === "final") {
+        // Reject premature final if no work done
+        if (executedCommands.length === 0 && !delegatedWorkCreated && successfulToolCalls === 0) {
+          deps.log(`${prefix} turn ${turn}: hybrid premature final rejected — no tools called yet`);
+          messages.push(msg);
+          messages.push({
+            role: "user",
+            content: 'You have not called any tools yet. You MUST call a tool first. Start with: {"type":"tool_call","tool":"list_bridges","args":{}}',
+          });
+          if (turn < config.maxTurns) continue;
+          return mkResult({ success: false, error: "Model completed without calling any tools (hybrid mode)" });
+        }
+
+        const status = parsed.action.status;
+        deps.log(`${prefix} hybrid final(${status}): ${parsed.action.summary}`);
+        return mkResult({
+          success: status === "completed",
+          error: status === "completed" ? undefined : parsed.action.summary,
+        });
+      }
+
+      // Could not parse — remind the model of the protocol
+      deps.log(`${prefix} turn ${turn}: hybrid parse failed — ${parsed.error}`);
+      messages.push(msg);
+      messages.push({
+        role: "user",
+        content: 'Invalid response. You must reply with exactly one JSON object. Example: {"type":"tool_call","tool":"list_bridges","args":{}}',
+      });
+      if (turn < config.maxTurns) continue;
+      return mkResult({ success: false, error: "Model could not produce valid JSON in hybrid mode" });
+    }
+
+    // 8b. Empty response after commands — done
     if (!content && executedCommands.length > 0) {
       deps.log(`${prefix} Empty final response after commands — treating as done`);
       return mkResult({ success: true });
     }
 
-    // Reject premature completion if no tools were called
+    // 8c. No tools called yet — detect if we need hybrid mode
     if (executedCommands.length === 0 && !delegatedWorkCreated && successfulToolCalls === 0) {
+      if (!hybridMode) {
+        // First time: switch to hybrid mode (tools embedded in system prompt)
+        hybridMode = true;
+        deps.log(`${prefix} No tool_calls from model — switching to hybrid mode (tools in system prompt)`);
+
+        // Replace system message with hybrid prompt that includes JSON protocol + tool defs
+        messages[0] = {
+          role: "system",
+          content: buildOllamaHybridSystemMessage({
+            allowDelegation: config.allowDelegationTools,
+            allowSkills: true,
+            customInstructions: config.systemPrompt,
+          }),
+        };
+
+        // Try to parse the model's current text output — it might already contain a tool call
+        if (content) {
+          const parsed = parseLocalAgenticAction(content);
+          if (parsed.action?.type === "tool_call") {
+            const action = parsed.action as LocalAgenticToolCall;
+            const execResult = await executeAndTrack(
+              action.tool,
+              action.args as Record<string, unknown>,
+              msg,
+              "user",
+            );
+            if (execResult !== "continue") return execResult;
+            continue;
+          }
+        }
+
+        // Model didn't produce a parseable tool call — prompt for JSON format
+        messages.push(msg);
+        messages.push({
+          role: "user",
+          content: 'You must respond with exactly one JSON object to call a tool. Do NOT describe code. Example: {"type":"tool_call","tool":"list_bridges","args":{}}',
+        });
+        if (turn < config.maxTurns) continue;
+      }
+
+      // Already in hybrid mode and still no tools — stern retry
       deps.log(`${prefix} turn ${turn}: premature completion rejected — no tools called yet`);
-      // Don't append the model's text response to history — it's just a plan/description.
-      // Instead, send a firm instruction to actually call a tool.
       messages.push({
         role: "user",
-        content: "STOP. Do NOT describe code or write plans. You MUST call the execute_command tool right now with the script. Do not respond with text — use the tool.",
+        content: 'STOP. Do NOT describe code or write plans. Respond with ONLY a JSON object: {"type":"tool_call","tool":"list_bridges","args":{}}',
       });
       if (turn < config.maxTurns) continue;
       return mkResult({ success: false, error: "Model completed without calling any tools" });
     }
 
-    // Determine status from content
+    // 8d. Tools were called, model is done — determine status from content
     const lower = content.toLowerCase();
     const failed = /\b(failed|error|unable|cannot|couldn'?t)\b/.test(lower);
     const blocked = /\b(blocked|waiting|need|require|missing)\b/.test(lower);

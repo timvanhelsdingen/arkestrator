@@ -1059,7 +1059,7 @@
                             <span>System Prompt Override</span>
                             <textarea
                               rows="2"
-                              placeholder="Uses default system prompt"
+                              placeholder="Additional instructions for this model (appended to built-in prompt)"
                               value={modelOverridesState[model.name]?.systemPrompt ?? ""}
                               oninput={(e) => {
                                 modelOverridesState = {
@@ -1102,7 +1102,7 @@
           </div>
         {/if}
         <label class="field"><span>Max Turns</span><input type="number" bind:value={form.maxTurns} min="1" /></label>
-        <label class="field"><span>System Prompt (default)</span><textarea bind:value={form.systemPrompt} rows="3" placeholder="Optional system prompt for all models"></textarea></label>
+        <label class="field"><span>System Prompt {form.engine === "local-oss" ? "(additional instructions)" : "(default)"}</span><textarea bind:value={form.systemPrompt} rows="3" placeholder={form.engine === "local-oss" ? "Additional instructions appended to built-in local model prompt. Leave empty for default behavior. Thinking models (qwen3, etc.) auto-switch to hybrid tool calling." : "Optional system prompt for all models"}></textarea></label>
 
         <label class="field"><span>Priority (0-100)</span><input type="number" bind:value={form.priority} min="0" max="100" /></label>
         <div class="editor-actions">
