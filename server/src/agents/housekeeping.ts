@@ -13,6 +13,15 @@ export interface HousekeepingDeps {
   hub: WebSocketHub;
 }
 
+/** Map agent config IDs to their engine/model for housekeeping context */
+function buildAgentLookup(agentsRepo: AgentsRepo): Map<string, { engine: string; model?: string; name: string }> {
+  const lookup = new Map<string, { engine: string; model?: string; name: string }>();
+  for (const a of agentsRepo.list()) {
+    lookup.set(a.id, { engine: a.engine, model: a.model, name: a.name });
+  }
+  return lookup;
+}
+
 export interface HousekeepingSchedule {
   enabled: boolean;
   intervalMinutes: number;
@@ -55,7 +64,8 @@ export function queueHousekeepingJob(
   // Gather job history summary — include trashed jobs so the learning loop
   // doesn't miss completed/failed jobs that were deleted before analysis.
   const recentJobs = deps.jobsRepo.listIncludingTrashed(["completed", "failed", "cancelled"], 100);
-  const jobSummary = buildJobSummary(recentJobs);
+  const agentLookup = buildAgentLookup(deps.agentsRepo);
+  const jobSummary = buildJobSummary(recentJobs, agentLookup);
 
   // Gather current skills
   const skills = deps.skillsRepo.listAll();
@@ -97,17 +107,37 @@ export function queueHousekeepingJob(
   return { jobId: job.id };
 }
 
-function buildJobSummary(jobs: any[]): string {
+function resolveEngine(job: any, agentLookup: Map<string, { engine: string; model?: string; name: string }>): string {
+  // Use actual model if available, otherwise look up from agent config
+  if (job.actualModel) return job.actualModel;
+  const configId = job.actualAgentConfigId || job.agentConfigId;
+  const cfg = configId ? agentLookup.get(configId) : undefined;
+  if (cfg) return cfg.model ? `${cfg.engine}/${cfg.model}` : cfg.engine;
+  return "unknown";
+}
+
+function isLocalModel(engine: string): boolean {
+  return engine.startsWith("local") || engine.includes("ollama") || engine.includes("lmstudio");
+}
+
+function buildJobSummary(jobs: any[], agentLookup: Map<string, { engine: string; model?: string; name: string }>): string {
   if (jobs.length === 0) return "No recent jobs found.";
 
   const byStatus: Record<string, number> = {};
   const byBridge: Record<string, { total: number; failed: number; positive: number; negative: number }> = {};
-  const failures: Array<{ bridge: string; error: string; prompt: string }> = [];
+  const byEngine: Record<string, { total: number; failed: number }> = {};
+  const failures: Array<{ bridge: string; engine: string; error: string; prompt: string }> = [];
   const positiveJobs: Array<{ bridge: string; prompt: string; notes?: string }> = [];
 
   for (const job of jobs) {
     // Count by status
     byStatus[job.status] = (byStatus[job.status] || 0) + 1;
+
+    const engine = resolveEngine(job, agentLookup);
+
+    // Count by engine
+    if (!byEngine[engine]) byEngine[engine] = { total: 0, failed: 0 };
+    byEngine[engine].total++;
 
     // Count by bridge
     const bridge = job.bridgeProgram || job.usedBridges?.[0] || "unknown";
@@ -115,7 +145,8 @@ function buildJobSummary(jobs: any[]): string {
     byBridge[bridge].total++;
     if (job.status === "failed") {
       byBridge[bridge].failed++;
-      if (job.error) failures.push({ bridge, error: job.error.slice(0, 200), prompt: (job.prompt || "").slice(0, 100) });
+      byEngine[engine].failed++;
+      if (job.error) failures.push({ bridge, engine, error: job.error.slice(0, 200), prompt: (job.prompt || "").slice(0, 100) });
     }
     if (job.outcomeRating === "positive") {
       byBridge[bridge].positive++;
@@ -130,6 +161,13 @@ function buildJobSummary(jobs: any[]): string {
     summary += `- ${status}: ${count}\n`;
   }
 
+  summary += `\n### By Engine/Model\n`;
+  for (const [engine, stats] of Object.entries(byEngine)) {
+    const failRate = stats.total > 0 ? Math.round((stats.failed / stats.total) * 100) : 0;
+    const tag = isLocalModel(engine) ? " ⚠️ LOCAL" : "";
+    summary += `- **${engine}**${tag}: ${stats.total} jobs, ${stats.failed} failed (${failRate}%)\n`;
+  }
+
   summary += `\n### By Bridge\n`;
   for (const [bridge, stats] of Object.entries(byBridge)) {
     const failRate = stats.total > 0 ? Math.round((stats.failed / stats.total) * 100) : 0;
@@ -139,7 +177,8 @@ function buildJobSummary(jobs: any[]): string {
   if (failures.length > 0) {
     summary += `\n### Recent Failures (${failures.length})\n`;
     for (const f of failures.slice(0, 10)) {
-      summary += `- [${f.bridge}] "${f.prompt}..." → ${f.error}\n`;
+      const tag = isLocalModel(f.engine) ? " [LOCAL MODEL]" : "";
+      summary += `- [${f.bridge}] (${f.engine}${tag}) "${f.prompt}..." → ${f.error}\n`;
     }
   }
 
@@ -201,7 +240,14 @@ Short description of the skill (1-2 sentences). The full knowledge should be in 
 - Focus on ACTIONABLE instructions, not vague advice
 - Use "global" program for skills that apply across all bridges
 - Keep each skill focused on ONE specific pattern or technique
-- If a skill already exists that covers a pattern, don't duplicate it`;
+- If a skill already exists that covers a pattern, don't duplicate it
+
+## IMPORTANT: Model-Aware Failure Analysis
+Failures tagged with **[LOCAL MODEL]** ran on a local/OSS model (Ollama, LM Studio, etc.) which has significantly less capability than cloud models (Claude, GPT, Codex, Gemini). When analyzing failures:
+- **Do NOT blame skills** for failures that are clearly caused by local model limitations (poor tool calling, hallucinated responses, inability to follow complex instructions)
+- **Do NOT create skills** to "fix" local model behavior — skills cannot compensate for model capability gaps
+- **DO note** in your report which failures are likely model-related vs. skill/knowledge gaps
+- Only create skills for failures that also occur on capable cloud models, or for bridge-specific knowledge gaps that would help ANY model`;
 }
 
 /**

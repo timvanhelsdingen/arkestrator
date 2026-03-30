@@ -1554,15 +1554,24 @@
             {:else}
               {#each filteredSkills as skill}
                 {@const eff = skillEffectiveness[skill.id]}
+                {@const isAutoFetch = skill.autoFetch}
                 <tr>
                   <td class="mono">{skill.slug}</td>
                   <td>{skill.title}</td>
                   <td><span class="badge">{skill.program}</span></td>
                   <td><span class="badge">{skill.category}</span></td>
                   <td class="muted">{skill.source ?? ""}</td>
-                  <td class="mono">{eff?.totalUsed ?? "-"}</td>
+                  <td class="mono">
+                    {#if isAutoFetch}
+                      <span class="muted" title="Auto-fetch skills are always injected — usage tracking is not applicable">—</span>
+                    {:else}
+                      {eff?.totalUsed ?? "-"}
+                    {/if}
+                  </td>
                   <td>
-                    {#if eff && eff.totalUsed > 0}
+                    {#if isAutoFetch}
+                      <span class="muted" title="Auto-fetch skills are always injected — effectiveness tracking is not applicable">—</span>
+                    {:else if eff && eff.totalUsed > 0}
                       {@const pct = Math.round(eff.successRate * 100)}
                       <span class="badge {pct >= 70 ? 'success' : pct >= 40 ? 'warn' : 'bad'}">{pct}%</span>
                     {:else}
@@ -1974,12 +1983,22 @@
       {:else if skillViewData}
         <div class="skill-detail-grid">
           <div><strong>Slug:</strong> <span class="mono">{skillViewData.slug}</span></div>
+          {#if skillViewData.name && skillViewData.name !== skillViewData.slug}
+            <div><strong>Name:</strong> {skillViewData.name}</div>
+          {/if}
           <div><strong>Bridge:</strong> {skillViewData.program || "-"}</div>
           <div><strong>Category:</strong> {skillViewData.category}</div>
           <div><strong>Source:</strong> {skillViewData.source ?? "-"}</div>
+          {#if skillViewData.sourcePath}
+            <div><strong>Source Path:</strong> <span class="mono mini">{skillViewData.sourcePath}</span></div>
+          {/if}
           <div><strong>Priority:</strong> {skillViewData.priority ?? "-"}</div>
           <div><strong>Enabled:</strong> {skillViewData.enabled ? "Yes" : "No"}</div>
-          {#if skillViewEffectiveness}
+          <div><strong>Auto-fetch:</strong> {skillViewData.autoFetch ? "Yes" : "No"}</div>
+          {#if skillViewData.keywords?.length > 0}
+            <div><strong>Keywords:</strong> {skillViewData.keywords.join(", ")}</div>
+          {/if}
+          {#if !skillViewData.autoFetch && skillViewEffectiveness}
             <div><strong>Uses:</strong> {skillViewEffectiveness.totalUsed}</div>
             <div><strong>Success Rate:</strong>
               {#if skillViewEffectiveness.totalUsed > 0}
