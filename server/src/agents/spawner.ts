@@ -1292,12 +1292,16 @@ async function runLocalAgenticLoop(
     },
   };
 
+  // Local model system prompt: admin-editable setting → per-model override → nothing
+  const localModelSystemPrompt = deps.settingsRepo?.get("local_model_system_prompt") ?? undefined;
+  const effectiveSystemPrompt = [localModelSystemPrompt, perModelPrompt].filter(Boolean).join("\n\n") || undefined;
+
   const loopConfig: AgenticLoopConfig = {
     basePrompt: buildLocalAgenticTaskSummary(job),
     maxTurns,
     turnTimeoutMs: effectiveTurnTimeoutMs,
     allowDelegationTools: promptRequestsDelegation(job.prompt),
-    systemPrompt: perModelPrompt,
+    systemPrompt: effectiveSystemPrompt,
     logPrefix: "[local-agentic]",
   };
 
@@ -1930,6 +1934,8 @@ export async function spawnAgent(
         const perModelPrompt = config.modelOverrides?.[resolvedModel]?.systemPrompt
           ?? config.modelSystemPrompts?.[resolvedModel]
           ?? config.systemPrompt;
+        const clientLocalSystemPrompt = deps.settingsRepo?.get("local_model_system_prompt") ?? undefined;
+        const clientEffectivePrompt = [clientLocalSystemPrompt, perModelPrompt].filter(Boolean).join("\n\n") || undefined;
 
         const dispatched = dispatchToClient(
           deps.hub,
@@ -1940,7 +1946,7 @@ export async function spawnAgent(
           resolvedModel,
           maxTurns,
           turnTimeoutMs,
-          perModelPrompt,
+          clientEffectivePrompt,
           (result) => {
             // This callback fires when the client reports completion
             // Release the local LLM gate so the next queued job can start
