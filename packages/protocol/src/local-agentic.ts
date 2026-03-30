@@ -256,18 +256,9 @@ export function buildLocalAgenticTurnPrompt(
     );
   }
 
-  // Trim custom system prompt to avoid overwhelming local models with huge
-  // coordinator scripts. Keep first 2000 chars which contain the essentials.
-  const MAX_CUSTOM_PROMPT_CHARS = 2000;
-  const trimmedCustomPrompt = customSystemPrompt
-    ? customSystemPrompt.length > MAX_CUSTOM_PROMPT_CHARS
-      ? customSystemPrompt.slice(0, MAX_CUSTOM_PROMPT_CHARS) + "\n...(trimmed for local model context)"
-      : customSystemPrompt
-    : undefined;
-
   return [
     LOCAL_AGENTIC_PROTOCOL_INSTRUCTIONS,
-    ...(trimmedCustomPrompt ? ["", "## Additional Instructions", trimmedCustomPrompt] : []),
+    ...(customSystemPrompt ? ["", "## Additional Instructions", customSystemPrompt] : []),
     "",
     "## Available Tools",
     ...toolLines,

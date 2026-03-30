@@ -1342,8 +1342,12 @@ export async function spawnAgent(
   const includeTraining = (coordScripts?.training ?? "enabled") !== "disabled";
 
   // Coordinator script priority: per-bridge file → global file → settings DB
+  // Local-oss models use their own lightweight protocol — the full coordinator
+  // script (10KB+ of transport gate, CLI reference, REST examples) is irrelevant
+  // and too large for local model context windows.
+  const isLocalOss = config.engine === "local-oss";
   let orchestratorPromptOverride: string | undefined;
-  if (includeBridge) {
+  if (includeBridge && !isLocalOss) {
     orchestratorPromptOverride =
       loadCoordinatorScript(deps.config.coordinatorScriptsDir, job.bridgeProgram ?? undefined);
     if (!orchestratorPromptOverride) {
