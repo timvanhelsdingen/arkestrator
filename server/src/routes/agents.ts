@@ -401,7 +401,7 @@ export function createAgentRoutes(
     const deleteResult = agentsRepo.delete(c.req.param("id"));
     if (deleteResult === "not_found") return errorResponse(c, 404, "Not found", "NOT_FOUND");
     if (deleteResult === "has_jobs")
-      return errorResponse(c, 409, "Cannot delete: jobs still reference this agent config. Delete or reassign those jobs first.", "CONFLICT");
+      return errorResponse(c, 409, "Cannot delete: this agent config has queued or running jobs. Wait for them to finish or cancel them first.", "CONFLICT");
 
     auditRepo.log({
       userId: user.id,

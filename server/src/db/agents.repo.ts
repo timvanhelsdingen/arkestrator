@@ -142,7 +142,18 @@ export class AgentsRepo {
    * a foreign-key constraint prevents deletion (jobs still reference this config).
    */
   delete(id: string): "ok" | "not_found" | "has_jobs" {
+    // Block only if there are actively queued/running jobs using this config
+    const activeJobs = this.db.prepare(
+      `SELECT COUNT(*) as cnt FROM jobs WHERE agent_config_id = ? AND status IN ('queued', 'running')`,
+    ).get(id) as { cnt: number } | undefined;
+    if (activeJobs && activeJobs.cnt > 0) return "has_jobs";
+
     try {
+      // Reassign terminal jobs to avoid FK constraint blocking deletion
+      this.db.prepare(
+        `UPDATE jobs SET actual_agent_config_id = COALESCE(actual_agent_config_id, agent_config_id), agent_config_id = (SELECT id FROM agent_configs WHERE id != ? LIMIT 1) WHERE agent_config_id = ? AND status NOT IN ('queued', 'running')`,
+      ).run(id, id);
+
       const result = this.deleteStmt.run(id);
       return result.changes > 0 ? "ok" : "not_found";
     } catch (err: unknown) {
