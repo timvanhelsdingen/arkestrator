@@ -260,8 +260,9 @@ export async function streamPullOllamaModel(
 // ---------------------------------------------------------------------------
 
 export interface OllamaChatMessage {
-  role: "system" | "user" | "assistant";
+  role: "system" | "user" | "assistant" | "tool";
   content: string;
+  tool_calls?: Array<{ function: { name: string; arguments: Record<string, unknown> } }>;
 }
 
 /**
@@ -379,5 +380,95 @@ export async function* streamOllamaChat(
     } catch {
       // Already released
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Non-streaming chat with native tool calling
+// ---------------------------------------------------------------------------
+
+export interface OllamaChatWithToolsOptions {
+  baseUrl: string;
+  model: string;
+  messages: Array<{
+    role: "system" | "user" | "assistant" | "tool";
+    content: string;
+    tool_calls?: Array<{ function: { name: string; arguments: Record<string, unknown> } }>;
+  }>;
+  tools: Array<{
+    type: "function";
+    function: {
+      name: string;
+      description: string;
+      parameters: Record<string, unknown>;
+    };
+  }>;
+  timeoutMs: number;
+}
+
+export interface OllamaChatWithToolsResult {
+  message?: OllamaChatMessage;
+  error?: string;
+  timedOut?: boolean;
+}
+
+/**
+ * Call Ollama `/api/chat` with native tool calling support (non-streaming).
+ * Returns the assistant's response which may contain `tool_calls`.
+ */
+export async function ollamaChatWithTools(
+  options: OllamaChatWithToolsOptions,
+): Promise<OllamaChatWithToolsResult> {
+  const url = `${normalizeOllamaBaseUrl(options.baseUrl)}/api/chat`;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), options.timeoutMs);
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: options.model,
+        messages: options.messages,
+        tools: options.tools,
+        stream: false,
+      }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timer);
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      return { error: `Ollama returned ${res.status}: ${text.slice(0, 500)}` };
+    }
+
+    const data = await res.json() as any;
+    if (data.error) {
+      return { error: `Ollama error: ${data.error}` };
+    }
+
+    const msg = data.message;
+    if (!msg) {
+      return { error: "No message in Ollama response" };
+    }
+
+    // Normalize tool_calls arguments — Ollama may return string or object
+    if (msg.tool_calls) {
+      for (const tc of msg.tool_calls) {
+        if (typeof tc.function?.arguments === "string") {
+          try { tc.function.arguments = JSON.parse(tc.function.arguments); } catch { tc.function.arguments = {}; }
+        }
+      }
+    }
+
+    return { message: msg };
+  } catch (err: any) {
+    clearTimeout(timer);
+    if (err?.name === "AbortError" || controller.signal.aborted) {
+      return { timedOut: true };
+    }
+    return { error: `Ollama chat request failed: ${err?.message ?? err}` };
   }
 }

@@ -79,6 +79,7 @@ import {
   compactJson as protocolCompactJson,
   promptRequestsDelegation,
   runAgenticLoop,
+  runChatAgenticLoop,
   type LocalAgenticToolCall,
   type LocalAgenticHistoryEntry,
   type AgenticLoopDeps,
@@ -1209,6 +1210,10 @@ async function runLocalAgenticLoop(
     ?? config.modelSystemPrompts?.[modelName]
     ?? config.systemPrompt;
 
+  // Resolve Ollama base URL for native tool calling
+  const ollamaBaseUrl = String(env.OLLAMA_BASE_URL ?? env.OLLAMA_HOST ?? "").trim()
+    || getOllamaBaseUrl();
+
   const loopDeps: AgenticLoopDeps = {
     async generateResponse(prompt, timeoutMs) {
       const turnResult = await runLocalModelTurn(job, config, deps, prompt, cwd, env, timeoutMs);
@@ -1218,6 +1223,17 @@ async function runLocalAgenticLoop(
         timedOut: turnResult.timedOut,
         exitCode: turnResult.exitCode,
       };
+    },
+
+    async generateChatResponse(messages, tools, timeoutMs) {
+      const { ollamaChatWithTools } = await import("../local-models/ollama.js");
+      return ollamaChatWithTools({
+        baseUrl: ollamaBaseUrl,
+        model: modelName,
+        messages,
+        tools,
+        timeoutMs,
+      });
     },
 
     async executeTool(tool, args) {
@@ -1285,7 +1301,8 @@ async function runLocalAgenticLoop(
     logPrefix: "[local-agentic]",
   };
 
-  const result = await runAgenticLoop(loopConfig, loopDeps);
+  // Prefer native tool calling (chat mode) which falls back to text-prompt internally
+  const result = await runChatAgenticLoop(loopConfig, loopDeps);
 
   return {
     handled: !result.fallbackToLegacy,

@@ -7,13 +7,13 @@
  */
 
 import {
-  runAgenticLoop,
+  runChatAgenticLoop,
   promptRequestsDelegation,
   type AgenticLoopDeps,
   type AgenticLoopConfig,
 } from "@arkestrator/protocol";
 
-import { ollamaGenerate } from "./ollamaClient.js";
+import { ollamaGenerate, ollamaChatWithTools } from "./ollamaClient.js";
 
 // ---------------------------------------------------------------------------
 // Types (public API for callers)
@@ -79,6 +79,15 @@ export async function runClientAgenticLoop(
       };
     },
 
+    async generateChatResponse(messages, tools, timeoutMs) {
+      return ollamaChatWithTools({
+        model: dispatch.model,
+        messages,
+        tools,
+        timeoutMs,
+      });
+    },
+
     async executeTool(tool, args) {
       const result = await callbacks.requestTool(tool, args);
       let commandResults: undefined | Array<{ language: string; script: string; success: boolean; output?: string; error?: string; executionTimeMs?: number }>;
@@ -108,7 +117,7 @@ export async function runClientAgenticLoop(
     logPrefix: "[client-agentic]",
   };
 
-  const result = await runAgenticLoop(loopConfig, loopDeps);
+  const result = await runChatAgenticLoop(loopConfig, loopDeps);
 
   callbacks.sendComplete({
     success: result.success,

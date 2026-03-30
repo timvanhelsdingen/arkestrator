@@ -12,8 +12,13 @@ import {
   compactJson,
   LOCAL_AGENTIC_DEFAULTS,
   LOCAL_AGENTIC_DELEGATION_TOOLS,
+  getOllamaToolSchemas,
+  buildOllamaSystemMessage,
   type LocalAgenticToolCall,
   type LocalAgenticHistoryEntry,
+  type OllamaChatMessage,
+  type OllamaToolSchema,
+  type OllamaToolCall,
 } from "./local-agentic.js";
 
 // ---------------------------------------------------------------------------
@@ -62,9 +67,23 @@ export interface AgenticLoopToolResult {
   commandResults?: AgenticLoopCommandRecord[];
 }
 
+export interface AgenticLoopChatResponse {
+  message?: OllamaChatMessage;
+  error?: string;
+  timedOut?: boolean;
+}
+
 export interface AgenticLoopDeps {
-  /** Call the LLM with a prompt and timeout, return the raw text response. */
+  /** Call the LLM with a prompt and timeout, return the raw text response (text-prompt mode). */
   generateResponse(prompt: string, timeoutMs: number): Promise<AgenticLoopLlmResponse>;
+
+  /** Call the LLM with chat messages + tools (Ollama native tool calling mode).
+   *  When provided, the loop prefers this over generateResponse. */
+  generateChatResponse?(
+    messages: OllamaChatMessage[],
+    tools: OllamaToolSchema[],
+    timeoutMs: number,
+  ): Promise<AgenticLoopChatResponse>;
 
   /** Execute a tool call and return the result. */
   executeTool(
@@ -440,5 +459,250 @@ export async function runAgenticLoop(
   return mkResult({
     success: false,
     error: `Local agentic loop hit max turns (${config.maxTurns}) without final response`,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Chat-mode agentic loop (Ollama native tool calling)
+// ---------------------------------------------------------------------------
+
+/**
+ * Run the agentic loop using Ollama's native `/api/chat` with the `tools`
+ * parameter. Models produce structured `tool_calls` responses instead of
+ * our custom JSON protocol. Falls back to the text-prompt loop if the model
+ * doesn't support tool calling.
+ */
+export async function runChatAgenticLoop(
+  config: AgenticLoopConfig,
+  deps: AgenticLoopDeps,
+): Promise<AgenticLoopResult> {
+  if (!deps.generateChatResponse) {
+    // No chat mode available — fall back to text-prompt mode
+    return runAgenticLoop(config, deps);
+  }
+
+  const startTime = Date.now();
+  const prefix = config.logPrefix ?? "[chat-agentic]";
+  const executedCommands: AgenticLoopCommandRecord[] = [];
+  let delegatedWorkCreated = false;
+  let activated = false;
+  let successfulToolCalls = 0;
+  let consecutiveErrorCount = 0;
+  let lastErrorMessage = "";
+  let lastToolCallKey = "";
+  let sameToolCallCount = 0;
+
+  const mkResult = (
+    partial: Omit<AgenticLoopResult, "commands" | "durationMs">,
+  ): AgenticLoopResult => ({
+    ...partial,
+    commands: executedCommands,
+    durationMs: Date.now() - startTime,
+  });
+
+  // Build tool schemas
+  const toolSchemas = getOllamaToolSchemas({
+    allowDelegation: config.allowDelegationTools,
+    allowSkills: true,
+  });
+
+  // Build initial messages
+  const systemMsg: OllamaChatMessage = {
+    role: "system",
+    content: buildOllamaSystemMessage(config.systemPrompt),
+  };
+  const userMsg: OllamaChatMessage = {
+    role: "user",
+    content: config.basePrompt,
+  };
+  const messages: OllamaChatMessage[] = [systemMsg, userMsg];
+
+  deps.log(`${prefix} Starting chat loop: maxTurns=${config.maxTurns} tools=${toolSchemas.length}`);
+
+  for (let turn = 1; turn <= config.maxTurns; turn++) {
+    // 1. Check cancellation
+    if (await deps.isCancelled()) {
+      return mkResult({ success: false, cancelled: true, error: "Job cancelled" });
+    }
+
+    // 2. Check overall timeout
+    const timeoutError = deps.checkTimeout?.();
+    if (timeoutError) return mkResult({ success: false, error: timeoutError });
+
+    // 3. Add operator intervention notes if any
+    const suffix = deps.getTurnPromptSuffix?.(turn) ?? "";
+    if (suffix) {
+      messages.push({ role: "user", content: suffix });
+    }
+
+    // 4. Calculate turn timeout
+    const turnTimeoutMs = turn === 1
+      ? Math.min(
+          Math.max(config.turnTimeoutMs, LOCAL_AGENTIC_DEFAULTS.FIRST_TURN_MIN_TIMEOUT_MS),
+          LOCAL_AGENTIC_DEFAULTS.MAX_TURN_TIMEOUT_MS,
+        )
+      : Math.min(config.turnTimeoutMs, LOCAL_AGENTIC_DEFAULTS.MAX_TURN_TIMEOUT_MS);
+
+    deps.log(`${prefix} turn ${turn}/${config.maxTurns} (timeout: ${turnTimeoutMs}ms)`);
+
+    // 5. Call LLM with chat messages + tools
+    const chatResult = await deps.generateChatResponse(messages, toolSchemas, turnTimeoutMs);
+
+    if (chatResult.error) {
+      // If first turn fails with tool-related error, fall back to text-prompt
+      if (turn === 1 && /tool|function|not supported/i.test(chatResult.error)) {
+        deps.log(`${prefix} Chat mode not supported by model, falling back to text-prompt mode`);
+        return runAgenticLoop(config, deps);
+      }
+      return mkResult({ success: false, error: chatResult.error });
+    }
+    if (chatResult.timedOut) {
+      if (executedCommands.length > 0) {
+        deps.log(`${prefix} Turn ${turn} timed out but commands already executed — treating as done`);
+        return mkResult({ success: true });
+      }
+      return mkResult({ success: false, error: `Chat turn ${turn} timed out after ${turnTimeoutMs}ms` });
+    }
+
+    const msg = chatResult.message;
+    if (!msg) {
+      if (executedCommands.length > 0) {
+        deps.log(`${prefix} Empty response after commands — treating as done`);
+        return mkResult({ success: true });
+      }
+      return mkResult({ success: false, error: "Empty chat response" });
+    }
+
+    // 6. Activation signal
+    if (!activated) {
+      activated = true;
+      deps.onActivated?.();
+      deps.log(`${prefix} chat mode activated`);
+    }
+
+    // 7. Check for tool calls
+    const toolCalls = msg.tool_calls;
+    if (toolCalls && toolCalls.length > 0) {
+      const call = toolCalls[0]; // Process one tool at a time
+      const toolName = call.function.name;
+      // Parse arguments — Ollama may return object or JSON string
+      const toolArgs: Record<string, unknown> = typeof call.function.arguments === "string"
+        ? JSON.parse(call.function.arguments)
+        : call.function.arguments ?? {};
+
+      // Check delegation restriction
+      if (!config.allowDelegationTools && LOCAL_AGENTIC_DELEGATION_TOOLS.has(toolName as any)) {
+        const reason = `tool ${toolName} is disabled for this task`;
+        deps.log(`${prefix} tool_error(${toolName}): ${reason}`);
+        messages.push(msg); // assistant message
+        messages.push({ role: "tool", content: JSON.stringify({ ok: false, error: reason }) });
+        continue;
+      }
+
+      // Loop detection
+      const callKey = `${toolName}:${compactJson(toolArgs, 500)}`;
+      if (callKey === lastToolCallKey) {
+        sameToolCallCount++;
+        if (sameToolCallCount >= 3) {
+          deps.log(`${prefix} aborting: model stuck calling ${toolName} with same args ${sameToolCallCount} times`);
+          if (executedCommands.length > 0) return mkResult({ success: true });
+          return mkResult({ success: false, error: `Model stuck calling ${toolName} ${sameToolCallCount} times` });
+        }
+      } else {
+        sameToolCallCount = 1;
+        lastToolCallKey = callKey;
+      }
+
+      deps.log(`${prefix} turn ${turn} tool_call: ${toolName}(${compactJson(toolArgs, 200)})`);
+
+      // Execute tool
+      const toolResult = await deps.executeTool(toolName, toolArgs);
+
+      // Track bridges and commands
+      if (toolResult.bridgesUsed?.length) deps.onBridgeUsed?.(toolResult.bridgesUsed);
+      if (toolResult.commandResults?.length) executedCommands.push(...toolResult.commandResults);
+      if (toolName === "create_job" && toolResult.ok) delegatedWorkCreated = true;
+
+      // Build result string for chat history
+      const resultStr = toolResult.ok
+        ? JSON.stringify({ ok: true, data: toolResult.data })
+        : JSON.stringify({ ok: false, error: toolResult.error ?? "unknown error" });
+
+      // Truncate large results in history
+      const truncatedResult = resultStr.length > 4000
+        ? resultStr.slice(0, 4000) + "...(truncated)"
+        : resultStr;
+
+      // Append assistant + tool result to messages
+      messages.push(msg);
+      messages.push({ role: "tool", content: truncatedResult });
+
+      // Error tracking
+      if (!toolResult.ok) {
+        const errMsg = toolResult.error ?? "unknown error";
+        deps.log(`${prefix} tool_error(${toolName}): ${errMsg}`);
+        if (errMsg === lastErrorMessage) {
+          consecutiveErrorCount++;
+          if (consecutiveErrorCount >= LOCAL_AGENTIC_DEFAULTS.MAX_CONSECUTIVE_ERRORS) {
+            return mkResult({ success: false, error: `Stuck in error loop (${consecutiveErrorCount}x): ${errMsg}` });
+          }
+        } else {
+          consecutiveErrorCount = 1;
+          lastErrorMessage = errMsg;
+        }
+      } else {
+        consecutiveErrorCount = 0;
+        lastErrorMessage = "";
+        successfulToolCalls++;
+        deps.log(`${prefix} tool_ok(${toolName}): ${compactJson(toolResult.data, 800)}`);
+      }
+
+      // Slide window: keep system + user + last ~20 turn pairs
+      if (messages.length > 42) {
+        const preserved = [messages[0], messages[1]]; // system + user
+        messages.splice(0, messages.length, ...preserved, ...messages.slice(-40));
+      }
+
+      continue;
+    }
+
+    // 8. No tool calls — this is a final response (model is done)
+    const content = msg.content?.trim() ?? "";
+
+    if (!content && executedCommands.length > 0) {
+      deps.log(`${prefix} Empty final response after commands — treating as done`);
+      return mkResult({ success: true });
+    }
+
+    // Reject premature completion if no tools were called
+    if (executedCommands.length === 0 && !delegatedWorkCreated && successfulToolCalls === 0) {
+      deps.log(`${prefix} turn ${turn}: premature completion rejected — no tools called yet`);
+      messages.push(msg);
+      messages.push({
+        role: "user",
+        content: "You must call tools to complete this task. Start by calling list_bridges() to see available applications, then search_skills() to find relevant patterns.",
+      });
+      if (turn < config.maxTurns) continue;
+      return mkResult({ success: false, error: "Model completed without calling any tools" });
+    }
+
+    // Determine status from content
+    const lower = content.toLowerCase();
+    const failed = /\b(failed|error|unable|cannot|couldn'?t)\b/.test(lower);
+    const blocked = /\b(blocked|waiting|need|require|missing)\b/.test(lower);
+    const status = failed ? "failed" : blocked ? "blocked" : "completed";
+
+    deps.log(`${prefix} final(${status}): ${content.slice(0, 300)}`);
+    return mkResult({
+      success: status === "completed",
+      error: status === "completed" ? undefined : content,
+    });
+  }
+
+  // Exhausted all turns
+  deps.log(`${prefix} max turns (${config.maxTurns}) reached`);
+  return mkResult({
+    success: executedCommands.length > 0,
+    error: executedCommands.length > 0 ? undefined : `Chat loop hit max turns (${config.maxTurns})`,
   });
 }

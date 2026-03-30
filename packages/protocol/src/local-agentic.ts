@@ -402,3 +402,262 @@ function extractBalancedJson(text: string): string | null {
 
   return null;
 }
+
+// ---------------------------------------------------------------------------
+// Ollama native tool calling types & schemas
+// ---------------------------------------------------------------------------
+
+export interface OllamaChatMessage {
+  role: "system" | "user" | "assistant" | "tool";
+  content: string;
+  tool_calls?: OllamaToolCall[];
+}
+
+export interface OllamaToolCall {
+  function: {
+    name: string;
+    arguments: Record<string, unknown>;
+  };
+}
+
+export interface OllamaToolSchema {
+  type: "function";
+  function: {
+    name: string;
+    description: string;
+    parameters: {
+      type: "object";
+      properties: Record<string, { type: string; description: string; enum?: string[] }>;
+      required: string[];
+    };
+  };
+}
+
+const CORE_TOOL_SCHEMAS: OllamaToolSchema[] = [
+  {
+    type: "function",
+    function: {
+      name: "list_bridges",
+      description: "List all connected bridge programs (Blender, Houdini, Godot, ComfyUI, etc.)",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_bridge_context",
+      description: "Get the current editor context from a connected bridge (open files, scene state, etc.)",
+      parameters: {
+        type: "object",
+        properties: {
+          target: { type: "string", description: "Bridge program name (e.g. blender, houdini, godot, comfyui)" },
+        },
+        required: ["target"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "execute_command",
+      description: "Execute a script in a connected application. Write one complete self-contained script. Each command runs in isolated scope — variables do NOT persist between calls.",
+      parameters: {
+        type: "object",
+        properties: {
+          target: { type: "string", description: "Bridge program name (e.g. blender, houdini, godot, comfyui)" },
+          language: { type: "string", description: "Script language (e.g. python, gdscript, vex)" },
+          script: { type: "string", description: "Complete self-contained script to execute. For Blender: colors must be RGBA (4 values). For Godot: use func run(editor: EditorInterface) -> void: as entrypoint." },
+          description: { type: "string", description: "Brief description of what this script does" },
+        },
+        required: ["target", "language", "script"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "execute_multiple_commands",
+      description: "Execute multiple scripts in sequence in a connected application",
+      parameters: {
+        type: "object",
+        properties: {
+          target: { type: "string", description: "Bridge program name" },
+          commands: { type: "string", description: "JSON array of {language, script, description} objects" },
+        },
+        required: ["target", "commands"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "run_headless_check",
+      description: "Validate that a headless program can run (e.g. blender --background)",
+      parameters: {
+        type: "object",
+        properties: {
+          program: { type: "string", description: "Program name (blender, godot, houdini)" },
+          args: { type: "string", description: "JSON array of command-line arguments" },
+          project_path: { type: "string", description: "Optional project path" },
+        },
+        required: ["program", "args"],
+      },
+    },
+  },
+];
+
+const SKILL_TOOL_SCHEMAS: OllamaToolSchema[] = [
+  {
+    type: "function",
+    function: {
+      name: "search_skills",
+      description: "Search learned skills for patterns, techniques, and known pitfalls. Call this BEFORE writing code to find relevant knowledge.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Search query (e.g. 'blender donut', 'houdini terrain', 'procedural rock material')" },
+          program: { type: "string", description: "Optional program filter (blender, houdini, comfyui, etc.)" },
+        },
+        required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_skill",
+      description: "Load the full content of a skill by its slug. Use after search_skills returns results.",
+      parameters: {
+        type: "object",
+        properties: {
+          slug: { type: "string", description: "Skill slug from search results" },
+          program: { type: "string", description: "Optional program filter" },
+        },
+        required: ["slug"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_skill",
+      description: "Save something you learned as a skill for future tasks. Use when you discover a non-trivial technique, workaround, or pattern.",
+      parameters: {
+        type: "object",
+        properties: {
+          slug: { type: "string", description: "URL-friendly identifier (e.g. 'blender5-donut-icing')" },
+          title: { type: "string", description: "Human-readable title" },
+          program: { type: "string", description: "Target program (blender, houdini, comfyui, global)" },
+          content: { type: "string", description: "Step-by-step instructions, code snippets, key parameters, gotchas" },
+          category: { type: "string", description: "Skill category (default: custom)" },
+        },
+        required: ["slug", "title", "program", "content"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "rate_skill",
+      description: "Rate how useful a skill was for your current task",
+      parameters: {
+        type: "object",
+        properties: {
+          slug: { type: "string", description: "Skill slug" },
+          rating: { type: "string", description: "How useful was this skill", enum: ["useful", "not_useful", "partial"] },
+        },
+        required: ["slug", "rating"],
+      },
+    },
+  },
+];
+
+const DELEGATION_TOOL_SCHEMAS: OllamaToolSchema[] = [
+  {
+    type: "function",
+    function: {
+      name: "list_agent_configs",
+      description: "List available AI agent configurations",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_job",
+      description: "Create a sub-job to delegate work to another agent or bridge",
+      parameters: {
+        type: "object",
+        properties: {
+          prompt: { type: "string", description: "Task description for the sub-job" },
+          agent_config_id: { type: "string", description: "Agent config to use (from list_agent_configs)" },
+          target_program: { type: "string", description: "Target bridge program" },
+          name: { type: "string", description: "Job name" },
+        },
+        required: ["prompt"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_job_status",
+      description: "Check the status of a sub-job",
+      parameters: {
+        type: "object",
+        properties: {
+          job_id: { type: "string", description: "Job ID to check" },
+        },
+        required: ["job_id"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_jobs",
+      description: "List jobs with optional status filter",
+      parameters: {
+        type: "object",
+        properties: {
+          status: { type: "string", description: "Filter by status (queued, running, completed, failed)" },
+          limit: { type: "string", description: "Max results (default 20)" },
+        },
+        required: [],
+      },
+    },
+  },
+];
+
+/** Get Ollama-compatible tool schemas for the native /api/chat tools parameter. */
+export function getOllamaToolSchemas(options: {
+  allowDelegation?: boolean;
+  allowSkills?: boolean;
+} = {}): OllamaToolSchema[] {
+  const tools = [...CORE_TOOL_SCHEMAS];
+  if (options.allowSkills !== false) tools.push(...SKILL_TOOL_SCHEMAS);
+  if (options.allowDelegation) tools.push(...DELEGATION_TOOL_SCHEMAS);
+  return tools;
+}
+
+/** Build a concise system message for Ollama native tool calling (no protocol instructions needed). */
+export function buildOllamaSystemMessage(customInstructions?: string): string {
+  const lines = [
+    "You are an AI agent that controls creative applications (Blender, Houdini, Godot, ComfyUI) through tool calls.",
+    "",
+    "Rules:",
+    "- Use tools to execute code in connected applications. NEVER just describe what to do.",
+    "- Write one complete self-contained script per execute_command call.",
+    "- Each command runs in isolated scope — variables do NOT persist between commands.",
+    "- In Blender scripts: colors must be RGBA (4 values), e.g. (0.8, 0.2, 0.1, 1.0).",
+    "- For Godot/GDScript: entrypoint must be func run(editor: EditorInterface) -> void:",
+    "- If a command fails, try a DIFFERENT approach — do not repeat the same code.",
+    "- Search skills FIRST before writing code — skills contain proven patterns and known pitfalls.",
+    "- After completing work, create a skill if you learned something non-trivial.",
+    "- When done, respond with a brief summary of what you did (no tool call).",
+  ];
+  if (customInstructions) {
+    lines.push("", "## Additional Context", customInstructions);
+  }
+  return lines.join("\n");
+}
