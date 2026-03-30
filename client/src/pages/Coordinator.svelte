@@ -213,10 +213,12 @@
     category: string;
     title: string;
     description?: string;
+    keywords?: string[];
     content?: string;
     playbooks?: string[];
     relatedSkills?: string[];
     source?: string;
+    sourcePath?: string | null;
     priority?: number;
     autoFetch?: boolean;
     enabled?: boolean;
@@ -1995,7 +1997,7 @@
           <div><strong>Priority:</strong> {skillViewData.priority ?? "-"}</div>
           <div><strong>Enabled:</strong> {skillViewData.enabled ? "Yes" : "No"}</div>
           <div><strong>Auto-fetch:</strong> {skillViewData.autoFetch ? "Yes" : "No"}</div>
-          {#if skillViewData.keywords?.length > 0}
+          {#if skillViewData.keywords && skillViewData.keywords.length > 0}
             <div><strong>Keywords:</strong> {skillViewData.keywords.join(", ")}</div>
           {/if}
           {#if !skillViewData.autoFetch && skillViewEffectiveness}

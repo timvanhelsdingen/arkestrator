@@ -93,7 +93,7 @@ export interface OllamaChatWithToolsOptions {
 
 export interface OllamaChatWithToolsResult {
   message?: {
-    role: string;
+    role: "system" | "user" | "assistant" | "tool";
     content: string;
     tool_calls?: Array<{ function: { name: string; arguments: Record<string, unknown> } }>;
   };

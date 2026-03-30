@@ -25,6 +25,7 @@ describe("loadConfig", () => {
     delete process.env.COORDINATOR_PLAYBOOKS_DIR;
     delete process.env.COORDINATOR_IMPORTS_DIR;
     delete process.env.SNAPSHOTS_DIR;
+    delete process.env.SKILLS_DIR;
 
     const config = loadConfig();
     expect(config.dataDir).toBe("/srv/ark-data");
@@ -33,5 +34,6 @@ describe("loadConfig", () => {
     expect(config.coordinatorPlaybooksDir).toBe("/srv/ark-data/coordinator-playbooks");
     expect(config.coordinatorImportsDir).toBe("/srv/ark-data/coordinator-imports");
     expect(config.snapshotsDir).toBe("/srv/ark-data/snapshots");
+    expect(config.skillsDir).toBe("/srv/ark-data/skills");
   });
 });
