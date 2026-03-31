@@ -225,12 +225,13 @@
   }
   let serverSkills = $state<SkillEntry[]>([]);
   let skillsLoading = $state(false);
-  let skillEffectiveness = $state<Record<string, { totalUsed: number; successRate: number }>>({});
+  let skillEffectiveness = $state<Record<string, { totalUsed: number; successRate: number; pendingOutcomes: number; goodOutcomes: number; averageOutcomes: number; poorOutcomes: number }>>({});
   let skillsFilter = $state("");
   let skillViewSlug = $state<string | null>(null);
   let skillViewData = $state<SkillEntry | null>(null);
   let skillViewPlaybooks = $state<Array<{ path: string; content: string | null; error?: string }>>([]);
-  let skillViewEffectiveness = $state<{ totalUsed: number; successRate: number } | null>(null);
+  let skillViewEffectiveness = $state<{ totalUsed: number; successRate: number; pendingOutcomes: number; goodOutcomes: number; averageOutcomes: number; poorOutcomes: number } | null>(null);
+  let skillViewFeedback = $state<Array<{ jobOutcome: string; ratingNotes?: string; relevance?: string; accuracy?: string; completeness?: string; createdAt: string }>>([]);
   let skillViewLoading = $state(false);
   let expandedPlaybooks = $state<Set<string>>(new Set());
   let skillCreateOpen = $state(false);
@@ -1242,7 +1243,8 @@
       promises.push(
         api.skills.getEffectiveness(slug, prog).then((eff: any) => {
           skillViewEffectiveness = eff?.stats ?? null;
-        }).catch(() => { skillViewEffectiveness = null; })
+          skillViewFeedback = eff?.records ?? [];
+        }).catch(() => { skillViewEffectiveness = null; skillViewFeedback = []; })
       );
       await Promise.all(promises);
     } catch (err: any) {
@@ -1567,15 +1569,17 @@
                     {#if isAutoFetch}
                       <span class="muted" title="Auto-fetch skills are always injected — usage tracking is not applicable">—</span>
                     {:else}
-                      {eff?.totalUsed ?? "-"}
+                      {eff?.totalUsed ?? "-"}{eff && eff.pendingOutcomes > 0 ? ` (${eff.totalUsed - eff.pendingOutcomes} rated)` : ""}
                     {/if}
                   </td>
                   <td>
                     {#if isAutoFetch}
                       <span class="muted" title="Auto-fetch skills are always injected — effectiveness tracking is not applicable">—</span>
-                    {:else if eff && eff.totalUsed > 0}
+                    {:else if eff && (eff.totalUsed - (eff.pendingOutcomes ?? 0)) > 0}
                       {@const pct = Math.round(eff.successRate * 100)}
                       <span class="badge {pct >= 70 ? 'success' : pct >= 40 ? 'warn' : 'bad'}">{pct}%</span>
+                    {:else if eff && eff.totalUsed > 0}
+                      <span class="muted" title="{eff.pendingOutcomes} pending">pending</span>
                     {:else}
                       <span class="muted">-</span>
                     {/if}
@@ -2001,19 +2005,39 @@
             <div><strong>Keywords:</strong> {skillViewData.keywords.join(", ")}</div>
           {/if}
           {#if !skillViewData.autoFetch && skillViewEffectiveness}
-            <div><strong>Uses:</strong> {skillViewEffectiveness.totalUsed}</div>
+            {@const rated = skillViewEffectiveness.totalUsed - (skillViewEffectiveness.pendingOutcomes ?? 0)}
+            <div><strong>Uses:</strong> {skillViewEffectiveness.totalUsed}{skillViewEffectiveness.pendingOutcomes > 0 ? ` (${rated} rated)` : ""}</div>
             <div><strong>Success Rate:</strong>
-              {#if skillViewEffectiveness.totalUsed > 0}
+              {#if rated > 0}
                 {@const pct = Math.round(skillViewEffectiveness.successRate * 100)}
                 <span class="badge {pct >= 70 ? 'success' : pct >= 40 ? 'warn' : 'bad'}">{pct}%</span>
+              {:else if skillViewEffectiveness.totalUsed > 0}
+                <span class="muted">pending</span>
               {:else}
                 -
               {/if}
             </div>
+            {#if rated > 0}
+              <div><strong>Breakdown:</strong> {skillViewEffectiveness.goodOutcomes} good, {skillViewEffectiveness.averageOutcomes} avg, {skillViewEffectiveness.poorOutcomes} poor</div>
+            {/if}
           {/if}
         </div>
         {#if skillViewData.description}
           <div class="skill-detail-desc">{skillViewData.description}</div>
+        {/if}
+        {#if skillViewFeedback.length > 0}
+          <div class="skill-detail-section">
+            <strong>Recent Feedback ({skillViewFeedback.length}):</strong>
+            {#each skillViewFeedback as fb}
+              <div class="feedback-entry" style="padding: 4px 0; border-bottom: 1px solid var(--border); font-size: var(--font-size-sm);">
+                <span class="badge {fb.jobOutcome === 'positive' ? 'success' : fb.jobOutcome === 'negative' ? 'bad' : 'warn'}">{fb.jobOutcome ?? "?"}</span>
+                {#if fb.relevance}<span class="muted" style="margin-left: 6px;">relevance: {fb.relevance}</span>{/if}
+                {#if fb.accuracy}<span class="muted" style="margin-left: 6px;">accuracy: {fb.accuracy}</span>{/if}
+                {#if fb.completeness}<span class="muted" style="margin-left: 6px;">completeness: {fb.completeness}</span>{/if}
+                {#if fb.ratingNotes}<div class="mini" style="margin-top: 2px; color: var(--text-secondary);">{fb.ratingNotes}</div>{/if}
+              </div>
+            {/each}
+          </div>
         {/if}
         {#if skillViewData.relatedSkills && skillViewData.relatedSkills.length > 0}
           <div class="skill-detail-section">

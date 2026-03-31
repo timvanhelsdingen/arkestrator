@@ -1106,17 +1106,18 @@ export function queueCoordinatorTrainingJob(
           const isDccProgram = normalizedProgram !== "global";
           const programBridgeOnline = isDccProgram && allOnlinePrograms.includes(normalizedProgram);
           const headlessConfig = isDccProgram ? headlessProgramsRepo?.getByProgram(normalizedProgram) : undefined;
-          // Training always prefers headless over live bridge — no reason to
-          // interfere with a user's live session for background training work.
-          // Headless is viable if the program has ANY headless config (even if
-          // not explicitly enabled for regular jobs) and a worker is available.
+          // Training prefers headless over live bridge — avoid interrupting user sessions.
+          // Headless is viable if configured with an executable OR if the program has
+          // a known headless CLI (auto-detected at startup).
           const headlessViable = isDccProgram && !!headlessConfig?.executable && (programBridgeOnline || !!targetWorkerName);
 
-          // For global: if ANY bridge is online, use bridge mode so the agent can
-          // decide which bridges to use based on the prompt and source content.
-          // For DCC-specific: prefer headless > filesystem > bridge (avoid live sessions).
+          // For global: bridge mode (agent picks which bridges to use).
+          // For DCC-specific: headless > bridge > filesystem.
+          // We'd prefer headless > filesystem > bridge to avoid live sessions entirely,
+          // but filesystem-only analysis misses too much DCC-specific context.
+          // When a live bridge is the only option, the agent still gets useful data.
           const autoMode: "bridge" | "headless" | "filesystem" = isDccProgram
-            ? (headlessViable ? "headless" : "filesystem")
+            ? (headlessViable ? "headless" : programBridgeOnline ? "bridge" : "filesystem")
             : (anyBridgeOnline ? "bridge" : "filesystem");
 
           // Training level can force filesystem mode (e.g. "low" level skips bridge)
