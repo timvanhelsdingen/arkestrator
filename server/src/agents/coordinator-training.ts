@@ -1105,14 +1105,18 @@ export function queueCoordinatorTrainingJob(
 
           const isDccProgram = normalizedProgram !== "global";
           const programBridgeOnline = isDccProgram && allOnlinePrograms.includes(normalizedProgram);
-          const headlessEnabled = isDccProgram && headlessProgramsRepo?.getByProgram(normalizedProgram)?.enabled === true;
-          const headlessViable = headlessEnabled && (programBridgeOnline || !!targetWorkerName);
+          const headlessConfig = isDccProgram ? headlessProgramsRepo?.getByProgram(normalizedProgram) : undefined;
+          // Training always prefers headless over live bridge — no reason to
+          // interfere with a user's live session for background training work.
+          // Headless is viable if the program has ANY headless config (even if
+          // not explicitly enabled for regular jobs) and a worker is available.
+          const headlessViable = isDccProgram && !!headlessConfig?.executable && (programBridgeOnline || !!targetWorkerName);
 
           // For global: if ANY bridge is online, use bridge mode so the agent can
           // decide which bridges to use based on the prompt and source content.
-          // For DCC-specific: prefer headless > bridge > filesystem as before.
+          // For DCC-specific: prefer headless > filesystem > bridge (avoid live sessions).
           const autoMode: "bridge" | "headless" | "filesystem" = isDccProgram
-            ? (headlessViable ? "headless" : programBridgeOnline ? "bridge" : "filesystem")
+            ? (headlessViable ? "headless" : "filesystem")
             : (anyBridgeOnline ? "bridge" : "filesystem");
 
           // Training level can force filesystem mode (e.g. "low" level skips bridge)
