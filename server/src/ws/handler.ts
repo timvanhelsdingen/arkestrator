@@ -203,6 +203,14 @@ export function handleMessage(
       case "client_context_items_clear":
         handleClientContextItemsClear(ws, msg, deps);
         break;
+      case "subscribe_job_logs":
+        if (ws.data.type !== "client") break;
+        if (msg.payload?.jobId) deps.hub.subscribeJobLogs(ws.data.id, msg.payload.jobId);
+        break;
+      case "unsubscribe_job_logs":
+        if (ws.data.type !== "client") break;
+        deps.hub.unsubscribeJobLogs(ws.data.id, msg.payload?.jobId);
+        break;
       case "client_tool_request":
         if (ws.data.type !== "client") {
           errorReply(ws, "FORBIDDEN", "Only clients can send tool requests", msg.id);

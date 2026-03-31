@@ -33,7 +33,10 @@ class JobsState {
     return this.all.filter((j) => this.statusFilter.includes(j.status));
   }
 
-  appendLog(jobId: string, text: string) {
+  /** Internal append that mutates the log data without bumping reactivity.
+   *  Call `flushLogVersion()` after a batch of appends to trigger a single
+   *  reactive update instead of one per message. */
+  appendLogSilent(jobId: string, text: string) {
     let arr = this.logMap.get(jobId);
     if (!arr) {
       arr = [];
@@ -42,12 +45,19 @@ class JobsState {
     arr.push(text);
     if (arr.length > MAX_LOG_LINES) {
       arr.splice(0, arr.length - MAX_LOG_LINES);
-      // Rebuild cache after splice
       this.logTextCache.set(jobId, arr.join(""));
     } else {
-      // Append to cached string (avoid re-joining entire array)
       this.logTextCache.set(jobId, (this.logTextCache.get(jobId) ?? "") + text);
     }
+  }
+
+  /** Bump the reactive version counter once after a batch of silent appends. */
+  flushLogVersion() {
+    this.logVersion++;
+  }
+
+  appendLog(jobId: string, text: string) {
+    this.appendLogSilent(jobId, text);
     // Bump version counter — single integer assignment triggers reactivity
     this.logVersion++;
   }

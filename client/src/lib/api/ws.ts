@@ -27,6 +27,56 @@ const MAX_DELAY = 30000;
 let currentDelay = BASE_DELAY;
 const API_KEY_PATTERN = /^ark_[a-f0-9]{48}$/i;
 
+// ---------------------------------------------------------------------------
+// WS message batching — coalesce high-frequency messages (job_log, job_updated)
+// into periodic flushes to avoid hammering Svelte reactivity.
+// ---------------------------------------------------------------------------
+const WS_BATCH_INTERVAL_MS = 150;
+
+/** Buffered log fragments keyed by jobId. */
+const pendingLogs = new Map<string, string[]>();
+/** Buffered job_updated payloads — only the latest per job.id matters. */
+const pendingJobUpdates = new Map<string, /*raw msg*/ any>();
+/** Messages that are NOT high-frequency and should dispatch immediately. */
+let wsBatchTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleWsBatchFlush() {
+  if (wsBatchTimer != null) return;
+  wsBatchTimer = setTimeout(flushWsBatch, WS_BATCH_INTERVAL_MS);
+}
+
+function flushWsBatch() {
+  wsBatchTimer = null;
+
+  // --- Flush buffered logs (single reactive bump) ---
+  if (pendingLogs.size > 0) {
+    for (const [jobId, fragments] of pendingLogs) {
+      const merged = fragments.join("");
+      jobs.appendLogSilent(jobId, merged);
+    }
+    pendingLogs.clear();
+    jobs.flushLogVersion();
+  }
+
+  // --- Flush buffered job updates (latest-wins per job) ---
+  if (pendingJobUpdates.size > 0) {
+    for (const msg of pendingJobUpdates.values()) {
+      dispatchImmediate(msg);
+    }
+    pendingJobUpdates.clear();
+  }
+}
+
+/** Cancel & drain the batch timer (called on disconnect). */
+function cancelWsBatch() {
+  if (wsBatchTimer != null) {
+    clearTimeout(wsBatchTimer);
+    wsBatchTimer = null;
+  }
+  // Drain whatever is buffered so we don't lose data
+  flushWsBatch();
+}
+
 /** Cached machine identity (hostname + osUser + machineId) from Tauri. */
 let cachedMachineIdentity: { hostname: string; osUser: string; machineId: string } | null = null;
 
@@ -237,6 +287,7 @@ export async function connect(url: string, apiKey: string) {
 
   socket.onclose = () => {
     if (socket !== ws || generation !== wsGeneration) return;
+    cancelWsBatch(); // Flush any buffered messages before tearing down
     connection.status = "disconnected";
     ws = null;
     handleDisconnect(); // Fail any running client-dispatched jobs
@@ -270,6 +321,7 @@ export function autoConnect() {
 export function disconnect() {
   intentionalDisconnect = true;
   wsGeneration++;
+  cancelWsBatch(); // Flush buffered messages before tearing down
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
@@ -432,7 +484,37 @@ async function handleWorkerHeadlessCommand(payload: any) {
   }
 }
 
+/** Top-level dispatch: routes high-frequency messages to the batch buffer,
+ *  everything else dispatches immediately. */
 function dispatch(msg: any) {
+  switch (msg.type) {
+    case "job_log":
+      // Buffer log fragments — they arrive very frequently during execution
+      {
+        const jobId = msg.payload?.jobId;
+        const text = msg.payload?.text;
+        if (jobId && text) {
+          let arr = pendingLogs.get(jobId);
+          if (!arr) {
+            arr = [];
+            pendingLogs.set(jobId, arr);
+          }
+          arr.push(text);
+          scheduleWsBatchFlush();
+        }
+      }
+      return;
+    case "job_updated":
+      // Buffer — only the latest update per job matters within a batch window
+      pendingJobUpdates.set(msg.payload?.job?.id ?? "", msg);
+      scheduleWsBatchFlush();
+      return;
+    default:
+      dispatchImmediate(msg);
+  }
+}
+
+function dispatchImmediate(msg: any) {
   switch (msg.type) {
     case "job_list_response":
       jobs.replaceAll(msg.payload.jobs);
@@ -505,6 +587,8 @@ function dispatch(msg: any) {
       break;
     }
     case "job_log":
+      // Normally handled by the batch buffer in dispatch(). This path is a
+      // fallback for messages routed directly through dispatchImmediate().
       jobs.appendLog(msg.payload.jobId, msg.payload.text);
       break;
     case "job_intervention_updated":

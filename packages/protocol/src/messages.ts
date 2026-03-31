@@ -410,6 +410,20 @@ export const ClientContextItemsClearMessage = makeMessage(
 );
 export type ClientContextItemsClearMessage = z.infer<typeof ClientContextItemsClearMessage>;
 
+/** Client subscribes to live logs for a specific job */
+export const SubscribeJobLogsMessage = makeMessage(
+  "subscribe_job_logs",
+  z.object({ jobId: z.string() }),
+);
+export type SubscribeJobLogsMessage = z.infer<typeof SubscribeJobLogsMessage>;
+
+/** Client unsubscribes from job logs (specific job or all) */
+export const UnsubscribeJobLogsMessage = makeMessage(
+  "unsubscribe_job_logs",
+  z.object({ jobId: z.string().optional() }),
+);
+export type UnsubscribeJobLogsMessage = z.infer<typeof UnsubscribeJobLogsMessage>;
+
 /** Server sends full context state to a newly-connected client */
 export const BridgeContextSyncMessage = makeMessage(
   "bridge_context_sync",
@@ -618,6 +632,8 @@ export const Message = z.discriminatedUnion("type", [
   BridgeContextSyncMessage,
   ClientContextItemRemoveMessage,
   ClientContextItemsClearMessage,
+  SubscribeJobLogsMessage,
+  UnsubscribeJobLogsMessage,
   JobDependencyBlockedMessage,
   ClientJobDispatchMessage,
   ClientToolRequestMessage,

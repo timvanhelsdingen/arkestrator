@@ -1150,11 +1150,7 @@ export async function executeLocalAgenticToolCall(
     try {
       const input = {
         name: slug, slug, program, title, description: title, content,
-        category: (() => {
-          const raw = parseStringArg(args.category) || "custom";
-          const validCategories = ["coordinator", "bridge", "training", "playbook", "verification", "project", "project-reference", "housekeeping", "custom"];
-          return validCategories.includes(raw) ? raw : "custom";
-        })(),
+        category: parseStringArg(args.category) || "custom",
         keywords: Array.isArray(args.keywords) ? args.keywords : [program, slug],
         source: "agent", priority: 50, autoFetch: false, enabled: true,
       };
@@ -1178,16 +1174,7 @@ export async function executeLocalAgenticToolCall(
     const skill = deps.skillIndex.get(slug);
     if (!skill) return { ok: false, error: `Skill not found: ${slug}` };
     const outcomeMap: Record<string, string> = { useful: "positive", not_useful: "negative", partial: "average" };
-    const extra: { notes?: string; relevance?: string; accuracy?: string; completeness?: string } = {};
-    const notes = parseStringArg(args.notes);
-    const relevance = parseStringArg(args.relevance);
-    const accuracy = parseStringArg(args.accuracy);
-    const completeness = parseStringArg(args.completeness);
-    if (notes) extra.notes = notes;
-    if (relevance) extra.relevance = relevance;
-    if (accuracy) extra.accuracy = accuracy;
-    if (completeness) extra.completeness = completeness;
-    deps.skillEffectivenessRepo.recordSkillOutcome(skill.id, job.id, outcomeMap[rating] || "average", extra);
+    deps.skillEffectivenessRepo.recordSkillOutcome(skill.id, job.id, outcomeMap[rating] || "average");
     return { ok: true, data: `Rated: ${slug} → ${rating}` };
   }
 
@@ -2973,12 +2960,18 @@ function tryRetryJob(deps: SpawnerDeps, job: Job, error: string): boolean {
 // This prevents flooding the client with hundreds of tiny messages per second
 // during fast agent output, which was causing UI freezes.
 const WS_LOG_FLUSH_MS = 200;
+/** Max log payload size per flush (32KB). Larger chunks are truncated with a note. */
+const WS_LOG_MAX_PAYLOAD = 32_768;
 const wsLogBuffers = new Map<string, { text: string; timer: ReturnType<typeof setTimeout> | null; job: Job }>();
 
 function flushWsLog(deps: SpawnerDeps, jobId: string) {
   const buf = wsLogBuffers.get(jobId);
   if (!buf || !buf.text) return;
-  const text = buf.text;
+  // Rate limit: truncate very large log chunks to prevent memory/bandwidth issues
+  let text = buf.text;
+  if (text.length > WS_LOG_MAX_PAYLOAD) {
+    text = text.slice(0, WS_LOG_MAX_PAYLOAD) + "\n[...log truncated, full output saved to DB]\n";
+  }
   buf.text = "";
   buf.timer = null;
 
@@ -2990,11 +2983,15 @@ function flushWsLog(deps: SpawnerDeps, jobId: string) {
       payload: { jobId, text },
     });
   }
-  deps.hub.broadcastToType("client", {
-    type: "job_log",
-    id: newId(),
-    payload: { jobId, text },
-  });
+  // Only send logs to clients actively viewing this job (subscribed)
+  const subscribers = deps.hub.getLogSubscribers(jobId);
+  for (const connId of subscribers) {
+    deps.hub.send(connId, {
+      type: "job_log",
+      id: newId(),
+      payload: { jobId, text },
+    });
+  }
 }
 
 function sendLog(deps: SpawnerDeps, job: Job, text: string) {

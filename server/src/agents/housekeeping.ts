@@ -5,6 +5,7 @@ import type { SkillStore } from "../skills/skill-store.js";
 import type { AgentsRepo } from "../db/agents.repo.js";
 import type { SettingsRepo } from "../db/settings.repo.js";
 import type { WebSocketHub } from "../ws/hub.js";
+import type { SkillEffectivenessRepo } from "../db/skill-effectiveness.repo.js";
 
 export interface HousekeepingDeps {
   jobsRepo: JobsRepo;
@@ -13,6 +14,7 @@ export interface HousekeepingDeps {
   agentsRepo: AgentsRepo;
   settingsRepo: SettingsRepo;
   hub: WebSocketHub;
+  skillEffectivenessRepo?: SkillEffectivenessRepo;
 }
 
 /** Map agent config IDs to their engine/model for housekeeping context */
@@ -73,8 +75,23 @@ export function queueHousekeepingJob(
   const skills = deps.skillsRepo.listAll();
   const skillsSummary = skills.map(s => `- [${s.category}] ${s.slug} (${s.program}): ${s.title}`).join("\n");
 
+  // Gather skill feedback (recent ratings with notes)
+  let feedbackSummary = "";
+  if (deps.skillEffectivenessRepo) {
+    const feedbackLines: string[] = [];
+    for (const skill of skills) {
+      const feedback = deps.skillEffectivenessRepo.getRecentFeedbackWithNotes(skill.id, 5);
+      if (feedback.length === 0) continue;
+      feedbackLines.push(`**${skill.slug}** (${skill.program}):`);
+      for (const fb of feedback) {
+        feedbackLines.push(`  - [${fb.jobOutcome ?? "unrated"}] ${fb.outcomeNotes}`);
+      }
+    }
+    feedbackSummary = feedbackLines.join("\n");
+  }
+
   // Build the housekeeping prompt
-  const prompt = buildHousekeepingPrompt(jobSummary, skillsSummary, skills.length);
+  const prompt = buildHousekeepingPrompt(jobSummary, skillsSummary, skills.length, feedbackSummary);
 
   // Create the job
   const job = deps.jobsRepo.create(
@@ -196,7 +213,7 @@ function buildJobSummary(jobs: any[], agentLookup: Map<string, { engine: string;
   return summary;
 }
 
-function buildHousekeepingPrompt(jobSummary: string, skillsSummary: string, skillCount: number): string {
+function buildHousekeepingPrompt(jobSummary: string, skillsSummary: string, skillCount: number, feedbackSummary?: string): string {
   return `You are the Arkestrator Housekeeping Agent — a system-level manager that reviews all recent work and improves the system.
 
 ## Your Role
@@ -206,6 +223,9 @@ You are NOT executing a task for a user. You are reviewing the performance of th
 
 ### Current Skills (${skillCount} total)
 ${skillsSummary || "No skills loaded yet."}
+
+### Recent Skill Feedback
+${feedbackSummary || "No skill feedback available yet."}
 
 ${jobSummary}
 
@@ -217,9 +237,16 @@ ${jobSummary}
    - Bridge-specific issues — any bridge with unusually high failure rates?
    - Missing knowledge — areas where skills could help prevent failures?
 
-2. **Generate Skill Recommendations**: For each pattern you identify, create a skill suggestion using this EXACT format:
+2. **Review Skill Feedback**: Check the feedback from agents who used skills:
+   - Skills rated "negative" with notes explaining why — consider updating or disabling
+   - Skills rated "poor" — fix incorrect information
+   - Skills with consistently low ratings — add missing information
+   - Skills with no feedback yet — these may need better discoverability
+
+3. **Generate Skill Recommendations**: For each pattern you identify, create a skill suggestion using this EXACT format:
 
 \`\`\`skill
+action: create|update|disable
 slug: descriptive-slug-name
 program: bridge-name-or-global
 category: training|verification|playbook|bridge
@@ -230,12 +257,13 @@ related_skills: other-skill-slug, another-skill-slug
 Short description of the skill (1-2 sentences). The full knowledge should be in the referenced playbook artifacts, not embedded here.
 \`\`\`
 
+- **action**: \`create\` (new skill), \`update\` (modify existing skill content), or \`disable\` (set enabled=false on a bad skill)
 - **playbooks** (optional): comma-separated paths to vault artifacts (relative to coordinator-playbooks dir)
 - **related_skills** (optional): comma-separated slugs of related skills that cover adjacent knowledge
 
-3. **Write a Report**: After your analysis, write a brief summary of:
+4. **Write a Report**: After your analysis, write a brief summary of:
    - Key findings
-   - Skills created/suggested
+   - Skills created/updated/disabled
    - Recommendations for the system operator
 
 ## Guidelines
@@ -244,7 +272,8 @@ Short description of the skill (1-2 sentences). The full knowledge should be in 
 - Focus on ACTIONABLE instructions, not vague advice
 - Use "global" program for skills that apply across all bridges
 - Keep each skill focused on ONE specific pattern or technique
-- If a skill already exists that covers a pattern, don't duplicate it
+- If a skill already exists that covers a pattern, don't duplicate it — use \`action: update\` instead
+- Use \`action: disable\` sparingly — only for skills that are actively harmful or consistently rated poorly
 
 ## IMPORTANT: Model-Aware Failure Analysis
 Failures tagged with **[LOCAL MODEL]** ran on a local/OSS model (Ollama, LM Studio, etc.) which has significantly less capability than cloud models (Claude, GPT, Codex, Gemini). When analyzing failures:
@@ -276,8 +305,7 @@ export function runHousekeepingScheduleTick(deps: HousekeepingDeps): { jobId: st
   if (hasRunning) return null;
 
   // Skip if no user jobs have completed (ever, or since last run).
-  // This prevents housekeeping from firing on a fresh install before
-  // any real work has been done.
+  // Prevents housekeeping from firing on fresh install before any real work.
   const completedSince = deps.jobsRepo.countCompletedSince(schedule.lastRunAt || "2000-01-01T00:00:00Z");
   if (completedSince === 0) {
     return null;
@@ -294,10 +322,11 @@ export async function processHousekeepingOutput(
   skillsRepo: SkillsRepo,
   program?: string,
   skillStore?: SkillStore,
-): Promise<{ created: number; updated: number }> {
+): Promise<{ created: number; updated: number; disabled: number }> {
   const skillBlocks = output.match(/```skill\n([\s\S]*?)```/g) || [];
   let created = 0;
   let updated = 0;
+  let disabled = 0;
 
   for (const block of skillBlocks) {
     const content = block.replace(/```skill\n/, "").replace(/```$/, "").trim();
@@ -315,9 +344,10 @@ export async function processHousekeepingOutput(
       props[line.slice(0, colon).trim()] = line.slice(colon + 1).trim();
     }
 
-    if (!props.slug || !body) continue;
+    if (!props.slug) continue;
 
     const slug = props.slug;
+    const action = props.action || "create";
     const skillProgram = props.program || program || "global";
     const category = props.category || "training";
     const title = props.title || slug;
@@ -329,6 +359,67 @@ export async function processHousekeepingOutput(
       : [];
 
     try {
+      if (action === "disable") {
+        // Disable an existing skill
+        const existing = skillsRepo.get(slug, skillProgram);
+        if (existing) {
+          if (skillStore) {
+            await skillStore.update(slug, { enabled: false }, skillProgram);
+          } else {
+            skillsRepo.update(slug, { enabled: false }, skillProgram);
+          }
+          disabled++;
+          logger.info("housekeeping", `Disabled skill: ${slug} (${skillProgram})`);
+        } else {
+          logger.warn("housekeeping", `Cannot disable non-existent skill: ${slug} (${skillProgram})`);
+        }
+        continue;
+      }
+
+      if (action === "update") {
+        // Update an existing skill's content
+        const existing = skillsRepo.get(slug, skillProgram);
+        if (existing) {
+          const updateData = {
+            content: body || undefined,
+            title: title !== slug ? title : undefined,
+            playbooks: playbooks.length > 0 ? playbooks : undefined,
+            relatedSkills: relatedSkills.length > 0 ? relatedSkills : undefined,
+          };
+          if (skillStore) {
+            await skillStore.update(slug, updateData, skillProgram);
+          } else {
+            skillsRepo.update(slug, updateData, skillProgram);
+          }
+          updated++;
+        } else {
+          logger.warn("housekeeping", `Cannot update non-existent skill: ${slug} (${skillProgram}), creating instead`);
+          // Fall through to create
+          if (!body) continue;
+          const createData = {
+            name: title,
+            slug,
+            program: skillProgram,
+            category,
+            title,
+            description: `Auto-generated by housekeeping agent`,
+            content: body,
+            playbooks,
+            relatedSkills,
+            source: "housekeeping",
+          };
+          if (skillStore) {
+            await skillStore.create(createData, "housekeeping");
+          } else {
+            skillsRepo.create(createData, "housekeeping");
+          }
+          created++;
+        }
+        continue;
+      }
+
+      // Default: create (or update if exists — backward compat)
+      if (!body) continue;
       const existing = skillsRepo.get(slug, skillProgram);
       if (existing) {
         const updateData = {
@@ -368,5 +459,5 @@ export async function processHousekeepingOutput(
     }
   }
 
-  return { created, updated };
+  return { created, updated, disabled };
 }

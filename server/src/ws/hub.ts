@@ -41,6 +41,8 @@ export class WebSocketHub {
   private connections = new Map<string, ServerWebSocket<WsData>>();
   private pendingCommands = new Map<string, { resolve: (result: any) => void; timer: ReturnType<typeof setTimeout> }>();
   private bridgeContexts = new Map<string, BridgeContextState>();
+  /** Job log subscriptions: jobId → Set of connection IDs actively viewing that job */
+  private logSubscriptions = new Map<string, Set<string>>();
   // Tracks last replacement time per "program/workerName/projectPath" key for rapid-reconnect detection
   private lastReplacementTime = new Map<string, number>();
   private static readonly MAX_ACTIVE_PROJECTS = 8;
@@ -167,8 +169,39 @@ export class WebSocketHub {
     );
   }
 
+  // -- Log subscription management ------------------------------------------
+
+  subscribeJobLogs(connectionId: string, jobId: string) {
+    let subs = this.logSubscriptions.get(jobId);
+    if (!subs) {
+      subs = new Set();
+      this.logSubscriptions.set(jobId, subs);
+    }
+    subs.add(connectionId);
+  }
+
+  unsubscribeJobLogs(connectionId: string, jobId?: string) {
+    if (jobId) {
+      this.logSubscriptions.get(jobId)?.delete(connectionId);
+    } else {
+      // Unsubscribe from all jobs
+      for (const subs of this.logSubscriptions.values()) {
+        subs.delete(connectionId);
+      }
+    }
+  }
+
+  getLogSubscribers(jobId: string): string[] {
+    const subs = this.logSubscriptions.get(jobId);
+    return subs ? [...subs] : [];
+  }
+
+  // -------------------------------------------------------------------------
+
   unregister(ws: ServerWebSocket<WsData>) {
     this.connections.delete(ws.data.id);
+    // Clean up log subscriptions on disconnect
+    this.unsubscribeJobLogs(ws.data.id);
     // Clean up bridge context when bridge disconnects
     if (ws.data.type === "bridge") {
       this.bridgeContexts.delete(ws.data.id);

@@ -1039,7 +1039,7 @@ async function main() {
         defaultCoordinatorPlaybookSourcePaths: config.coordinatorPlaybookSourcePaths,
         processTracker,
         housekeepingDeps: skillsRepo
-          ? { jobsRepo, skillsRepo, skillStore, agentsRepo, settingsRepo, hub }
+          ? { jobsRepo, skillsRepo, skillStore, agentsRepo, settingsRepo, hub, skillEffectivenessRepo }
           : undefined,
       });
       if (queued.length > 0) {
