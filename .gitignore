@@ -51,3 +51,5 @@ LESSONS.md
 .claude/worktrees/
 .claude/plans/
 nul
+client/src-tauri/arkestrator_bridge/
+server/.arkestrator-prompt.md
