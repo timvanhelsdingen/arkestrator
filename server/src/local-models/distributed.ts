@@ -180,9 +180,13 @@ export async function resolveAnyAvailableWorkerLlm(
 
   for (const workerName of candidates) {
     const resolution = resolveWorkerLocalLlmEndpoint(settingsRepo, workersRepo, workerName);
-    if (!resolution.enabled || !resolution.baseUrl) continue;
+    if (!resolution.enabled) continue;
 
+    // When skipHealthCheck is true (client-dispatch), baseUrl is optional —
+    // the Tauri client runs Ollama locally and doesn't need server-reachable URL.
     if (skipHealthCheck) return resolution;
+
+    if (!resolution.baseUrl) continue;
 
     // Quick health check
     const health = await checkWorkerLocalLlmHealth(resolution.baseUrl, 3_000);

@@ -1830,7 +1830,9 @@ export async function spawnAgent(
         );
         return;
       }
-      if (!resolution.baseUrl) {
+      // For client-dispatch, baseUrl is optional — the Tauri client talks to
+      // its own localhost Ollama. Only require baseUrl for server-side execution.
+      if (!resolution.baseUrl && effectiveHostForDispatch !== "client") {
         failBeforeSpawn(
           `Worker "${targetWorkerName}" has no local LLM endpoint. Set localLlmBaseUrl in machine rules or ensure worker IP is available.`,
           workspace,
