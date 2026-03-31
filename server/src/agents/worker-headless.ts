@@ -159,8 +159,14 @@ export async function executeWorkerHeadlessCommands(params: {
     return { handled: false, success: false, program };
   }
 
-  const headlessProgram = params.headlessProgramsRepo?.getByProgram(program);
-  if (!headlessProgram || !headlessProgram.enabled) {
+  // Use priority chain: worker-reported > admin global > nothing
+  const resolvedConfig = resolveHeadlessProgramConfig(
+    params.hub,
+    params.headlessProgramsRepo,
+    program,
+    params.targetWorkerName,
+  );
+  if (!resolvedConfig) {
     return { handled: false, success: false, program };
   }
 
@@ -209,7 +215,11 @@ export async function executeWorkerHeadlessCommands(params: {
         timeoutMs: params.timeoutMs,
         execution: {
           mode: "commands",
-          config: serializeHeadlessProgram(headlessProgram, params.hub, params.targetWorkerName),
+          config: {
+            executable: resolvedConfig.executable,
+            argsTemplate: resolvedConfig.argsTemplate,
+            language: resolvedConfig.language,
+          },
           commands: params.commands,
         },
       },
@@ -269,8 +279,14 @@ export async function runWorkerHeadlessCheck(params: {
     return { error: "Missing or invalid 'args' array (must be string[])", status: 400 };
   }
 
-  const headlessProgram = params.headlessProgramsRepo?.getByProgram(program);
-  if (!headlessProgram || !headlessProgram.enabled) {
+  // Use priority chain: worker-reported > admin global > nothing
+  const resolvedConfig = resolveHeadlessProgramConfig(
+    params.hub,
+    params.headlessProgramsRepo,
+    program,
+    params.targetWorkerName,
+  );
+  if (!resolvedConfig) {
     return {
       error: `"${program}" is not registered as an enabled headless program`,
       status: 404,
@@ -318,7 +334,7 @@ export async function runWorkerHeadlessCheck(params: {
         timeoutMs: params.timeoutMs,
         execution: {
           mode: "raw_args",
-          executable: resolveHeadlessExecutable(headlessProgram, params.hub, params.targetWorkerName),
+          executable: resolvedConfig.executable,
           args: params.args,
         },
       },
@@ -455,4 +471,66 @@ function serializeHeadlessProgram(program: HeadlessProgram, hub: WebSocketHub, t
     argsTemplate: [...program.argsTemplate],
     language: program.language,
   };
+}
+
+/**
+ * Resolve headless program config using priority chain:
+ *   1. Worker-reported auto-detected capability (from client desktop app)
+ *   2. Admin global config (headless-programs.repo)
+ *   3. Nothing available
+ */
+export function resolveHeadlessProgramConfig(
+  hub: WebSocketHub,
+  headlessProgramsRepo: HeadlessProgramsRepo | undefined,
+  program: string,
+  targetWorkerName?: string,
+): { executable: string; argsTemplate: string[]; language: string; source: "worker" | "admin" } | undefined {
+  const normalizedProgram = program.trim().toLowerCase();
+
+  // Priority 1: Worker-reported auto-detected capability
+  if (targetWorkerName) {
+    const workerCap = hub.getWorkerHeadlessProgram(targetWorkerName, normalizedProgram);
+    if (workerCap) {
+      logger.info("worker-headless",
+        `Using worker-reported headless for ${normalizedProgram} on ${describeWorkerKey(targetWorkerName)}: ${workerCap.executable}`);
+      return {
+        executable: workerCap.executable,
+        argsTemplate: [...workerCap.argsTemplate],
+        language: workerCap.language,
+        source: "worker",
+      };
+    }
+  } else {
+    // No explicit target: check if the single bridge worker reported headless
+    const bridgeWorkers = uniqueWorkerKeys(
+      hub.getBridgesByProgram(normalizedProgram).map((ws) => ws.data.workerName ?? ws.data.machineId),
+    );
+    if (bridgeWorkers.length === 1) {
+      const workerCap = hub.getWorkerHeadlessProgram(bridgeWorkers[0], normalizedProgram);
+      if (workerCap) {
+        logger.info("worker-headless",
+          `Using worker-reported headless for ${normalizedProgram} on ${describeWorkerKey(bridgeWorkers[0])}: ${workerCap.executable}`);
+        return {
+          executable: workerCap.executable,
+          argsTemplate: [...workerCap.argsTemplate],
+          language: workerCap.language,
+          source: "worker",
+        };
+      }
+    }
+  }
+
+  // Priority 2: Admin global config (headless-programs.repo)
+  const adminConfig = headlessProgramsRepo?.getByProgram(normalizedProgram);
+  if (adminConfig?.enabled && adminConfig.executable) {
+    return {
+      executable: resolveHeadlessExecutable(adminConfig, hub, targetWorkerName),
+      argsTemplate: [...adminConfig.argsTemplate],
+      language: adminConfig.language,
+      source: "admin",
+    };
+  }
+
+  // Priority 3: Nothing available
+  return undefined;
 }

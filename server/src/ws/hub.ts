@@ -30,6 +30,14 @@ export interface WsData {
   lastMessageAt?: number;
 }
 
+export interface WorkerHeadlessCapability {
+  program: string;
+  executable: string;
+  argsTemplate: string[];
+  language: string;
+  version?: string;
+}
+
 export interface BridgeContextState {
   items: ContextItem[];
   nextIndex: number;
@@ -45,6 +53,8 @@ export class WebSocketHub {
   private logSubscriptions = new Map<string, Set<string>>();
   // Tracks last replacement time per "program/workerName/projectPath" key for rapid-reconnect detection
   private lastReplacementTime = new Map<string, number>();
+  /** Per-worker headless capabilities reported by desktop clients. Keyed by normalized workerKey. */
+  private workerHeadlessCapabilities = new Map<string, WorkerHeadlessCapability[]>();
   private static readonly MAX_ACTIVE_PROJECTS = 8;
 
   private normalizeProjectPath(projectPath?: string | null): string | undefined {
@@ -214,6 +224,13 @@ export class WebSocketHub {
           program: ws.data.program,
         },
       });
+    }
+    // Clean up headless capabilities when a client disconnects
+    if (ws.data.type === "client") {
+      const workerKey = this.normalizeWorkerKey(ws.data.machineId ?? ws.data.workerName);
+      if (workerKey) {
+        this.workerHeadlessCapabilities.delete(workerKey);
+      }
     }
     logger.info("ws-hub", `${ws.data.type} disconnected: ${ws.data.id}`);
   }
@@ -490,6 +507,30 @@ export class WebSocketHub {
       id: newId(),
       payload: { workers: this.buildEnrichedWorkers(workersRepo) },
     });
+  }
+
+  // --- Per-Worker Headless Capabilities ---
+
+  setWorkerHeadlessCapabilities(workerKey: string, programs: WorkerHeadlessCapability[]) {
+    const normalized = this.normalizeWorkerKey(workerKey);
+    if (!normalized) return;
+    this.workerHeadlessCapabilities.set(normalized, programs);
+  }
+
+  /** Get a specific headless program capability for a worker. */
+  getWorkerHeadlessProgram(workerKey: string, program: string): WorkerHeadlessCapability | undefined {
+    const normalized = this.normalizeWorkerKey(workerKey);
+    if (!normalized) return undefined;
+    const caps = this.workerHeadlessCapabilities.get(normalized);
+    if (!caps) return undefined;
+    const normalizedProgram = program.trim().toLowerCase();
+    return caps.find((c) => c.program.toLowerCase() === normalizedProgram);
+  }
+
+  /** Get all headless capabilities for a worker. */
+  getWorkerHeadlessCapabilities(workerKey: string): WorkerHeadlessCapability[] {
+    const normalized = this.normalizeWorkerKey(workerKey);
+    return this.workerHeadlessCapabilities.get(normalized) ?? [];
   }
 
   // --- Bridge Context Management ---

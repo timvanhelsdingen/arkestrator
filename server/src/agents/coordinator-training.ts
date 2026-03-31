@@ -1107,9 +1107,20 @@ export function queueCoordinatorTrainingJob(
           const programBridgeOnline = isDccProgram && allOnlinePrograms.includes(normalizedProgram);
           const headlessConfig = isDccProgram ? headlessProgramsRepo?.getByProgram(normalizedProgram) : undefined;
           // Training prefers headless over live bridge — avoid interrupting user sessions.
-          // Headless is viable if configured with an executable OR if the program has
-          // a known headless CLI (auto-detected at startup).
-          const headlessViable = isDccProgram && !!headlessConfig?.executable && (programBridgeOnline || !!targetWorkerName);
+          // Headless is viable if configured with an executable OR if a worker reported
+          // auto-detected headless capability for this program.
+          const workerHeadlessAvailable = isDccProgram && (() => {
+            const bridgeWorkers = [...new Set(
+              hub.getBridgesByProgram(normalizedProgram)
+                .map((ws: { data: { workerName?: string; machineId?: string } }) =>
+                  ws.data.workerName ?? ws.data.machineId)
+                .filter(Boolean) as string[],
+            )];
+            return bridgeWorkers.some((wk) => !!hub.getWorkerHeadlessProgram(wk, normalizedProgram));
+          })();
+          const headlessViable = isDccProgram
+            && (!!headlessConfig?.executable || workerHeadlessAvailable)
+            && (programBridgeOnline || !!targetWorkerName);
 
           // For global: bridge mode (agent picks which bridges to use).
           // For DCC-specific: headless > bridge > filesystem.

@@ -583,6 +583,25 @@ export const FileDeliverMessage = makeMessage(
 );
 export type FileDeliverMessage = z.infer<typeof FileDeliverMessage>;
 
+// --- Client Headless Capabilities (client reports auto-detected headless programs) ---
+
+export const ClientHeadlessCapability = z.object({
+  program: z.string(),
+  executable: z.string(),
+  argsTemplate: z.array(z.string()),
+  language: z.string(),
+  version: z.string().optional(),
+});
+export type ClientHeadlessCapability = z.infer<typeof ClientHeadlessCapability>;
+
+export const ClientHeadlessCapabilitiesMessage = makeMessage(
+  "client_headless_capabilities",
+  z.object({
+    programs: z.array(ClientHeadlessCapability),
+  }),
+);
+export type ClientHeadlessCapabilitiesMessage = z.infer<typeof ClientHeadlessCapabilitiesMessage>;
+
 // --- Error ---
 
 export const ErrorMessage = makeMessage(
@@ -644,6 +663,7 @@ export const Message = z.discriminatedUnion("type", [
   BridgeFileReadRequestMessage,
   BridgeFileReadResponseMessage,
   FileDeliverMessage,
+  ClientHeadlessCapabilitiesMessage,
   ErrorMessage,
 ]);
 export type Message = z.infer<typeof Message>;

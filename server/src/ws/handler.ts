@@ -268,6 +268,23 @@ export function handleMessage(
         }
         handleClientJobComplete(msg.payload);
         break;
+      case "client_headless_capabilities": {
+        if (ws.data.type !== "client") {
+          errorReply(ws, "FORBIDDEN", "Only clients can report headless capabilities", msg.id);
+          break;
+        }
+        const workerKey = ws.data.machineId ?? ws.data.workerName;
+        if (workerKey) {
+          deps.hub.setWorkerHeadlessCapabilities(workerKey, msg.payload.programs);
+          const programNames = msg.payload.programs.map((p: { program: string }) => p.program);
+          logger.info(
+            "ws-handler",
+            `Client ${ws.data.id} reported ${msg.payload.programs.length} headless capabilities` +
+            (programNames.length > 0 ? `: ${programNames.join(", ")}` : ""),
+          );
+        }
+        break;
+      }
       default:
         errorReply(ws, "UNKNOWN_TYPE", `Unhandled message type: ${(msg as { type: string }).type}`);
     }

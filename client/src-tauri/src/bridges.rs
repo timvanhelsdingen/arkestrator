@@ -440,6 +440,163 @@ pub fn detect_program_paths(hints: Vec<String>) -> Vec<DetectedPath> {
     results
 }
 
+// ─── Headless Program Detection ────────────────────────────────────────
+
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct DetectedHeadlessProgram {
+    pub program: String,
+    pub executable: String,
+    pub args_template: Vec<String>,
+    pub language: String,
+    pub version: Option<String>,
+}
+
+/// Detect executable files matching glob hints (unlike detect_program_paths which finds dirs).
+fn detect_executable_paths(hints: &[String]) -> Vec<DetectedPath> {
+    let mut results = Vec::new();
+
+    for hint in hints {
+        let expanded = expand_path(hint);
+
+        if expanded.contains('*') {
+            if let Ok(paths) = glob::glob(&expanded) {
+                for entry in paths.flatten() {
+                    if entry.is_file() {
+                        let label = entry
+                            .file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_default();
+                        results.push(DetectedPath {
+                            path: entry.to_string_lossy().to_string(),
+                            label,
+                        });
+                    }
+                }
+            }
+        } else {
+            let path = PathBuf::from(&expanded);
+            if path.is_file() {
+                let label = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                results.push(DetectedPath {
+                    path: path.to_string_lossy().to_string(),
+                    label,
+                });
+            }
+        }
+    }
+
+    // Sort by path descending so higher version numbers come first
+    results.sort_by(|a, b| b.path.cmp(&a.path));
+    results
+}
+
+/// Extract a version-like string from a path (e.g. "21.0.512" from "Houdini 21.0.512").
+fn extract_version_from_path(path: &str) -> Option<String> {
+    // Match patterns like "21.0.512", "4.4", "2022.3.48f1"
+    let mut best: Option<String> = None;
+    for segment in path.split(&['/', '\\', ' '][..]) {
+        let trimmed = segment.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        // Check if segment starts with a digit and contains a dot
+        if trimmed.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false)
+            && trimmed.contains('.')
+        {
+            best = Some(trimmed.to_string());
+        }
+    }
+    best
+}
+
+#[tauri::command]
+pub async fn detect_headless_programs(repo: String) -> Result<Vec<DetectedHeadlessProgram>, String> {
+    // Reuse cached registry (no force refresh — auto-detection is best-effort)
+    let registry = fetch_bridge_registry(repo, None).await?;
+
+    let bridges = registry
+        .get("bridges")
+        .and_then(|b| b.as_array())
+        .ok_or("No bridges array in registry")?;
+
+    let platform_key = if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    };
+
+    let mut results: Vec<DetectedHeadlessProgram> = Vec::new();
+
+    for bridge in bridges {
+        let headless = match bridge.get("headless") {
+            Some(h) if h.is_object() => h,
+            _ => continue,
+        };
+
+        let program = bridge
+            .get("program")
+            .and_then(|p| p.as_str())
+            .unwrap_or("")
+            .to_string();
+        if program.is_empty() {
+            continue;
+        }
+
+        let args_template: Vec<String> = headless
+            .get("argsTemplate")
+            .and_then(|a| a.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let language = headless
+            .get("language")
+            .and_then(|l| l.as_str())
+            .unwrap_or("python")
+            .to_string();
+
+        // Get platform-specific detection hints
+        let hints: Vec<String> = headless
+            .get("detect")
+            .and_then(|d| d.get(platform_key))
+            .and_then(|h| h.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        if hints.is_empty() {
+            continue;
+        }
+
+        let detected = detect_executable_paths(&hints);
+
+        if let Some(best) = detected.first() {
+            let version = extract_version_from_path(&best.path);
+            results.push(DetectedHeadlessProgram {
+                program,
+                executable: best.path.clone(),
+                args_template,
+                language,
+                version,
+            });
+        }
+    }
+
+    Ok(results)
+}
+
 // ─── Installed Bridges Tracking ─────────────────────────────────────────
 
 #[tauri::command]

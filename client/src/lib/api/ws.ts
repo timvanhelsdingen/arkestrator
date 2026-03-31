@@ -16,6 +16,8 @@ import {
   handleDisconnect,
 } from "../services/clientJobManager.js";
 
+const BRIDGE_REPO = "timvanhelsdingen/arkestrator-bridges";
+
 let ws: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let activeJobPollTimer: ReturnType<typeof setInterval> | null = null;
@@ -405,6 +407,9 @@ async function requestInitialData() {
   // Fetch workers via REST as fallback (server also pushes via WS on connect)
   requestStatus();
 
+  // Detect and report headless capabilities to server
+  detectAndReportHeadless();
+
   // Validate saved session on reconnect
   if (connection.sessionToken) {
     try {
@@ -426,6 +431,41 @@ async function requestInitialData() {
       }
     }
   }
+}
+
+async function detectAndReportHeadless() {
+  try {
+    const programs = await invoke<Array<{
+      program: string;
+      executable: string;
+      argsTemplate: string[];
+      language: string;
+      version?: string;
+    }>>("detect_headless_programs", { repo: BRIDGE_REPO });
+
+    if (programs.length > 0) {
+      sendMessage({
+        type: "client_headless_capabilities",
+        id: crypto.randomUUID(),
+        payload: { programs },
+      });
+      console.log(
+        `[ws] Reported ${programs.length} headless capabilities:`,
+        programs.map((p) => p.program).join(", "),
+      );
+    }
+  } catch (err) {
+    console.warn("[ws] Headless capability detection failed:", err);
+  }
+}
+
+let headlessDetectTimer: ReturnType<typeof setTimeout> | null = null;
+function debouncedHeadlessDetect() {
+  if (headlessDetectTimer) return;
+  headlessDetectTimer = setTimeout(() => {
+    headlessDetectTimer = null;
+    detectAndReportHeadless();
+  }, 5000);
 }
 
 async function handleBridgeFileReadRequest(msg: any) {
@@ -631,6 +671,9 @@ function dispatchImmediate(msg: any) {
       break;
     case "bridge_status":
       applyBridgeStatus(msg.payload);
+      // Re-detect headless when bridge topology changes (a new bridge may
+      // indicate a newly installed DCC on this machine)
+      debouncedHeadlessDetect();
       break;
     case "worker_status":
       applyWorkerStatus(msg.payload);

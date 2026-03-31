@@ -1354,6 +1354,7 @@ pub fn run() {
             bridges::save_bridge_installation,
             bridges::uninstall_bridge,
             bridges::check_path_exists,
+            bridges::detect_headless_programs,
             comfyui::detect_comfyui_paths,
             comfyui::launch_comfyui,
             comfyui::stop_comfyui,
