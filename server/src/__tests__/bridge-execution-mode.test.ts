@@ -39,6 +39,7 @@ function createConfig(tempDir: string): Config {
     headlessExecutableHints: {},
     coordinatorScriptsDir: join(tempDir, "coordinator-scripts"),
     coordinatorPlaybooksDir: join(tempDir, "coordinator-playbooks"),
+    skillsDir: join(tempDir, "skills"),
     coordinatorImportsDir: join(tempDir, "coordinator-imports"),
     snapshotsDir: join(tempDir, "snapshots"),
     coordinatorReferencePaths: [],
@@ -300,7 +301,7 @@ describe("bridge execution mode routing", () => {
     const blockedBody = await blockedRes.json();
     expect(String(blockedBody?.error ?? blockedBody?.message ?? "")).toContain("conflicting gpu_vram_heavy task");
 
-    pendingResolve?.({
+    pendingResolve!({
       success: true,
       executed: 1,
       failed: 0,

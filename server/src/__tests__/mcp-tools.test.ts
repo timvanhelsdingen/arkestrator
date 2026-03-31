@@ -4,6 +4,7 @@ import type { JSONRPCMessage, MessageExtraInfo } from "@modelcontextprotocol/sdk
 import { createMcpServer, type McpDeps } from "../mcp/tool-server.js";
 import { createTestAgentConfig, createTestDb, createTestJob } from "./setup.js";
 import { WebSocketHub } from "../ws/hub.js";
+import { WorkerResourceLeaseManager } from "../agents/resource-control.js";
 
 class TestTransport implements Transport {
   onmessage?: <T extends JSONRPCMessage>(message: T, extra?: MessageExtraInfo) => void;
@@ -116,6 +117,7 @@ describe("MCP tool server", () => {
       policiesRepo: ctx.policiesRepo,
       headlessProgramsRepo: ctx.headlessProgramsRepo,
       config: { comfyuiUrl: "http://127.0.0.1:8188" } as any,
+      resourceLeaseManager: new WorkerResourceLeaseManager(),
       jobsRepo: ctx.jobsRepo,
       jobInterventionsRepo: ctx.jobInterventionsRepo,
       agentsRepo: ctx.agentsRepo,
@@ -143,6 +145,7 @@ describe("MCP tool server", () => {
       policiesRepo: ctx.policiesRepo,
       headlessProgramsRepo: ctx.headlessProgramsRepo,
       config: { comfyuiUrl: "http://127.0.0.1:8188" } as any,
+      resourceLeaseManager: new WorkerResourceLeaseManager(),
       jobsRepo: ctx.jobsRepo,
       jobInterventionsRepo: ctx.jobInterventionsRepo,
       agentsRepo: ctx.agentsRepo,
@@ -169,6 +172,7 @@ describe("MCP tool server", () => {
       policiesRepo: ctx.policiesRepo,
       headlessProgramsRepo: ctx.headlessProgramsRepo,
       config: { comfyuiUrl: "http://127.0.0.1:8188" } as any,
+      resourceLeaseManager: new WorkerResourceLeaseManager(),
       jobsRepo: ctx.jobsRepo,
       jobInterventionsRepo: ctx.jobInterventionsRepo,
       agentsRepo: ctx.agentsRepo,
@@ -213,6 +217,7 @@ describe("MCP tool server", () => {
         policiesRepo: ctx.policiesRepo,
         headlessProgramsRepo: ctx.headlessProgramsRepo,
         config: { comfyuiUrl: "http://127.0.0.1:8188" } as any,
+        resourceLeaseManager: new WorkerResourceLeaseManager(),
         jobsRepo: ctx.jobsRepo,
         jobInterventionsRepo: ctx.jobInterventionsRepo,
         agentsRepo: ctx.agentsRepo,
@@ -246,6 +251,7 @@ describe("MCP tool server", () => {
       policiesRepo: ctx.policiesRepo,
       headlessProgramsRepo: ctx.headlessProgramsRepo,
       config: { comfyuiUrl: "http://127.0.0.1:8188" } as any,
+      resourceLeaseManager: new WorkerResourceLeaseManager(),
       jobsRepo: ctx.jobsRepo,
       jobInterventionsRepo: ctx.jobInterventionsRepo,
       agentsRepo: ctx.agentsRepo,
@@ -284,6 +290,7 @@ describe("MCP tool server", () => {
         policiesRepo: ctx.policiesRepo,
         headlessProgramsRepo: ctx.headlessProgramsRepo,
         config: { comfyuiUrl: "http://127.0.0.1:8188" } as any,
+        resourceLeaseManager: new WorkerResourceLeaseManager(),
         jobsRepo: ctx.jobsRepo,
         jobInterventionsRepo: ctx.jobInterventionsRepo,
         agentsRepo: ctx.agentsRepo,

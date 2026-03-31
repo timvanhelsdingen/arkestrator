@@ -34,6 +34,8 @@ describe("workspace resolver", () => {
       files: [],
       contextItems: [],
       usedBridges: ["houdini"],
+      retryCount: 0,
+      maxRetries: 3,
       createdAt: "2026-01-01T00:00:00.000Z",
       editorContext: {
         projectRoot: process.cwd(),
@@ -54,6 +56,10 @@ describe("workspace resolver", () => {
     const project = ctx.projectsRepo.create({
       name: "Prompt-Only Project",
       prompt: "Custom project instructions",
+      pathMappings: [],
+      folders: [],
+      files: [],
+      githubRepos: [],
     });
 
     const job: Job = {
@@ -67,6 +73,8 @@ describe("workspace resolver", () => {
       files: [],
       contextItems: [],
       usedBridges: ["houdini"],
+      retryCount: 0,
+      maxRetries: 3,
       createdAt: "2026-01-01T00:00:00.000Z",
       editorContext: {
         projectRoot: process.cwd(),
@@ -100,6 +108,8 @@ describe("workspace resolver", () => {
       files: [{ path: "notes.txt", content: "hello" }],
       contextItems: [],
       usedBridges: [],
+      retryCount: 0,
+      maxRetries: 3,
       createdAt: "2026-01-01T00:00:00.000Z",
       editorContext: {
         projectRoot: "/nonexistent/path",
@@ -124,6 +134,8 @@ describe("workspace resolver", () => {
       files: [],
       contextItems: [],
       usedBridges: [],
+      retryCount: 0,
+      maxRetries: 3,
       createdAt: "2026-01-01T00:00:00.000Z",
       editorContext: {
         projectRoot: "/nonexistent/path/that/doesnt/exist",

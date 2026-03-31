@@ -71,6 +71,8 @@ describe("buildCommand (codex orchestration)", () => {
       contextItems: [],
       createdAt: "2026-01-01T00:00:00.000Z",
       usedBridges: [],
+      retryCount: 0,
+      maxRetries: 3,
     };
 
     const workspace: any = {
@@ -150,6 +152,8 @@ describe("buildCommand (codex orchestration)", () => {
       contextItems: [],
       createdAt: "2026-01-01T00:00:00.000Z",
       usedBridges: [],
+      retryCount: 0,
+      maxRetries: 3,
     };
 
     const workspace: any = {
@@ -208,6 +212,8 @@ describe("buildCommand (codex orchestration)", () => {
       contextItems: [],
       createdAt: "2026-01-01T00:00:00.000Z",
       usedBridges: [],
+      retryCount: 0,
+      maxRetries: 3,
     };
 
     const workspace: any = {
@@ -251,6 +257,8 @@ describe("buildCommand (codex orchestration)", () => {
         contextItems: [],
         createdAt: "2026-01-01T00:00:00.000Z",
         usedBridges: [],
+        retryCount: 0,
+        maxRetries: 3,
       };
       const workspace: any = {
         mode: "command",
@@ -316,6 +324,8 @@ describe("buildCommand (codex orchestration)", () => {
       contextItems: [],
       createdAt: "2026-01-01T00:00:00.000Z",
       usedBridges: [],
+      retryCount: 0,
+      maxRetries: 3,
     };
 
     const workspace: any = {
@@ -366,6 +376,8 @@ describe("buildCommand (claude root compatibility)", () => {
       contextItems: [],
       createdAt: "2026-01-01T00:00:00.000Z",
       usedBridges: [],
+      retryCount: 0,
+      maxRetries: 3,
     };
 
     // The runtime decision always allows the flag now (even for root),
@@ -401,6 +413,8 @@ describe("buildCommand (claude root compatibility)", () => {
       contextItems: [],
       createdAt: "2026-01-01T00:00:00.000Z",
       usedBridges: [],
+      retryCount: 0,
+      maxRetries: 3,
     };
 
     withMockedGetuid(1000, () => {
@@ -437,6 +451,8 @@ describe("buildCommand (local-oss placeholders)", () => {
       contextItems: [],
       createdAt: "2026-01-01T00:00:00.000Z",
       usedBridges: [],
+      retryCount: 0,
+      maxRetries: 3,
     };
 
     const spec = buildCommand(config, job);
@@ -470,6 +486,8 @@ describe("buildCommand (local-oss placeholders)", () => {
       contextItems: [],
       createdAt: "2026-01-01T00:00:00.000Z",
       usedBridges: [],
+      retryCount: 0,
+      maxRetries: 3,
     };
 
     const spec = buildCommand(config, job);
@@ -509,6 +527,8 @@ describe("buildCommand (local-oss placeholders)", () => {
       contextItems: [],
       createdAt: "2026-01-01T00:00:00.000Z",
       usedBridges: [],
+      retryCount: 0,
+      maxRetries: 3,
     };
 
     const workspace: any = {

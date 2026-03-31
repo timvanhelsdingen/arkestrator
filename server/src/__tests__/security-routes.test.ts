@@ -40,6 +40,7 @@ function createConfig(syncTempDir: string): Config {
     headlessExecutableHints: {},
     coordinatorScriptsDir: join(syncTempDir, "coordinator-scripts"),
     coordinatorPlaybooksDir: join(syncTempDir, "coordinator-playbooks"),
+    skillsDir: join(syncTempDir, "skills"),
     coordinatorImportsDir: join(syncTempDir, "coordinator-imports"),
     snapshotsDir: join(syncTempDir, "snapshots"),
     coordinatorReferencePaths: [],

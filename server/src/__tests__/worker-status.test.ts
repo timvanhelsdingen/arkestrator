@@ -35,7 +35,7 @@ describe("enrichWorkersWithLivePresence", () => {
     const out = enrichWorkersWithLivePresence(
       [macbook, desktop],
       [],
-      [{ workerName: "tims-mbp.fritz.box", machineId: "machine-1", ip: "2a02:a46e:5217:1:3420:36ea:c924:a788" }],
+      [{ workerName: "tims-mbp.fritz.box", machineId: "machine-1" }],
     );
 
     expect(out[0].status).toBe("online");
@@ -59,7 +59,7 @@ describe("enrichWorkersWithLivePresence", () => {
     const out = enrichWorkersWithLivePresence(
       [worker],
       [{ workerName: "another-worker", machineId: "machine-x" }, { workerName: "another-worker", machineId: "machine-x" }],
-      [{ ip: "10.0.0.30" }],
+      [{ workerName: "unrelated-client" }],
     );
 
     expect(out[0].status).toBe("offline");

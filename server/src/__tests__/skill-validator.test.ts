@@ -94,6 +94,8 @@ describe("skill-validator", () => {
       description: "How to use pyro in Houdini",
       keywords: ["pyro"],
       content: "Use the pyro solver with XPU for faster sims.",
+      playbooks: [],
+      relatedSkills: [],
       source: "training",
       sourcePath: null,
       priority: 50,

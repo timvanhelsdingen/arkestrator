@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 import { Hono } from "hono";
 import { createChatRoutes } from "../routes/chat.js";
+import { CodexChatSessionManager } from "../chat/codex-sessions.js";
 import { createJobRoutes } from "../routes/jobs.js";
 import { createTestDb, createTestSession, createTestUser, type TestContext } from "./setup.js";
 import { loadConfig } from "../config.js";
@@ -48,8 +49,10 @@ describe("local model allowlist route enforcement", () => {
       apiKeysRepo: ctx.apiKeysRepo,
       settingsRepo: ctx.settingsRepo,
       workersRepo: ctx.workersRepo,
+      jobsRepo: ctx.jobsRepo,
       hub,
       config: loadConfig(),
+      chatSessions: new CodexChatSessionManager(),
     }));
     app.route("/api/jobs", createJobRoutes(
       ctx.jobsRepo,

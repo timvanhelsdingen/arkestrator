@@ -27,6 +27,7 @@ function makeChatApp() {
     apiKeysRepo: ctx.apiKeysRepo,
     settingsRepo: ctx.settingsRepo,
     workersRepo: ctx.workersRepo,
+    jobsRepo: ctx.jobsRepo,
     hub: new WebSocketHub(),
     config: loadConfig(),
     chatSessions: new CodexChatSessionManager(),

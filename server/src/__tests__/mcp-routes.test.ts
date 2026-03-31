@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { createMcpRoutes } from "../mcp/routes.js";
 import { createTestDb, createTestUser, createTestSession } from "./setup.js";
 import { WebSocketHub } from "../ws/hub.js";
+import { WorkerResourceLeaseManager } from "../agents/resource-control.js";
 
 function buildInitializeRequest() {
   return {
@@ -31,7 +32,9 @@ describe("MCP route auth", () => {
       policiesRepo: ctx.policiesRepo,
       headlessProgramsRepo: ctx.headlessProgramsRepo,
       config: { comfyuiUrl: "http://127.0.0.1:8188" } as any,
+      resourceLeaseManager: new WorkerResourceLeaseManager(),
       jobsRepo: ctx.jobsRepo,
+      jobInterventionsRepo: ctx.jobInterventionsRepo,
       agentsRepo: ctx.agentsRepo,
       depsRepo: ctx.depsRepo,
     }, ctx.apiKeysRepo, ctx.usersRepo));
@@ -61,7 +64,9 @@ describe("MCP route auth", () => {
       policiesRepo: ctx.policiesRepo,
       headlessProgramsRepo: ctx.headlessProgramsRepo,
       config: { comfyuiUrl: "http://127.0.0.1:8188" } as any,
+      resourceLeaseManager: new WorkerResourceLeaseManager(),
       jobsRepo: ctx.jobsRepo,
+      jobInterventionsRepo: ctx.jobInterventionsRepo,
       agentsRepo: ctx.agentsRepo,
       depsRepo: ctx.depsRepo,
     }, ctx.apiKeysRepo, ctx.usersRepo));
@@ -93,7 +98,9 @@ describe("MCP route auth", () => {
       policiesRepo: ctx.policiesRepo,
       headlessProgramsRepo: ctx.headlessProgramsRepo,
       config: { comfyuiUrl: "http://127.0.0.1:8188" } as any,
+      resourceLeaseManager: new WorkerResourceLeaseManager(),
       jobsRepo: ctx.jobsRepo,
+      jobInterventionsRepo: ctx.jobInterventionsRepo,
       agentsRepo: ctx.agentsRepo,
       depsRepo: ctx.depsRepo,
     }, ctx.apiKeysRepo, ctx.usersRepo));
@@ -123,7 +130,9 @@ describe("MCP route auth", () => {
       policiesRepo: ctx.policiesRepo,
       headlessProgramsRepo: ctx.headlessProgramsRepo,
       config: { comfyuiUrl: "http://127.0.0.1:8188" } as any,
+      resourceLeaseManager: new WorkerResourceLeaseManager(),
       jobsRepo: ctx.jobsRepo,
+      jobInterventionsRepo: ctx.jobInterventionsRepo,
       agentsRepo: ctx.agentsRepo,
       depsRepo: ctx.depsRepo,
     }, ctx.apiKeysRepo, ctx.usersRepo));
@@ -153,7 +162,9 @@ describe("MCP route auth", () => {
       policiesRepo: ctx.policiesRepo,
       headlessProgramsRepo: ctx.headlessProgramsRepo,
       config: { comfyuiUrl: "http://127.0.0.1:8188" } as any,
+      resourceLeaseManager: new WorkerResourceLeaseManager(),
       jobsRepo: ctx.jobsRepo,
+      jobInterventionsRepo: ctx.jobInterventionsRepo,
       agentsRepo: ctx.agentsRepo,
       depsRepo: ctx.depsRepo,
     }, ctx.apiKeysRepo, ctx.usersRepo));
@@ -185,7 +196,9 @@ describe("MCP route auth", () => {
       policiesRepo: ctx.policiesRepo,
       headlessProgramsRepo: ctx.headlessProgramsRepo,
       config: { comfyuiUrl: "http://127.0.0.1:8188" } as any,
+      resourceLeaseManager: new WorkerResourceLeaseManager(),
       jobsRepo: ctx.jobsRepo,
+      jobInterventionsRepo: ctx.jobInterventionsRepo,
       agentsRepo: ctx.agentsRepo,
       depsRepo: ctx.depsRepo,
     }, ctx.apiKeysRepo, ctx.usersRepo));
