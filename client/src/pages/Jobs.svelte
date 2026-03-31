@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import type { Job, JobInterventionSupport } from "@arkestrator/protocol";
   import { jobs } from "../lib/stores/jobs.svelte";
   import { workersStore } from "../lib/stores/workers.svelte";
   import { connection } from "../lib/stores/connection.svelte";
-  import { sendMessage } from "../lib/api/ws";
+  import { sendMessage, subscribeJobLogs, unsubscribeJobLogs } from "../lib/api/ws";
   import { api } from "../lib/api/rest";
   import { toast } from "../lib/stores/toast.svelte";
   import Badge from "../lib/components/ui/Badge.svelte";
@@ -15,6 +15,20 @@
   // Refresh job list when page mounts to catch any missed WS broadcasts
   onMount(() => {
     refreshJobs();
+  });
+
+  // Subscribe to job logs when a job is selected, unsubscribe when deselected
+  let prevSubscribedId: string | null = null;
+  $effect(() => {
+    const currentId = jobs.selectedId;
+    if (currentId !== prevSubscribedId) {
+      if (prevSubscribedId) unsubscribeJobLogs(prevSubscribedId);
+      if (currentId) subscribeJobLogs(currentId);
+      prevSubscribedId = currentId;
+    }
+  });
+  onDestroy(() => {
+    if (prevSubscribedId) unsubscribeJobLogs(prevSubscribedId);
   });
 
   function getAgentLabel(job: Job): { short: string; full: string } | null {

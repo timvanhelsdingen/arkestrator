@@ -346,6 +346,16 @@ export function sendMessage(msg: object) {
   }
 }
 
+/** Subscribe to live logs for a specific job */
+export function subscribeJobLogs(jobId: string) {
+  sendMessage({ type: "subscribe_job_logs", id: crypto.randomUUID(), payload: { jobId } });
+}
+
+/** Unsubscribe from job logs (specific job or all) */
+export function unsubscribeJobLogs(jobId?: string) {
+  sendMessage({ type: "unsubscribe_job_logs", id: crypto.randomUUID(), payload: { jobId } });
+}
+
 /** Request bridge and worker status from server via REST (fallback for WS push) */
 export function requestStatus() {
   if (!connection.url) return;
