@@ -1,6 +1,7 @@
 // Re-export from shared protocol package so server imports remain unchanged.
 export {
   LocalAgenticToolName,
+  KNOWN_LOCAL_AGENTIC_TOOLS,
   LocalAgenticToolCall,
   LocalAgenticFinal,
   LocalAgenticAction,
@@ -15,6 +16,10 @@ export {
   runChatAgenticLoop,
   getOllamaToolSchemas,
   buildOllamaSystemMessage,
+  // MCP tool adapters
+  mcpToolsToOllamaSchemas,
+  mcpResultToLoopResult,
+  mcpToolsToTextPrompt,
 } from "@arkestrator/protocol";
 export type {
   ParsedLocalAgenticAction,
@@ -29,4 +34,7 @@ export type {
   OllamaChatMessage,
   OllamaToolSchema,
   OllamaToolCall,
+  // MCP adapter types
+  McpToolDefinition,
+  McpToolCallResult,
 } from "@arkestrator/protocol";

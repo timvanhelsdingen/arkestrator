@@ -54,8 +54,9 @@ export function handleJobDispatch(payload: {
   maxTurns: number;
   turnTimeoutMs: number;
   systemPrompt?: string;
+  mcpEndpoint?: { url: string; apiKey: string };
 }) {
-  const { jobId, basePrompt, model, maxTurns, turnTimeoutMs, systemPrompt } = payload;
+  const { jobId, basePrompt, model, maxTurns, turnTimeoutMs, systemPrompt, mcpEndpoint } = payload;
 
   // Already running?
   if (runningJobs.has(jobId)) {
@@ -77,6 +78,7 @@ export function handleJobDispatch(payload: {
     maxTurns,
     turnTimeoutMs,
     systemPrompt,
+    mcpEndpoint,
   };
 
   // Run the loop asynchronously

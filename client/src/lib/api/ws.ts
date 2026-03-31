@@ -243,6 +243,7 @@ export async function connect(url: string, apiKey: string) {
     if (cachedMachineIdentity.osUser) wsUrl += `&osUser=${encodeURIComponent(cachedMachineIdentity.osUser)}`;
   }
   wsUrl += `&workerMode=${connection.workerModeEnabled ? "true" : "false"}`;
+  wsUrl += `&localLlmEnabled=${connection.localLlmEnabled ? "true" : "false"}`;
   const authProtocol = `arkestrator.auth.${apiKey}`;
   const socket = new WebSocket(wsUrl, [authProtocol]);
   ws = socket;

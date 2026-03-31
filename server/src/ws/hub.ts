@@ -23,6 +23,7 @@ export interface WsData {
   ip?: string;
   osUser?: string;
   workerMode?: boolean;
+  localLlmEnabled?: boolean;
   lastPongAt?: number;
   /** Set to true when a ping is sent; cleared when a pong is received. */
   awaitingPong?: boolean;

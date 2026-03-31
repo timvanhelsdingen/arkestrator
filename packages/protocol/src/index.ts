@@ -8,3 +8,4 @@ export * from "./projects.js";
 export * from "./workers.js";
 export * from "./local-agentic.js";
 export * from "./local-agentic-loop.js";
+export * from "./mcp-tool-adapter.js";

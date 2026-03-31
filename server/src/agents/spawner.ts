@@ -75,17 +75,22 @@ import {
 import {
   LOCAL_AGENTIC_PROTOCOL_INSTRUCTIONS,
   LOCAL_AGENTIC_DEFAULTS,
+  LOCAL_AGENTIC_DELEGATION_TOOLS,
   parseLocalAgenticAction,
   buildLocalAgenticTurnPrompt,
   compactJson as protocolCompactJson,
   promptRequestsDelegation,
   runAgenticLoop,
   runChatAgenticLoop,
+  mcpToolsToOllamaSchemas,
+  mcpResultToLoopResult,
   type LocalAgenticToolCall,
   type LocalAgenticHistoryEntry,
   type AgenticLoopDeps,
   type AgenticLoopConfig,
 } from "./local-agentic-protocol.js";
+import { createInProcessMcpClient, type InProcessMcpClient } from "../mcp/in-process-client.js";
+import type { McpDeps } from "../mcp/tool-server.js";
 import { dispatchToClient } from "./client-dispatch.js";
 import type { LocalLlmGate } from "./local-llm-gate.js";
 import {
@@ -198,6 +203,7 @@ export interface SpawnerDeps {
   jobInterventionsRepo?: JobInterventionsRepo;
   resourceLeaseManager?: WorkerResourceLeaseManager;
   localLlmGate?: LocalLlmGate;
+  policiesRepo?: import("../db/policies.repo.js").PoliciesRepo;
   toolRestrictions?: string[];
   filePathPolicies?: Policy[];
   commandFilterPolicies?: Policy[];
@@ -1218,6 +1224,41 @@ async function runLocalAgenticLoop(
   const ollamaBaseUrl = String(env.OLLAMA_BASE_URL ?? env.OLLAMA_HOST ?? "").trim()
     || getOllamaBaseUrl();
 
+  // Create in-process MCP client for tool execution
+  const mcpDeps: McpDeps = {
+    hub: deps.hub,
+    policiesRepo: deps.policiesRepo!,
+    headlessProgramsRepo: deps.headlessProgramsRepo!,
+    config: deps.config,
+    resourceLeaseManager: deps.resourceLeaseManager!,
+    jobsRepo: deps.jobsRepo,
+    jobInterventionsRepo: deps.jobInterventionsRepo!,
+    agentsRepo: deps.agentsRepo,
+    depsRepo: deps.depsRepo,
+    callerJobId: job.id,
+    processTracker: deps.processTracker,
+    skillIndex: deps.skillIndex,
+    settingsRepo: deps.settingsRepo,
+    skillEffectivenessRepo: deps.skillEffectivenessRepo,
+    skillsRepo: deps.skillsRepo,
+    skillStore: deps.skillStore,
+  };
+  const mcpClient = await createInProcessMcpClient(mcpDeps);
+
+  // Fetch tool schemas from MCP and filter delegation tools based on prompt
+  const allowDelegation = promptRequestsDelegation(job.prompt);
+  const allMcpTools = await mcpClient.listTools();
+  // Filter: remove delegation tools if not needed, remove client_api_request (internal)
+  const filteredTools = allMcpTools.filter((t) => {
+    if (t.name === "client_api_request") return false;
+    if (t.name === "submit_job_intervention") return false;
+    if (t.name === "list_job_interventions") return false;
+    if (t.name === "read_client_file") return false;
+    if (!allowDelegation && LOCAL_AGENTIC_DELEGATION_TOOLS.has(t.name)) return false;
+    return true;
+  });
+  const toolSchemas = mcpToolsToOllamaSchemas(filteredTools);
+
   const loopDeps: AgenticLoopDeps = {
     async generateResponse(prompt, timeoutMs) {
       const turnResult = await runLocalModelTurn(job, config, deps, prompt, cwd, env, timeoutMs);
@@ -1241,8 +1282,8 @@ async function runLocalAgenticLoop(
     },
 
     async executeTool(tool, args) {
-      const action = { type: "tool_call" as const, tool, args } as LocalAgenticToolCall;
-      return executeLocalAgenticToolCall(action, deps, job) as any;
+      const mcpResult = await mcpClient.callTool(tool, args);
+      return mcpResultToLoopResult(mcpResult);
     },
 
     log(message) {
@@ -1304,24 +1345,29 @@ async function runLocalAgenticLoop(
     basePrompt: buildLocalAgenticTaskSummary(job),
     maxTurns,
     turnTimeoutMs: effectiveTurnTimeoutMs,
-    allowDelegationTools: promptRequestsDelegation(job.prompt),
+    allowDelegationTools: allowDelegation,
     systemPrompt: effectiveSystemPrompt,
     logPrefix: "[local-agentic]",
+    toolSchemas,
   };
 
-  // Prefer native tool calling (chat mode) which falls back to text-prompt internally
-  const result = await runChatAgenticLoop(loopConfig, loopDeps);
+  try {
+    // Prefer native tool calling (chat mode) which falls back to text-prompt internally
+    const result = await runChatAgenticLoop(loopConfig, loopDeps);
 
-  return {
-    handled: !result.fallbackToLegacy,
-    success: result.success,
-    fallbackToLegacy: result.fallbackToLegacy ?? false,
-    cancelled: result.cancelled ?? false,
-    error: result.error,
-    logBuffer,
-    commands: result.commands as CommandResult[],
-    durationMs: result.durationMs,
-  };
+    return {
+      handled: !result.fallbackToLegacy,
+      success: result.success,
+      fallbackToLegacy: result.fallbackToLegacy ?? false,
+      cancelled: result.cancelled ?? false,
+      error: result.error,
+      logBuffer,
+      commands: result.commands as CommandResult[],
+      durationMs: result.durationMs,
+    };
+  } finally {
+    mcpClient.close();
+  }
 }
 
 export async function spawnAgent(
@@ -2006,6 +2052,7 @@ export async function spawnAgent(
             cleanupSync(deps, workspace, job.id);
             cleanupAgentTools(cliWrapper, mcpConfigPath, mcpConfigBackup);
           },
+          serverUrl && apiKey ? { url: `${serverUrl}/mcp`, apiKey } : undefined,
         );
 
         if (dispatched) {

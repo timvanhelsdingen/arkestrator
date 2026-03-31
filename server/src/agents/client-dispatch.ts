@@ -67,6 +67,7 @@ export function dispatchToClient(
   turnTimeoutMs: number,
   systemPrompt: string | undefined,
   onComplete: ClientDispatchedJob["onComplete"],
+  mcpEndpoint?: { url: string; apiKey: string },
 ): boolean {
   // Find connected client(s) for the target worker machine
   const clients = hub.getClientConnectionsByWorker(targetWorkerName);
@@ -120,6 +121,7 @@ export function dispatchToClient(
       maxTurns,
       turnTimeoutMs,
       systemPrompt,
+      mcpEndpoint: mcpEndpoint ?? undefined,
     },
   });
 
