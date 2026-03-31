@@ -1832,7 +1832,7 @@ export async function spawnAgent(
       }
       // For client-dispatch, baseUrl is optional — the Tauri client talks to
       // its own localhost Ollama. Only require baseUrl for server-side execution.
-      if (!resolution.baseUrl && effectiveHostForDispatch !== "client") {
+      if (!resolution.baseUrl && effectiveHost !== "client") {
         failBeforeSpawn(
           `Worker "${targetWorkerName}" has no local LLM endpoint. Set localLlmBaseUrl in machine rules or ensure worker IP is available.`,
           workspace,
@@ -1841,9 +1841,9 @@ export async function spawnAgent(
         return;
       }
 
-      cleanEnv.ARKESTRATOR_TARGET_WORKER_OLLAMA_BASE_URL = resolution.baseUrl;
+      cleanEnv.ARKESTRATOR_TARGET_WORKER_OLLAMA_BASE_URL = resolution.baseUrl ?? undefined;
       targetWorkerOllamaBaseUrl = resolution.baseUrl;
-      if (usesOllamaCli) {
+      if (usesOllamaCli && resolution.baseUrl) {
         cleanEnv.OLLAMA_HOST = resolution.baseUrl;
         cleanEnv.OLLAMA_BASE_URL = resolution.baseUrl;
         const health = await checkWorkerLocalLlmHealth(resolution.baseUrl);
