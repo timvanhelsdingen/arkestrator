@@ -1112,6 +1112,19 @@ async function main() {
     logger.info("server", "TLS enabled");
   }
 
+  // DEBUG: Check worker rules at startup
+  const _debugRulesRaw = settingsRepo.get("security_worker_rules_v1");
+  logger.info("server", `[startup-debug] worker rules raw: ${_debugRulesRaw ?? "(null)"}`);
+  // Also force-set it for testing
+  if (_debugRulesRaw) {
+    try {
+      const _parsed = JSON.parse(_debugRulesRaw);
+      for (const [k, v] of Object.entries(_parsed)) {
+        logger.info("server", `[startup-debug] "${k}": localLlmEnabled=${(v as any)?.localLlmEnabled}`);
+      }
+    } catch {}
+  }
+
   // Auto-pull bridge skills on first run (deferred to avoid startup race conditions)
   if (shouldAutoPullSkills) {
     setTimeout(() => {
