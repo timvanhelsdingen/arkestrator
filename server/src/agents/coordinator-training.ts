@@ -1627,8 +1627,9 @@ export function runScheduledCoordinatorTrainingTick(
   // Filter out programs where no user jobs have completed since last training run
   const activeDuePrograms = duePrograms.filter((program) => {
     const lastIso = lastRunByProgram[program];
-    if (!lastIso) return true; // never ran — allow first run
-    const count = deps.jobsRepo.countCompletedSince(lastIso, program);
+    // Never ran — only allow if there are completed jobs for this program
+    // (prevents auto-fire on fresh install before any real work is done)
+    const count = deps.jobsRepo.countCompletedSince(lastIso || "2000-01-01T00:00:00Z", program);
     if (count === 0) {
       logger.debug(
         "coordinator-training",

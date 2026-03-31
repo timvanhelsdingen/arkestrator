@@ -121,10 +121,18 @@
 
   function resolveInstallPath(bridge: BridgeEntry, basePath: string): string {
     const pathTemplate = bridge.installPath?.[platform]
+      ?? bridge.installPath?.relative
       ?? bridge.installPath?.default
       ?? "";
 
+    // Project-type bridges (Godot) use relative path under project root
+    if (bridge.installType === "project" && bridge.installPath?.relative) {
+      return `${basePath}/${bridge.installPath.relative}`;
+    }
+
+    // User/engine types with detected version path (Houdini, Unreal)
     if (pathTemplate.includes("{appVersion}")) {
+      if (!basePath) return pathTemplate; // Can't resolve version without a base path
       const parts = basePath.replace(/\\/g, "/").split("/");
       let versionPart = parts[parts.length - 1] ?? "";
       for (const prefix of ["UE_", "UE-", "Houdini", "houdini"]) {

@@ -209,12 +209,16 @@ async function runCommandWithTimeout(
   let proc: ReturnType<typeof Bun.spawn>;
   let resolvedCommand = command;
   try {
+    // Strip CLAUDECODE env var to prevent "nested session" errors when
+    // the server itself runs inside a Claude Code session (e.g. dev mode)
+    const cleanEnv = { ...process.env };
+    delete cleanEnv.CLAUDECODE;
     const spawned = spawnWithFallback(command, args, {
       cwd: process.cwd(),
       stdout: "pipe",
       stderr: "pipe",
       stdin: "ignore",
-      env: process.env,
+      env: cleanEnv,
     });
     proc = spawned.proc;
     resolvedCommand = spawned.resolvedCommand;

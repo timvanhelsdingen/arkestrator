@@ -263,9 +263,9 @@ export function runHousekeepingScheduleTick(deps: HousekeepingDeps): { jobId: st
 
   const now = Date.now();
   const lastMs = schedule.lastRunAt ? Date.parse(schedule.lastRunAt) : 0;
-  const dueMs = Number.isFinite(lastMs) ? lastMs + schedule.intervalMinutes * 60_000 : 0;
+  const dueMs = Number.isFinite(lastMs) && lastMs > 0 ? lastMs + schedule.intervalMinutes * 60_000 : 0;
 
-  if (Number.isFinite(lastMs) && now < dueMs) return null;
+  if (lastMs > 0 && now < dueMs) return null;
 
   // Check if a housekeeping job is already running
   const running = deps.jobsRepo.list(["queued", "running"]).jobs;
@@ -275,12 +275,12 @@ export function runHousekeepingScheduleTick(deps: HousekeepingDeps): { jobId: st
   });
   if (hasRunning) return null;
 
-  // Skip if no user jobs have completed since the last housekeeping run
-  if (schedule.lastRunAt) {
-    const completedSince = deps.jobsRepo.countCompletedSince(schedule.lastRunAt);
-    if (completedSince === 0) {
-      return null;
-    }
+  // Skip if no user jobs have completed (ever, or since last run).
+  // This prevents housekeeping from firing on a fresh install before
+  // any real work has been done.
+  const completedSince = deps.jobsRepo.countCompletedSince(schedule.lastRunAt || "2000-01-01T00:00:00Z");
+  if (completedSince === 0) {
+    return null;
   }
 
   return queueHousekeepingJob(deps);

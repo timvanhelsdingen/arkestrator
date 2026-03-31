@@ -1668,7 +1668,7 @@
                 ? "Loading workers..."
                 : "Auto selects the best available worker with the right bridges and licenses."}
             </span>
-            <label class="toggle-label" style="margin-top: 4px;">
+            <label class="toggle" style="margin-top: 4px;">
               <input type="checkbox" bind:checked={trainingExcludeSelf} />
               <span>Don't use my machine (only dispatch to other workers)</span>
             </label>
