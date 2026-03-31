@@ -1605,6 +1605,24 @@ export async function spawnAgent(
         );
       }
 
+      // For training jobs: emphasize incremental skill creation during analysis
+      const isTrainingJob = (job.editorContext?.metadata as any)?.coordinator_training_job === true;
+      if (isTrainingJob) {
+        skillLines.push("");
+        skillLines.push(
+          "## TRAINING MODE — Incremental Skill Creation\n" +
+          "You are running a TRAINING job. Your primary goal is to analyze source material and CREATE SKILLS.\n" +
+          "**Create skills AS YOU DISCOVER THEM** — do not wait until the end.\n" +
+          "For each useful pattern, technique, gotcha, or best practice you find:\n" +
+          "1. Use `create_skill` immediately with a descriptive slug, clear title, and actionable content\n" +
+          "2. Include concrete code examples, parameter values, and common pitfalls\n" +
+          "3. Use the program name from the training context (e.g., 'houdini', 'blender')\n" +
+          "4. Category should be 'training' for learned patterns, 'playbook' for workflows\n" +
+          "5. Search existing skills first (`search_skills`) to avoid duplicates — update instead if the pattern exists\n\n" +
+          "A training job that creates 0 skills has failed its purpose. Aim for 3-10 skills per training run.",
+        );
+      }
+
       // Auto-fetch skills are not tracked for effectiveness —
       // only on-demand skills (via get_skill) prompt agents to rate them.
 
