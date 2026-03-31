@@ -1260,7 +1260,7 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ query, program, category }),
       }) as Promise<any>,
-    create: (skill: { name: string; slug: string; program: string; category: string; title: string; description: string; keywords: string[]; content: string }) =>
+    create: (skill: { name: string; slug: string; program: string; category: string; title: string; description: string; keywords: string[]; content: string; priority?: number; autoFetch?: boolean; enabled?: boolean }) =>
       request("/api/skills", {
         method: "POST",
         body: JSON.stringify(skill),

@@ -598,7 +598,7 @@ function buildRuntimeVerificationDirective(job: Job): string {
     lines.push("");
     lines.push("CRITICAL VERIFICATION RULES:");
     lines.push("1. NEVER claim success based on your own visual assessment alone.");
-    lines.push("2. Before declaring done, call search_skills with query \"verification\" to find bridge-specific verification patterns. Load and follow them.");
+    lines.push("2. If you loaded verification skills earlier, follow their patterns. Otherwise use the bridge's built-in verification tools.");
     lines.push("3. For visual/render tasks: run a programmatic comparison script via execute_command (histogram correlation, pixel diff). Report NUMERIC scores in your output.");
     lines.push("4. If any comparison score < 0.7, list SPECIFIC differences (color, geometry, missing elements) and fix them before continuing. Do not proceed until scores improve.");
     lines.push("5. For non-visual tasks (game dev, compositing, procedural): run the bridge's deterministic validation checks (syntax check, runtime check, scene tree validation, node graph validation).");
@@ -1094,10 +1094,9 @@ If the answer is non-trivial, create a skill.
 2. Content must include **concrete code/parameters**, not just descriptions
 3. Use rich keywords for searchability: \`["glass", "caustics", "ior", "bsdf", "wine-glass"]\`
 
-**Before starting work**, call \`search_skills\` to check if relevant skills exist.
+**Before starting work**, call \`search_skills\` once to check if relevant skills exist.
 If you find one, call \`get_skill\` to read it. If it's outdated or incomplete, \`update_skill\` it.
-
-This is how the system gets smarter. Every agent contributes. Do not skip this.
+When you learn something non-trivial, \`create_skill\` so future tasks benefit.
 
 ---
 

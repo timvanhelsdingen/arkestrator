@@ -74,6 +74,9 @@
   let createDescription = $state("");
   let createKeywords = $state("");
   let createContent = $state("");
+  let createPriority = $state(50);
+  let createAutoFetch = $state(false);
+  let createEnabled = $state(true);
 
   // Detail modal
   let detailSkill = $state<SkillEntry | null>(null);
@@ -221,6 +224,9 @@
         description: createDescription.trim() || "",
         keywords: keywords.length > 0 ? keywords : [],
         content,
+        priority: createPriority,
+        autoFetch: createAutoFetch,
+        enabled: createEnabled,
       });
       toast.success(`Skill "${name}" created`);
       createOpen = false;
@@ -232,6 +238,9 @@
       createDescription = "";
       createKeywords = "";
       createContent = "";
+      createPriority = 50;
+      createAutoFetch = false;
+      createEnabled = true;
       await load();
     } catch (err: any) {
       toast.error(err.message ?? "Failed to create skill");
@@ -748,6 +757,8 @@
         <option value="playbook">playbook</option>
         <option value="verification">verification</option>
         <option value="project">project</option>
+        <option value="project-reference">project-reference</option>
+        <option value="housekeeping">housekeeping</option>
       </select>
     </label>
     <label class="field">
@@ -762,6 +773,20 @@
       <span>Keywords (comma-separated, optional)</span>
       <input type="text" bind:value={createKeywords} placeholder="keyword1, keyword2" />
     </label>
+    <label class="field">
+      <span>Priority</span>
+      <input type="number" bind:value={createPriority} min="0" max="100" />
+    </label>
+    <div class="field-row">
+      <label class="field checkbox-field">
+        <input type="checkbox" bind:checked={createEnabled} />
+        <span>Enabled</span>
+      </label>
+      <label class="field checkbox-field">
+        <input type="checkbox" bind:checked={createAutoFetch} />
+        <span>Auto-fetch</span>
+      </label>
+    </div>
     <label class="field">
       <span>Content</span>
       <textarea bind:value={createContent} rows="10" placeholder="Skill content / instructions..."></textarea>
@@ -879,6 +904,10 @@
   .field { display: block; margin-bottom: 12px; }
   .field span { display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: var(--font-size-sm); }
   .field input, .field textarea, .field select { width: 100%; }
+  .field-row { display: flex; gap: 16px; margin-bottom: 12px; }
+  .checkbox-field { display: flex; align-items: center; gap: 6px; margin-bottom: 0; }
+  .checkbox-field input[type="checkbox"] { width: auto; }
+  .checkbox-field span { display: inline; margin-bottom: 0; }
   .hint { color: var(--text-secondary); margin-bottom: 12px; }
   .summary { margin-top: 12px; color: var(--text-muted); font-size: var(--font-size-sm); }
   .detail-grid { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; font-size: var(--font-size-sm); }

@@ -935,6 +935,7 @@ export const api = {
       content: string;
       priority?: number;
       autoFetch?: boolean;
+      enabled?: boolean;
     }) =>
       request("/api/skills", {
         method: "POST",

@@ -1638,15 +1638,14 @@ export async function spawnAgent(
       if (rankedSkillCount > 0) {
         skillLines.push(`## Available Skills (${rankedSkillCount} learned skills)`);
         skillLines.push(
-          "MANDATORY: Before starting bridge work, search for relevant skills. " +
+          "Before starting work, search for relevant skills to avoid reinventing the wheel. " +
           "Use MCP tools if available: search_skills, get_skill, create_skill, rate_skill. " +
           "If MCP is unavailable, use the am CLI instead:\n" +
           "  - `am skills search '<query>' [--program <program>]` — find relevant skills\n" +
           "  - `am skills get <slug>` — load a skill's full content\n" +
           "  - `am skills create --slug <slug> --title '<title>' --program <program> --content '<content>'` — save a new skill\n" +
           "  - `am skills rate <slug> <useful|not_useful|partial>` — rate a skill after using it\n" +
-          "Search for your task type (e.g., 'blender rendering', 'houdini procedural'). " +
-          "Also search for 'verification' before declaring done. " +
+          "Search once for your task type (e.g., 'blender rendering', 'houdini procedural'), then proceed with work. " +
           "When you learn something non-trivial, create a skill so future tasks benefit.",
         );
       }

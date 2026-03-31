@@ -241,7 +241,11 @@
   let skillCreateCategory = $state<string>("custom");
   let skillCreateTitle = $state("");
   let skillCreateDescription = $state("");
+  let skillCreateKeywords = $state("");
   let skillCreateContent = $state("");
+  let skillCreatePriority = $state(50);
+  let skillCreateAutoFetch = $state(false);
+  let skillCreateEnabled = $state(true);
   let skillCreateSaving = $state(false);
   let skillsPulling = $state(false);
 
@@ -1281,6 +1285,10 @@
     }
     skillCreateSaving = true;
     try {
+      const keywords = skillCreateKeywords
+        .split(",")
+        .map((k) => k.trim())
+        .filter(Boolean);
       await api.skills.create({
         name: skillCreateName.trim() || slug,
         slug,
@@ -1288,7 +1296,11 @@
         category: skillCreateCategory || "custom",
         title: skillCreateTitle.trim(),
         description: skillCreateDescription.trim(),
+        keywords: keywords.length > 0 ? keywords : [],
         content: skillCreateContent,
+        priority: skillCreatePriority,
+        autoFetch: skillCreateAutoFetch,
+        enabled: skillCreateEnabled,
       });
       info = `Skill "${slug}" created.`;
       skillCreateOpen = false;
@@ -1296,7 +1308,11 @@
       skillCreateSlug = "";
       skillCreateTitle = "";
       skillCreateDescription = "";
+      skillCreateKeywords = "";
       skillCreateContent = "";
+      skillCreatePriority = 50;
+      skillCreateAutoFetch = false;
+      skillCreateEnabled = true;
       await loadSkills();
     } catch (err: any) {
       error = err.message ?? "Failed to create skill";
@@ -1536,11 +1552,22 @@
                   <option value="coordinator">Coordinator</option>
                   <option value="bridge">Bridge</option>
                   <option value="training">Training</option>
+                  <option value="playbook">Playbook</option>
                   <option value="verification">Verification</option>
+                  <option value="project">Project</option>
+                  <option value="project-reference">Project Reference</option>
+                  <option value="housekeeping">Housekeeping</option>
                 </select>
               </label>
             </div>
             <label>Title <input type="text" bind:value={skillCreateTitle} placeholder="Descriptive title" /></label>
+            <label>Description <input type="text" bind:value={skillCreateDescription} placeholder="Brief description (optional)" /></label>
+            <label>Keywords <input type="text" bind:value={skillCreateKeywords} placeholder="keyword1, keyword2 (comma-separated)" /></label>
+            <div class="form-row">
+              <label>Priority <input type="number" bind:value={skillCreatePriority} min="0" max="100" /></label>
+              <label class="checkbox-label"><input type="checkbox" bind:checked={skillCreateEnabled} /> Enabled</label>
+              <label class="checkbox-label"><input type="checkbox" bind:checked={skillCreateAutoFetch} /> Auto-fetch</label>
+            </div>
             <label>Content <textarea rows="8" bind:value={skillCreateContent} spellcheck="false" placeholder="Skill instructions..."></textarea></label>
             <button class="btn" onclick={createSkill} disabled={skillCreateSaving}>{skillCreateSaving ? "Creating..." : "Create"}</button>
           </div>
@@ -2468,6 +2495,8 @@
   .skill-create-form { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--border); border-radius: 4px; margin-bottom: 12px; background: var(--bg-subtle, rgba(255,255,255,0.03)); }
   .skill-create-form .form-row { display: flex; gap: 8px; }
   .skill-create-form .form-row > label { flex: 1; }
+  .skill-create-form .checkbox-label { display: flex; align-items: center; gap: 6px; flex: 0; white-space: nowrap; }
+  .skill-create-form .checkbox-label input[type="checkbox"] { width: auto; }
   .skill-modal-overlay {
     position: fixed;
     top: 0;

@@ -80,6 +80,9 @@ export function normalizeJobRuntimeOptions(
   const verificationWeight = normalizeVerificationWeight(runtimeOptions.verificationWeight);
   const bridgeExecutionMode = normalizeBridgeExecutionMode(runtimeOptions.bridgeExecutionMode);
   const coordinationScripts = normalizeCoordinationScripts(runtimeOptions.coordinationScripts);
+  const timeoutMinutes = runtimeOptions.timeoutMinutes;
+  const skillsMode = runtimeOptions.skillsMode;
+  const cleanupTempFiles = runtimeOptions.cleanupTempFiles;
   if (
     !model
     && !reasoningLevel
@@ -87,6 +90,9 @@ export function normalizeJobRuntimeOptions(
     && verificationWeight === undefined
     && !bridgeExecutionMode
     && !coordinationScripts
+    && timeoutMinutes === undefined
+    && skillsMode === undefined
+    && cleanupTempFiles === undefined
   ) return undefined;
   return {
     ...(model ? { model } : {}),
@@ -95,6 +101,9 @@ export function normalizeJobRuntimeOptions(
     ...(verificationWeight !== undefined ? { verificationWeight } : {}),
     ...(bridgeExecutionMode ? { bridgeExecutionMode } : {}),
     ...(coordinationScripts ? { coordinationScripts } : {}),
+    ...(timeoutMinutes !== undefined ? { timeoutMinutes } : {}),
+    ...(skillsMode !== undefined ? { skillsMode } : {}),
+    ...(cleanupTempFiles !== undefined ? { cleanupTempFiles } : {}),
   };
 }
 
