@@ -86,6 +86,10 @@ Migrate Arkestrator's skills system to the [Agent Skills](https://agentskills.io
   - **Headless executable resolver**: Now runs `where`/`which` to verify bare names are on PATH before returning them as fallback.
   - **WebSocket error messages**: Zod validation errors now show field paths and issue messages instead of raw Zod output.
 
+## Recent Update (2026-03-31)
+
+- **Local LLM MCP migration**: Local model agents now execute tools through the MCP protocol instead of a custom JSON tool dispatch layer. Server-side loops use an in-process MCP client (`server/src/mcp/in-process-client.ts`) wrapping the existing MCP tool server; client-dispatched (Tauri) loops call `POST /mcp` over HTTP via `client/src/lib/services/mcpHttpClient.ts`. Tool schemas are fetched dynamically from MCP `tools/list` instead of being hardcoded, so new MCP tools are automatically available to local models. `LocalAgenticToolName` relaxed from strict enum to `z.string().min(1)`. Protocol adapter (`packages/protocol/src/mcp-tool-adapter.ts`) converts between MCP definitions/results and Ollama formats. Hybrid fallback preserved for thinking models. Legacy `executeLocalAgenticToolCall()` in spawner.ts retained as dead code for now.
+
 ## Recent Update (2026-03-19)
 
 - Blackmagic Fusion bridge plugin: new Python bridge for Fusion Standalone and DaVinci Resolve's Fusion page. Supports all context sources: comp structure, selected/active tools with full settings, flow graph topology, Loaders/Savers with clip paths, 3D scene hierarchy, modifiers/expressions, keyframes, Fuse/RunScript source files, and macros. Dockable UI panel with per-source "Add to Context" buttons. Executes both Python (`exec()`) and Lua (`comp:Execute()`). Includes installer for auto-detection of Fusion/Resolve script directories.

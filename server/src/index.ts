@@ -60,7 +60,7 @@ import {
   extractDomainForPolicy,
   getNetworkControls,
 } from "./security/network-policy.js";
-import { evaluateWorkerAccess } from "./security/worker-rules.js";
+import { evaluateWorkerAccess, updateWorkerRule, getWorkerRule } from "./security/worker-rules.js";
 
 /**
  * Try to kill the process occupying a port. Works on Windows (netstat+taskkill)
@@ -794,6 +794,8 @@ async function main() {
         const machineId = url.searchParams.get("machineId") ?? undefined;
         const workerModeParam = url.searchParams.get("workerMode");
         const workerMode = workerModeParam === "false" ? false : true;
+        const localLlmEnabledParam = url.searchParams.get("localLlmEnabled");
+        const clientLocalLlmEnabled = localLlmEnabledParam === "true";
         const requestedWorkerName = wsType === "bridge"
           ? resolveCanonicalLoopbackWorkerName({
             socketWorkerName: url.searchParams.get("workerName"),
@@ -836,6 +838,7 @@ async function main() {
             ip: ip ?? undefined,
             osUser,
             workerMode,
+            localLlmEnabled: clientLocalLlmEnabled,
           },
         });
         if (upgraded) return undefined;
@@ -945,6 +948,7 @@ async function main() {
 
         // Register client as a worker (client is the canonical source of machine identity)
         if (ws.data.type === "client") {
+          logger.info("ws", `Client connected: workerName="${ws.data.workerName}" localLlmEnabled=${ws.data.localLlmEnabled} machineId=${ws.data.machineId}`);
           if (ws.data.workerName) {
             const worker = workersRepo.upsert(
               ws.data.workerName,
@@ -962,6 +966,14 @@ async function main() {
             )) {
               workersRepo.delete(staleWorkerId);
             }
+
+            // Sync client's localLlmEnabled setting to worker rules
+            const existingRule = getWorkerRule(settingsRepo, ws.data.workerName);
+            if (existingRule.localLlmEnabled !== ws.data.localLlmEnabled) {
+              updateWorkerRule(settingsRepo, ws.data.workerName, { localLlmEnabled: !!ws.data.localLlmEnabled });
+              logger.info("ws", `Worker "${ws.data.workerName}" localLlmEnabled=${ws.data.localLlmEnabled} (synced from client)`);
+            }
+
             hub.broadcastWorkerStatus(workersRepo);
           }
           hub.sendContextSync(ws.data.id);

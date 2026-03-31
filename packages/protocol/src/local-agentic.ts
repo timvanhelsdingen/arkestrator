@@ -1,6 +1,7 @@
 import { z } from "zod";
 
-export const LocalAgenticToolName = z.enum([
+/** Known tool names for heuristic extraction. No longer used for validation — MCP server validates. */
+export const KNOWN_LOCAL_AGENTIC_TOOLS = [
   "list_bridges",
   "get_bridge_context",
   "execute_command",
@@ -14,8 +15,11 @@ export const LocalAgenticToolName = z.enum([
   "create_job",
   "get_job_status",
   "list_jobs",
-]);
-export type LocalAgenticToolName = z.infer<typeof LocalAgenticToolName>;
+] as const;
+
+/** Accept any tool name string — MCP server validates names at call time. */
+export const LocalAgenticToolName = z.string().min(1);
+export type LocalAgenticToolName = string;
 
 export const LocalAgenticToolCall = z.object({
   type: z.literal("tool_call"),
@@ -119,9 +123,10 @@ export function parseLocalAgenticAction(raw: string): ParsedLocalAgenticAction {
 function extractHeuristicAction(text: string): LocalAgenticAction | undefined {
   const toolNameMatch = /"tool"\s*:\s*"([a-z_]+)"/i.exec(text);
   const toolName = toolNameMatch?.[1]?.trim();
-  if (!toolName || !LocalAgenticToolName.options.includes(toolName as LocalAgenticToolName)) {
-    return undefined;
-  }
+  if (!toolName) return undefined;
+  // Accept any tool name that looks valid (MCP server validates at call time)
+  // Known tools get heuristic arg extraction; unknown tools get empty args
+  const isKnown = (KNOWN_LOCAL_AGENTIC_TOOLS as readonly string[]).includes(toolName);
 
   const args: Record<string, unknown> = {};
   const unescapeJsonString = (value: string): string =>
@@ -141,6 +146,15 @@ function extractHeuristicAction(text: string): LocalAgenticAction | undefined {
       }
     }
   };
+
+  // Only extract args heuristically for known tools
+  if (!isKnown) {
+    try {
+      return LocalAgenticToolCall.parse({ type: "tool_call", tool: toolName, args });
+    } catch {
+      return undefined;
+    }
+  }
 
   switch (toolName) {
     case "list_bridges":
@@ -328,7 +342,7 @@ export const LOCAL_AGENTIC_DEFAULTS = {
   MAX_CONSECUTIVE_ERRORS: 5,
 } as const;
 
-export const LOCAL_AGENTIC_DELEGATION_TOOLS = new Set<LocalAgenticToolCall["tool"]>([
+export const LOCAL_AGENTIC_DELEGATION_TOOLS = new Set<string>([
   "list_agent_configs",
   "create_job",
   "get_job_status",

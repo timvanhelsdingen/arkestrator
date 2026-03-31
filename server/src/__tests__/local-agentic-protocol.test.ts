@@ -54,12 +54,15 @@ describe("parseLocalAgenticAction", () => {
     }
   });
 
-  test("rejects unknown tools", () => {
+  test("accepts unknown tools (MCP server validates names)", () => {
     const parsed = parseLocalAgenticAction(
       JSON.stringify({ type: "tool_call", tool: "shell_exec", args: {} }),
     );
-    expect(parsed.action).toBeUndefined();
-    expect(typeof parsed.error).toBe("string");
+    expect(parsed.action).toBeDefined();
+    expect(parsed.action!.type).toBe("tool_call");
+    if (parsed.action!.type === "tool_call") {
+      expect(parsed.action!.tool).toBe("shell_exec");
+    }
   });
 
   test("recovers malformed list_bridges args payload", () => {

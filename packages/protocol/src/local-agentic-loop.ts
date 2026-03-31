@@ -12,6 +12,7 @@ import {
   compactJson,
   LOCAL_AGENTIC_DEFAULTS,
   LOCAL_AGENTIC_DELEGATION_TOOLS,
+  LOCAL_AGENTIC_PROTOCOL_INSTRUCTIONS,
   getOllamaToolSchemas,
   buildOllamaSystemMessage,
   buildOllamaHybridSystemMessage,
@@ -134,6 +135,8 @@ export interface AgenticLoopConfig {
   systemPrompt?: string;
   /** Prefix for log lines, e.g. "[local-agentic]" or "[client-agentic]". */
   logPrefix?: string;
+  /** External tool schemas (e.g. from MCP). When provided, overrides hardcoded schemas. */
+  toolSchemas?: OllamaToolSchema[];
 }
 
 // ---------------------------------------------------------------------------
@@ -502,8 +505,8 @@ export async function runChatAgenticLoop(
     durationMs: Date.now() - startTime,
   });
 
-  // Build tool schemas
-  const toolSchemas = getOllamaToolSchemas({
+  // Build tool schemas — prefer externally provided (MCP) schemas over hardcoded
+  const toolSchemas = config.toolSchemas ?? getOllamaToolSchemas({
     allowDelegation: config.allowDelegationTools,
     allowSkills: true,
   });
@@ -751,11 +754,13 @@ export async function runChatAgenticLoop(
         // Replace system message with hybrid prompt that includes JSON protocol + tool defs
         messages[0] = {
           role: "system",
-          content: buildOllamaHybridSystemMessage({
-            allowDelegation: config.allowDelegationTools,
-            allowSkills: true,
-            customInstructions: config.systemPrompt,
-          }),
+          content: config.toolSchemas
+            ? buildHybridSystemFromSchemas(config.toolSchemas, config.systemPrompt)
+            : buildOllamaHybridSystemMessage({
+                allowDelegation: config.allowDelegationTools,
+                allowSkills: true,
+                customInstructions: config.systemPrompt,
+              }),
         };
 
         // Try to parse the model's current text output — it might already contain a tool call
@@ -817,4 +822,53 @@ export async function runChatAgenticLoop(
     success: executedCommands.length > 0,
     error: executedCommands.length > 0 ? undefined : `Chat loop hit max turns (${config.maxTurns})`,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Hybrid system message builder from external tool schemas
+// ---------------------------------------------------------------------------
+
+function buildHybridSystemFromSchemas(schemas: OllamaToolSchema[], customInstructions?: string): string {
+  const toolDefs = schemas.map((s) => {
+    const fn = s.function;
+    const props = fn.parameters.properties;
+    const required = new Set(fn.parameters.required);
+    const paramList = Object.entries(props)
+      .map(([name, p]) => `${name}: ${p.type}${required.has(name) ? "" : "?"}`)
+      .join(", ");
+    return `- ${fn.name}(${paramList})\n  ${fn.description}`;
+  }).join("\n");
+
+  const lines = [
+    LOCAL_AGENTIC_PROTOCOL_INSTRUCTIONS,
+    "",
+    "## Available Tools",
+    toolDefs,
+    "",
+    "## CRITICAL: You MUST use tools to execute code",
+    "- You are connected to live applications (Blender, Houdini, Godot, ComfyUI) via bridges.",
+    "- To make changes, you MUST call execute_command with actual executable code.",
+    "- NEVER just describe code or write instructions. Always call the tool.",
+    "- Each command runs in its own isolated scope. Variables do NOT persist between commands.",
+    "- Write one complete self-contained script per execute_command call.",
+    "- For Godot/GDScript: entrypoint must be `func run(editor: EditorInterface) -> void:`",
+    "",
+    "## Workflow",
+    "1. Call list_bridges to see connected apps",
+    "2. Call search_skills to find relevant patterns",
+    "3. Call execute_command with the actual script to run in the app",
+    "4. If it fails, fix the script and try again with a DIFFERENT approach",
+    '5. When done, return {"type":"final","status":"completed","summary":"what you did"}',
+    "",
+    "## Skills",
+    "- FIRST search_skills for your task type before writing code.",
+    "- After completing work, call create_skill if you learned something non-trivial.",
+    "- Rate skills you used with rate_skill.",
+  ];
+
+  if (customInstructions) {
+    lines.push("", "## Additional Context", customInstructions);
+  }
+
+  return lines.join("\n");
 }
