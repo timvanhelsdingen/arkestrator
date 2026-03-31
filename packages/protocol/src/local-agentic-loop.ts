@@ -553,6 +553,11 @@ export async function runChatAgenticLoop(
     // 5. Call LLM with chat messages + tools (empty in hybrid mode to avoid Ollama thinking+tools bug)
     const chatResult = await deps.generateChatResponse(messages, hybridMode ? [] : toolSchemas, turnTimeoutMs);
 
+    // Check cancellation after LLM call (can take 30-60s for large models)
+    if (await deps.isCancelled()) {
+      return mkResult({ success: false, cancelled: true, error: "Job cancelled" });
+    }
+
     if (chatResult.error) {
       // If first turn fails with tool-related error, fall back to text-prompt
       if (turn === 1 && /tool|function|not supported/i.test(chatResult.error)) {
@@ -622,6 +627,11 @@ export async function runChatAgenticLoop(
       deps.log(`${prefix} turn ${turn} tool_call: ${toolName}(${compactJson(toolArgs, 200)})`);
 
       const toolResult = await deps.executeTool(toolName, toolArgs);
+
+      // Check cancellation after tool execution (tools can be long-running)
+      if (await deps.isCancelled()) {
+        return mkResult({ success: false, cancelled: true, error: "Job cancelled" });
+      }
 
       // Track bridges and commands
       if (toolResult.bridgesUsed?.length) deps.onBridgeUsed?.(toolResult.bridgesUsed);
