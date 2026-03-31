@@ -165,11 +165,9 @@ export async function resolveAnyAvailableWorkerLlm(
 
   // Get all worker rules with localLlmEnabled
   const allRules = listWorkerRules(settingsRepo);
-  console.log(`[resolveAnyAvailableWorkerLlm] connectedWorkers=[${[...connectedWorkers].join(",")}] rules=${JSON.stringify(allRules.map(r => ({ name: r.workerName, llm: r.localLlmEnabled })))}`);
   const candidates = allRules
     .filter((r) => r.localLlmEnabled && connectedWorkers.has(r.workerName.toLowerCase()))
     .map((r) => r.workerName);
-  console.log(`[resolveAnyAvailableWorkerLlm] candidates=[${candidates.join(",")}] skipHealthCheck=${skipHealthCheck}`);
 
   // If a preferred worker was given and is in the candidates, try it first
   if (preferWorkerName) {
