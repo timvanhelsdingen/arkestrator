@@ -243,23 +243,12 @@ ${jobSummary}
    - Skills with consistently low ratings — add missing information
    - Skills with no feedback yet — these may need better discoverability
 
-3. **Generate Skill Recommendations**: For each pattern you identify, create a skill suggestion using this EXACT format:
-
-\`\`\`skill
-action: create|update|disable
-slug: descriptive-slug-name
-program: bridge-name-or-global
-category: training|verification|playbook|bridge
-title: Short descriptive title
-playbooks: _learning/jobs/houdini/some-artifact/analysis.json
-related_skills: other-skill-slug, another-skill-slug
----
-Short description of the skill (1-2 sentences). The full knowledge should be in the referenced playbook artifacts, not embedded here.
-\`\`\`
-
-- **action**: \`create\` (new skill), \`update\` (modify existing skill content), or \`disable\` (set enabled=false on a bad skill)
-- **playbooks** (optional): comma-separated paths to vault artifacts (relative to coordinator-playbooks dir)
-- **related_skills** (optional): comma-separated slugs of related skills that cover adjacent knowledge
+3. **Create/Update Skills Immediately**: As you identify patterns, act on them RIGHT AWAY using MCP tools:
+   - Use \`search_skills\` to check if a skill already exists for the pattern
+   - Use \`create_skill\` to create new skills for novel patterns (slug, title, program, content)
+   - Use \`update_skill\` to fix or improve existing skills that have negative feedback
+   - Category should be "training" for learned patterns, "verification" for quality checks
+   - **Do this incrementally** — create each skill as you discover the pattern, don't batch them at the end
 
 4. **Write a Report**: After your analysis, write a brief summary of:
    - Key findings
@@ -272,8 +261,8 @@ Short description of the skill (1-2 sentences). The full knowledge should be in 
 - Focus on ACTIONABLE instructions, not vague advice
 - Use "global" program for skills that apply across all bridges
 - Keep each skill focused on ONE specific pattern or technique
-- If a skill already exists that covers a pattern, don't duplicate it — use \`action: update\` instead
-- Use \`action: disable\` sparingly — only for skills that are actively harmful or consistently rated poorly
+- If a skill already exists that covers a pattern, use \`update_skill\` to improve it rather than creating a duplicate
+- A housekeeping run that identifies issues but creates 0 skills has failed its purpose
 
 ## IMPORTANT: Model-Aware Failure Analysis
 Failures tagged with **[LOCAL MODEL]** ran on a local/OSS model (Ollama, LM Studio, etc.) which has significantly less capability than cloud models (Claude, GPT, Codex, Gemini). When analyzing failures:
