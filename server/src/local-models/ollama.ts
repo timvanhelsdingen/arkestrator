@@ -425,6 +425,10 @@ export async function ollamaChatWithTools(
   const timer = setTimeout(() => controller.abort(), options.timeoutMs);
 
   try {
+    // When tools are provided, disable thinking mode for models that support it
+    // (qwen3, etc.). Thinking mode consumes the response budget with chain-of-thought
+    // text and prevents the model from making tool calls.
+    const hasTools = !!options.tools?.length;
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -433,8 +437,11 @@ export async function ollamaChatWithTools(
         messages: options.messages,
         // Omit tools key entirely when empty — avoids triggering Ollama's
         // broken tool serialization for thinking models (qwen3, etc.)
-        ...(options.tools?.length ? { tools: options.tools } : {}),
+        ...(hasTools ? { tools: options.tools } : {}),
         stream: false,
+        // Disable thinking/reasoning mode when tools are active — thinking
+        // consumes the entire response and prevents structured tool calls
+        ...(hasTools ? { think: false } : {}),
       }),
       signal: controller.signal,
     });
