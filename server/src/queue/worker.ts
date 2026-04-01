@@ -146,9 +146,14 @@ export class WorkerLoop {
     // this worker's GPU as busy. The gate is released inside spawnAgent()
     // when the job completes or fails.
     const jobConfig = this.deps.agentsRepo.getById(job.agentConfigId);
-    if (jobConfig?.engine === "local-oss" && job.targetWorkerName) {
-      const targetNorm = normalizeQuotes(job.targetWorkerName).trim().toLowerCase();
-      this.deps.localLlmGate.acquire(job.id, targetNorm, job.runtimeOptions?.model ?? jobConfig.model ?? "unknown");
+    if (jobConfig?.engine === "local-oss") {
+      // Use targetWorkerName if set, otherwise fall back to "server" as the
+      // default gate key. This ensures the GPU gate works even when no
+      // explicit worker target is specified (e.g. localModelHost=server).
+      const gateKey = job.targetWorkerName
+        ? normalizeQuotes(job.targetWorkerName).trim().toLowerCase()
+        : "__server__";
+      this.deps.localLlmGate.acquire(job.id, gateKey, job.runtimeOptions?.model ?? jobConfig.model ?? "unknown");
     }
 
     // Check per-user token budget before spawning
@@ -354,17 +359,19 @@ export class WorkerLoop {
           }
         }
 
-        // Guard: local-oss jobs must wait if the target worker's GPU is already
-        // busy with another local-oss job. Ollama can only serve one generation
-        // at a time per GPU, so concurrent jobs cause timeouts.
+        // Guard: local-oss jobs must wait if the GPU is already busy with
+        // another local-oss job. Ollama can only serve one generation at a time
+        // per GPU, so concurrent jobs cause timeouts and OOM errors.
         const jobConfig = this.deps.agentsRepo.getById(job.agentConfigId);
-        if (jobConfig?.engine === "local-oss" && job.targetWorkerName) {
-          const targetNorm = normalizeQuotes(job.targetWorkerName).trim().toLowerCase();
-          if (!this.deps.localLlmGate.canStart(targetNorm)) {
-            const active = this.deps.localLlmGate.getActiveOnWorker(targetNorm);
+        if (jobConfig?.engine === "local-oss") {
+          const gateKey = job.targetWorkerName
+            ? normalizeQuotes(job.targetWorkerName).trim().toLowerCase()
+            : "__server__";
+          if (!this.deps.localLlmGate.canStart(gateKey)) {
+            const active = this.deps.localLlmGate.getActiveOnWorker(gateKey);
             logger.debug(
               "worker",
-              `Skipping local-oss job ${job.id}: worker "${job.targetWorkerName}" GPU busy with job ${active?.jobId} (model: ${active?.model})`,
+              `Skipping local-oss job ${job.id}: GPU busy with job ${active?.jobId} (model: ${active?.model})`,
             );
             continue;
           }

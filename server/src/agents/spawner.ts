@@ -892,7 +892,8 @@ export async function executeLocalAgenticToolCall(
   }
 
   if (call.tool === "execute_command") {
-    const target = resolveBridgeProgramTarget(parseStringArg(args.target), deps, job.bridgeProgram);
+    const rawTarget = parseStringArg(args.target);
+    const target = resolveBridgeProgramTarget(rawTarget, deps, job.bridgeProgram);
     const language = parseStringArg(args.language).toLowerCase();
     let script = String(args.script ?? "");
     if (language === "gdscript") {
@@ -903,6 +904,23 @@ export async function executeLocalAgenticToolCall(
     if (!target || !language || !script.trim()) {
       return { ok: false, error: "target, language, and script are required" };
     }
+    // Validate that the resolved target actually has a connected bridge or headless path.
+    // Without this check, a disconnected bridge name passes through and may be
+    // misrouted to a different bridge via fallback logic.
+    if (deps.hub.getBridgesByProgram(target).length === 0) {
+      const connectedPrograms = deps.hub.getBridges()
+        .map((b: any) => String(b.program ?? "").toLowerCase())
+        .filter(Boolean);
+      const unique = [...new Set(connectedPrograms)];
+      if (unique.length > 0) {
+        return {
+          ok: false,
+          error: `No connected bridge for "${rawTarget}". Connected programs: ${unique.join(", ")}. ` +
+            `The ${rawTarget} bridge may be offline — ask the user to open ${rawTarget} with the Arkestrator bridge enabled.`,
+        };
+      }
+      return { ok: false, error: `No connected bridge for "${rawTarget}". No bridges are currently connected.` };
+    }
     return executeBridgeCommandsForLocalLoop(deps, job, {
       target,
       timeout: parseNumberArg(args.timeout),
@@ -912,8 +930,19 @@ export async function executeLocalAgenticToolCall(
   }
 
   if (call.tool === "execute_multiple_commands") {
-    const target = resolveBridgeProgramTarget(parseStringArg(args.target), deps, job.bridgeProgram);
+    const rawMultiTarget = parseStringArg(args.target);
+    const target = resolveBridgeProgramTarget(rawMultiTarget, deps, job.bridgeProgram);
     if (!target) return { ok: false, error: "target is required" };
+    // Early validation: ensure target bridge is actually connected
+    if (deps.hub.getBridgesByProgram(target).length === 0) {
+      const unique = [...new Set(deps.hub.getBridges().map((b: any) => String(b.program ?? "").toLowerCase()).filter(Boolean))];
+      return {
+        ok: false,
+        error: unique.length > 0
+          ? `No connected bridge for "${rawMultiTarget}". Connected programs: ${unique.join(", ")}.`
+          : `No connected bridge for "${rawMultiTarget}". No bridges are currently connected.`,
+      };
+    }
     if (!Array.isArray(args.commands) || args.commands.length === 0) {
       return { ok: false, error: "commands must be a non-empty array" };
     }
