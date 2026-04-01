@@ -10,31 +10,43 @@ export interface BridgeContextEntry {
 }
 
 class BridgeContextState {
-  /** Map of bridgeId -> context state */
-  bridges = $state<Map<string, BridgeContextEntry>>(new Map());
+  /** Map of bridgeId -> context state. Mutated in-place; bump `version` to trigger reactivity. */
+  private _bridges = new Map<string, BridgeContextEntry>();
   /** Client-side item aliases keyed by bridgeId:index */
-  itemAliases = $state<Map<string, string>>(new Map());
+  private _aliases = new Map<string, string>();
+  /**
+   * Monotonic version counter — bumped on every mutation.
+   * Svelte 5 tracks $state reads, so any getter that reads `version`
+   * will re-run when it changes, without copying the entire Map.
+   */
+  version = $state(0);
+
+  private bump() { this.version++; }
 
   private aliasKey(bridgeId: string, itemIndex: number): string {
     return `${bridgeId}:${itemIndex}`;
   }
 
   private clearBridgeAliases(bridgeId: string) {
-    const next = new Map(this.itemAliases);
-    for (const key of next.keys()) {
+    let changed = false;
+    for (const key of this._aliases.keys()) {
       if (key.startsWith(`${bridgeId}:`)) {
-        next.delete(key);
+        this._aliases.delete(key);
+        changed = true;
       }
     }
-    this.itemAliases = next;
+    if (changed) this.bump();
   }
 
   getItemName(bridgeId: string, item: ContextItem): string {
-    return this.itemAliases.get(this.aliasKey(bridgeId, item.index)) ?? item.name;
+    // Read version to subscribe to changes
+    void this.version;
+    return this._aliases.get(this.aliasKey(bridgeId, item.index)) ?? item.name;
   }
 
   getItemsForJob(bridgeId: string): ContextItem[] {
-    const entry = this.bridges.get(bridgeId);
+    void this.version;
+    const entry = this._bridges.get(bridgeId);
     if (!entry) return [];
     return entry.items.map((item) => ({
       ...item,
@@ -45,23 +57,24 @@ class BridgeContextState {
   renameItem(bridgeId: string, itemIndex: number, name: string) {
     const key = this.aliasKey(bridgeId, itemIndex);
     const trimmed = name.trim();
-    const next = new Map(this.itemAliases);
     if (trimmed) {
-      next.set(key, trimmed);
+      this._aliases.set(key, trimmed);
     } else {
-      next.delete(key);
+      this._aliases.delete(key);
     }
-    this.itemAliases = next;
+    this.bump();
   }
 
   /** All context items across all bridges, flattened */
   get allItems(): Array<ContextItem & { bridgeId: string; program: string }> {
+    // Reading version subscribes this getter to all mutations
+    void this.version;
     const result: Array<ContextItem & { bridgeId: string; program: string }> = [];
-    for (const [bridgeId, entry] of this.bridges) {
+    for (const [bridgeId, entry] of this._bridges) {
       for (const item of entry.items) {
         result.push({
           ...item,
-          name: this.getItemName(bridgeId, item),
+          name: this._aliases.get(this.aliasKey(bridgeId, item.index)) ?? item.name,
           bridgeId,
           program: entry.program,
         });
@@ -70,37 +83,37 @@ class BridgeContextState {
     return result;
   }
 
+  /** All bridge entries for iteration */
+  get bridges(): Map<string, BridgeContextEntry> {
+    void this.version;
+    return this._bridges;
+  }
+
   /** Handle bridge_context_sync — merges incoming bridges into current state */
   sync(bridges: BridgeContextEntry[]) {
-    const next = new Map(this.bridges);
     for (const b of bridges) {
-      const existing = next.get(b.bridgeId);
+      const existing = this._bridges.get(b.bridgeId);
       if (existing) {
-        next.set(b.bridgeId, {
+        this._bridges.set(b.bridgeId, {
           ...existing,
           ...b,
           editorContext: b.editorContext ?? existing.editorContext,
           files: b.files.length > 0 ? b.files : existing.files,
         });
       } else {
-        next.set(b.bridgeId, b);
+        this._bridges.set(b.bridgeId, b);
       }
-    }
-    this.bridges = next;
-    // Clear aliases for bridges that got re-indexed
-    for (const b of bridges) {
       this.clearBridgeAliases(b.bridgeId);
     }
+    this.bump();
   }
 
   /** Handle bridge_context_item_add */
   addItem(bridgeId: string, bridgeName: string, program: string, item: ContextItem) {
-    const copy = new Map(this.bridges);
-    let entry = copy.get(bridgeId);
+    let entry = this._bridges.get(bridgeId);
     if (!entry) {
       entry = { bridgeId, bridgeName, program, items: [], files: [] };
-    } else {
-      entry = { ...entry, items: [...entry.items] };
+      this._bridges.set(bridgeId, entry);
     }
     // De-duplicate by @index within a bridge (idempotent if event is replayed).
     const idx = entry.items.findIndex((existing) => existing.index === item.index);
@@ -109,45 +122,34 @@ class BridgeContextState {
     } else {
       entry.items.push(item);
     }
-    copy.set(bridgeId, entry);
-    this.bridges = copy;
+    this.bump();
   }
 
   /** Handle bridge_context_clear */
   clear(bridgeId: string) {
-    const copy = new Map(this.bridges);
-    copy.delete(bridgeId);
-    this.bridges = copy;
+    this._bridges.delete(bridgeId);
     this.clearBridgeAliases(bridgeId);
+    this.bump();
   }
 
   /** Clear just the context items for a bridge (keep editor context and files) */
   clearItems(bridgeId: string) {
-    const copy = new Map(this.bridges);
-    const entry = copy.get(bridgeId);
+    const entry = this._bridges.get(bridgeId);
     if (entry) {
-      copy.set(bridgeId, { ...entry, items: [] });
-      this.bridges = copy;
+      entry.items = [];
       this.clearBridgeAliases(bridgeId);
+      this.bump();
     }
   }
 
   /** Remove a single context item by index */
   removeItem(bridgeId: string, itemIndex: number) {
-    const copy = new Map(this.bridges);
-    const entry = copy.get(bridgeId);
+    const entry = this._bridges.get(bridgeId);
     if (entry) {
-      copy.set(bridgeId, {
-        ...entry,
-        items: entry.items.filter((i) => i.index !== itemIndex),
-      });
-      this.bridges = copy;
+      entry.items = entry.items.filter((i) => i.index !== itemIndex);
       const key = this.aliasKey(bridgeId, itemIndex);
-      if (this.itemAliases.has(key)) {
-        const next = new Map(this.itemAliases);
-        next.delete(key);
-        this.itemAliases = next;
-      }
+      this._aliases.delete(key);
+      this.bump();
     }
   }
 
@@ -159,17 +161,14 @@ class BridgeContextState {
     editorContext: EditorContext,
     files: Array<{ path: string; content: string }>,
   ) {
-    const copy = new Map(this.bridges);
-    let entry = copy.get(bridgeId);
+    let entry = this._bridges.get(bridgeId);
     if (!entry) {
       entry = { bridgeId, bridgeName, program, items: [], files: [] };
-    } else {
-      entry = { ...entry };
+      this._bridges.set(bridgeId, entry);
     }
     entry.editorContext = editorContext;
     entry.files = files;
-    copy.set(bridgeId, entry);
-    this.bridges = copy;
+    this.bump();
   }
 }
 

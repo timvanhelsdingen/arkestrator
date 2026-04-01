@@ -14,7 +14,9 @@ export const AgentConfig = z.object({
   systemPrompt: z.string().optional(),
   /**
    * Per-model system prompt overrides.  Map of model name → custom prompt text.
-   * @deprecated Use `modelOverrides` instead. Kept for backward compatibility.
+   * @deprecated Use `modelOverrides` instead. The server merges this into
+   * `modelOverrides` at read time, so consumers only need to check `modelOverrides`.
+   * Will be removed in a future major version.
    */
   modelSystemPrompts: z.record(z.string(), z.string()).optional(),
   /**
