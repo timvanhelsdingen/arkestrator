@@ -1287,13 +1287,16 @@ export const api = {
       const qs = params.toString();
       return request(`/api/skills/${encodeURIComponent(slug)}/playbook-content${qs ? `?${qs}` : ""}`) as Promise<any>;
     },
-    export: async (opts?: { program?: string; category?: string; source?: string }) => {
-      const params = new URLSearchParams();
-      if (opts?.program) params.set("program", opts.program);
-      if (opts?.category) params.set("category", opts.category);
-      if (opts?.source) params.set("source", opts.source);
-      const qs = params.toString();
-      return request(`/api/skills/export${qs ? `?${qs}` : ""}`, { method: "POST" }) as Promise<any>;
+    export: async (opts?: { program?: string; category?: string; source?: string; slugs?: string[] }) => {
+      const body: Record<string, any> = {};
+      if (opts?.program) body.program = opts.program;
+      if (opts?.category) body.category = opts.category;
+      if (opts?.source) body.source = opts.source;
+      if (opts?.slugs && opts.slugs.length > 0) body.slugs = opts.slugs;
+      return requestBinary("/api/skills/export-zip", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
     },
     importZip: (file: File) => {
       const form = new FormData();

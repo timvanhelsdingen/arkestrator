@@ -248,6 +248,12 @@
   let skillCreateEnabled = $state(true);
   let skillCreateSaving = $state(false);
   let skillsPulling = $state(false);
+  let selectedSkillKeys = $state(new Set<string>());
+  let importSkillInput = $state<HTMLInputElement | undefined>(undefined);
+
+  function skillKey(s: any): string {
+    return (s.program || "global") + ":" + s.slug;
+  }
 
   const filteredSkills = $derived.by(() => {
     const q = skillsFilter.toLowerCase().trim();
@@ -265,6 +271,12 @@
       );
     }
     return list;
+  });
+
+  // Clear skill selection when filter changes
+  $effect(() => {
+    skillsFilter; // track
+    selectedSkillKeys = new Set();
   });
 
   const skillPrograms = $derived.by(() => {
@@ -1331,6 +1343,31 @@
     }
   }
 
+  async function importSkillsFromZip() {
+    const file = importSkillInput?.files?.[0];
+    if (!file) return;
+    try {
+      const result = await api.skills.importZip(file);
+      info = `Imported ${result.imported} skills, updated ${result.updated}`;
+      loadSkills();
+    } catch (err: any) {
+      error = err.message ?? "Failed to import skills";
+    }
+    if (importSkillInput) importSkillInput.value = "";
+  }
+
+  async function exportSelectedSkills() {
+    try {
+      const slugs = selectedSkillKeys.size > 0
+        ? [...selectedSkillKeys].map(k => k.split(":").slice(1).join(":"))
+        : undefined;
+      await api.skills.exportZip(slugs);
+      info = `Exported ${slugs?.length ?? filteredSkills.length} skills`;
+    } catch (err: any) {
+      error = err.message ?? "Failed to export skills";
+    }
+  }
+
   async function pullAllSkills() {
     skillsPulling = true;
     try {
@@ -1520,6 +1557,16 @@
         <p class="desc">Skills loaded on the server that customize coordinator behavior per bridge.</p>
         <div class="skill-toolbar">
           <input type="text" placeholder="Filter skills..." bind:value={skillsFilter} class="skill-search" />
+          {#if selectedSkillKeys.size > 0}
+            <span class="badge">{selectedSkillKeys.size} selected</span>
+          {/if}
+          <button class="btn secondary" onclick={exportSelectedSkills}>
+            {selectedSkillKeys.size > 0 ? `Export Selected (${selectedSkillKeys.size})` : "Export All"}
+          </button>
+          <button class="btn secondary" onclick={() => importSkillInput?.click()}>
+            Import
+          </button>
+          <input type="file" accept=".zip" style="display:none" bind:this={importSkillInput} onchange={importSkillsFromZip} />
           <button class="btn secondary" onclick={loadSkills} disabled={skillsLoading}>
             {skillsLoading ? "Loading..." : "Refresh"}
           </button>
@@ -1574,19 +1621,41 @@
         {/if}
 
         <table class="skill-table">
-          <thead><tr><th>Slug</th><th>Title</th><th>Bridge</th><th>Category</th><th>Source</th><th>Uses</th><th>Success</th><th>Actions</th></tr></thead>
+          <thead><tr>
+            <th><input type="checkbox"
+              checked={filteredSkills.length > 0 && filteredSkills.every(s => selectedSkillKeys.has(skillKey(s)))}
+              onchange={(e) => {
+                const next = new Set(selectedSkillKeys);
+                if ((e.target as HTMLInputElement).checked) {
+                  filteredSkills.forEach(s => next.add(skillKey(s)));
+                } else {
+                  filteredSkills.forEach(s => next.delete(skillKey(s)));
+                }
+                selectedSkillKeys = next;
+              }}
+            /></th>
+            <th>Slug</th><th>Title</th><th>Bridge</th><th>Category</th><th>Source</th><th>Uses</th><th>Success</th><th>Actions</th></tr></thead>
           <tbody>
             {#if skillsLoading}
-              <tr><td colspan="8" class="muted">Loading...</td></tr>
+              <tr><td colspan="9" class="muted">Loading...</td></tr>
             {:else if filteredSkills.length === 0}
-              <tr><td colspan="8" class="muted">
+              <tr><td colspan="9" class="muted">
                 {#if serverSkills.length === 0}No skills loaded. <button class="btn-link" onclick={pullAllSkills}>Pull from Bridge Repo</button>{:else}No match.{/if}
               </td></tr>
             {:else}
               {#each filteredSkills as skill}
                 {@const eff = skillEffectiveness[skill.id]}
                 {@const isAutoFetch = skill.autoFetch}
+                {@const key = skillKey(skill)}
                 <tr>
+                  <td><input type="checkbox"
+                    checked={selectedSkillKeys.has(key)}
+                    onchange={() => {
+                      const next = new Set(selectedSkillKeys);
+                      if (next.has(key)) next.delete(key); else next.add(key);
+                      selectedSkillKeys = next;
+                    }}
+                  /></td>
                   <td class="mono">{skill.slug}</td>
                   <td>{skill.title}</td>
                   <td><span class="badge">{skill.program}</span></td>

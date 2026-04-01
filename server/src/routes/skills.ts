@@ -412,6 +412,137 @@ export function createSkillsRoutes(
     }
   });
 
+  // POST /export-zip — export selected skills as a ZIP of SKILL.md files
+  router.post("/export-zip", async (c) => {
+    const auth = await requireAuth(c);
+    if (!auth) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+
+    let body: any;
+    try { body = await c.req.json().catch(() => ({})); } catch { body = {}; }
+    const slugs = Array.isArray(body?.slugs) ? body.slugs as string[] : undefined;
+    const program = typeof body?.program === "string" ? body.program : undefined;
+    const category = typeof body?.category === "string" ? body.category : undefined;
+
+    let skills = skillIndex.list({ program: program || undefined, category: category || undefined });
+    if (slugs && slugs.length > 0) {
+      const slugSet = new Set(slugs.map(s => String(s).trim().toLowerCase()));
+      skills = skills.filter(s => slugSet.has(s.slug.toLowerCase()));
+    }
+
+    if (skills.length === 0) {
+      return errorResponse(c, 404, "No skills match the given criteria", "NOT_FOUND");
+    }
+
+    const { zipSync, strToU8 } = await import("fflate");
+    const { skillToSkillFile, serializeSkillFile } = await import("../skills/skill-file.js");
+
+    const zipEntries: Record<string, Uint8Array> = {};
+    for (const summary of skills) {
+      // list() returns summaries — fetch the full skill record for serialization
+      const skill = skillsRepo.get(summary.slug, summary.program);
+      if (!skill) continue;
+      const parsed = skillToSkillFile(skill);
+      const md = serializeSkillFile(parsed);
+      const path = `${skill.program || "global"}/${skill.slug}/SKILL.md`;
+      zipEntries[path] = strToU8(md);
+    }
+
+    const zipData = zipSync(zipEntries, { level: 6 });
+    const date = new Date().toISOString().slice(0, 10);
+    const fileName = `arkestrator-skills-${date}.zip`;
+
+    return new Response(Buffer.from(zipData), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/zip",
+        "Content-Disposition": `attachment; filename="${fileName}"`,
+      },
+    });
+  });
+
+  // POST /import-zip — import skills from an uploaded ZIP of SKILL.md files
+  router.post("/import-zip", async (c) => {
+    const auth = await requireWriteAccess(c);
+    if (!auth) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+    if (!skillStore) return errorResponse(c, 500, "SkillStore not available", "INTERNAL");
+
+    const formData = await c.req.formData().catch(() => null);
+    if (!formData) return errorResponse(c, 400, "Expected multipart form data", "BAD_REQUEST");
+    const file = formData.get("file") as File | null;
+    if (!file) return errorResponse(c, 400, "No file uploaded", "BAD_REQUEST");
+
+    const { unzipSync } = await import("fflate");
+    const { parseSkillFile, skillFileToSkillFields } = await import("../skills/skill-file.js");
+
+    let entries: Record<string, Uint8Array>;
+    try {
+      const data = new Uint8Array(await file.arrayBuffer());
+      entries = unzipSync(data);
+    } catch (err: any) {
+      return errorResponse(c, 400, `Invalid ZIP file: ${err?.message ?? err}`, "BAD_REQUEST");
+    }
+
+    let imported = 0;
+    let updated = 0;
+    let skipped = 0;
+    const errors: string[] = [];
+
+    for (const [path, content] of Object.entries(entries)) {
+      if (!path.endsWith("SKILL.md") && !path.endsWith(".md")) continue;
+      try {
+        const text = new TextDecoder().decode(content);
+        const parsed = parseSkillFile(text);
+        if (!parsed) {
+          errors.push(`${path}: invalid SKILL.md format`);
+          skipped++;
+          continue;
+        }
+        const fields = skillFileToSkillFields(parsed);
+        const existing = skillsRepo.get(fields.slug, fields.program);
+        if (existing) {
+          skillsRepo.update(fields.slug, {
+            name: fields.name,
+            title: fields.title,
+            description: fields.description,
+            content: fields.content,
+            keywords: fields.keywords,
+            playbooks: fields.playbooks,
+            relatedSkills: fields.relatedSkills,
+            priority: fields.priority,
+            autoFetch: fields.autoFetch,
+            enabled: fields.enabled,
+          }, fields.program);
+          updated++;
+        } else {
+          skillsRepo.create({
+            slug: fields.slug,
+            name: fields.name,
+            program: fields.program,
+            category: fields.category,
+            title: fields.title,
+            description: fields.description,
+            content: fields.content,
+            keywords: fields.keywords,
+            source: "import",
+            sourcePath: null,
+            playbooks: fields.playbooks,
+            relatedSkills: fields.relatedSkills,
+            priority: fields.priority,
+            autoFetch: fields.autoFetch,
+            enabled: fields.enabled,
+          });
+          imported++;
+        }
+      } catch (err: any) {
+        errors.push(`${path}: ${err?.message ?? err}`);
+        skipped++;
+      }
+    }
+
+    skillIndex.refresh();
+    return c.json({ ok: true, imported, updated, skipped, errors: errors.slice(0, 20) });
+  });
+
   // POST /import — import standard Agent Skills from a GitHub repo
   router.post("/import", async (c) => {
     const auth = await requireWriteAccess(c);
