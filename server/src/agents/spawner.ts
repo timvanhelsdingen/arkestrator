@@ -581,7 +581,21 @@ function evaluateBridgeExecutionResult(result: unknown): BridgeExecutionVerdict 
 
 // buildLocalAgenticTurnPrompt and promptRequestsDelegation imported from @arkestrator/protocol
 
-function buildLocalAgenticTaskSummary(job: Job): string {
+/**
+ * Infer the target bridge program from the job prompt by matching against
+ * connected bridge program names. Helps local LLMs (14-32B) that aren't
+ * smart enough to figure out the right bridge from the coordinator prompt.
+ */
+function inferBridgeProgramFromPrompt(prompt: string, connectedPrograms: string[]): string | undefined {
+  if (connectedPrograms.length === 0) return undefined;
+  const lower = prompt.toLowerCase();
+  const matches = connectedPrograms.filter((p) => lower.includes(p.toLowerCase()));
+  // Only infer if exactly one program matches — ambiguous matches should be left to the LLM
+  if (matches.length === 1) return matches[0];
+  return undefined;
+}
+
+function buildLocalAgenticTaskSummary(job: Job, connectedPrograms?: string[]): string {
   const lines = [`User request: ${job.prompt}`];
   const projectRoot = parseStringArg(job.editorContext?.projectRoot);
   if (projectRoot) lines.push(`Project root: ${projectRoot}`);
@@ -592,8 +606,12 @@ function buildLocalAgenticTaskSummary(job: Job): string {
   if (selectedNodes.length > 0) {
     lines.push(`Selected nodes: ${compactJson(selectedNodes, 600)}`);
   }
-  const targetBridge = parseStringArg(job.bridgeProgram);
-  if (targetBridge) lines.push(`Preferred target bridge: ${targetBridge}`);
+  // Use explicit bridgeProgram if set, otherwise infer from prompt
+  const targetBridge = parseStringArg(job.bridgeProgram)
+    || (connectedPrograms ? inferBridgeProgramFromPrompt(job.prompt, connectedPrograms) : undefined);
+  if (targetBridge) {
+    lines.push(`Target bridge: ${targetBridge} — use execute_command with target="${targetBridge}" for this task.`);
+  }
   return lines.join("\n");
 }
 
@@ -1386,7 +1404,7 @@ async function runLocalAgenticLoop(
   const effectiveSystemPrompt = [localModelSystemPrompt, perModelPrompt].filter(Boolean).join("\n\n") || undefined;
 
   const loopConfig: AgenticLoopConfig = {
-    basePrompt: buildLocalAgenticTaskSummary(job),
+    basePrompt: buildLocalAgenticTaskSummary(job, [...new Set(deps.hub.getBridges().map((b: any) => String(b.program ?? "").toLowerCase()).filter(Boolean))]),
     maxTurns,
     turnTimeoutMs: effectiveTurnTimeoutMs,
     allowDelegationTools: allowDelegation,
