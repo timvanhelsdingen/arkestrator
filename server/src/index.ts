@@ -509,7 +509,9 @@ async function main() {
 
   // Auto-discover headless executables on common install paths when the bare
   // executable name (e.g. "hython") isn't on PATH.
-  {
+  // Deferred to run after the server is listening — avoids blocking startup
+  // with synchronous filesystem scans on slow disks or network mounts.
+  setTimeout(() => {
     const isWindows = process.platform === "win32";
     const isMac = process.platform === "darwin";
 
@@ -561,7 +563,7 @@ async function main() {
         logger.info("server", `Auto-discovered ${program} headless executable: ${found}`);
       }
     }
-  }
+  }, 0);
 
   // Seed coordinator scripts directory with per-bridge defaults (on every startup, for new scripts)
   seedCoordinatorScripts(config.coordinatorScriptsDir, skillsRepo);
@@ -640,17 +642,20 @@ async function main() {
     logger.warn("server", `Skill export migration: ${err}`);
   }
 
-  // 8a-ii. Rebuild SQLite index from SKILL.md files on disk
-  try {
-    const { rebuildSkillsIndexFromDisk } = await import("./skills/skill-disk-loader.js");
-    const diskResult = await rebuildSkillsIndexFromDisk(config.skillsDir, skillsRepo);
-    if (diskResult.loaded > 0 || diskResult.removed > 0) {
-      logger.info("server", `Disk skill sync: ${diskResult.loaded} loaded, ${diskResult.removed} removed, ${diskResult.skipped} skipped`);
-      skillIndex.refresh();
+  // 8a-ii. Rebuild SQLite index from SKILL.md files on disk.
+  // Runs in background to avoid blocking startup on large skill directories.
+  (async () => {
+    try {
+      const { rebuildSkillsIndexFromDisk } = await import("./skills/skill-disk-loader.js");
+      const diskResult = await rebuildSkillsIndexFromDisk(config.skillsDir, skillsRepo);
+      if (diskResult.loaded > 0 || diskResult.removed > 0) {
+        logger.info("server", `Disk skill sync: ${diskResult.loaded} loaded, ${diskResult.removed} removed, ${diskResult.skipped} skipped`);
+        skillIndex.refresh();
+      }
+    } catch (err) {
+      logger.warn("server", `Disk skill rebuild: ${err}`);
     }
-  } catch (err) {
-    logger.warn("server", `Disk skill rebuild: ${err}`);
-  }
+  })();
 
   // 8a-iii. Start file watcher for external SKILL.md edits
   const { SkillWatcher } = await import("./skills/skill-watcher.js");

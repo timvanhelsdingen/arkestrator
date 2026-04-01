@@ -15,8 +15,21 @@
   /** Track submitted proposals so the button can be disabled after clicking */
   let submittedProposals = $state(new Set<string>());
 
-  /** Parse :::job-proposal blocks from assistant message content */
+  /**
+   * Parse :::job-proposal blocks from assistant message content.
+   * Memoized by content length — avoids re-running regex on every streaming
+   * chunk when the content hasn't actually changed.
+   */
+  const proposalCache = new Map<number, { text: string; proposals: { prompt: string; bridges: string[] }[] }>();
   function parseJobProposals(content: string): { text: string; proposals: { prompt: string; bridges: string[] }[] } {
+    const key = content.length;
+    const cached = proposalCache.get(key);
+    if (cached) return cached;
+    // Evict old entries (keep last 20 messages)
+    if (proposalCache.size > 20) {
+      const firstKey = proposalCache.keys().next().value;
+      if (firstKey !== undefined) proposalCache.delete(firstKey);
+    }
     const proposals: { prompt: string; bridges: string[] }[] = [];
     const text = content.replace(/:::job-proposal\s*\n([\s\S]*?):::/g, (_match, body: string) => {
       const promptMatch = body.match(/prompt:\s*(.+?)(?:\n|$)/s);
@@ -31,7 +44,9 @@
       }
       return ""; // Remove the block from rendered text
     });
-    return { text: text.trim(), proposals };
+    const result = { text: text.trim(), proposals };
+    proposalCache.set(key, result);
+    return result;
   }
 
   // Fun thinking phrases

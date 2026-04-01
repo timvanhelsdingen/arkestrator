@@ -9,27 +9,36 @@ function shouldSkip(name: string): boolean {
   return name.startsWith(".") || SKIP_DIRS.has(name);
 }
 
+/** Max paths to collect before bailing out. Prevents OOM on huge monorepos. */
+const MAX_COLLECT_PATHS = 50_000;
+
 /**
  * Collect all file paths under a directory (readdir only — no stat, no content read).
  * Returns a Set of relative paths for quick "existed before?" lookups.
- * This is fast even for large projects since it only lists directory entries.
+ * Bails out early if the directory exceeds MAX_COLLECT_PATHS to prevent
+ * excessive memory usage in large monorepos (100k+ files).
  */
 export async function collectPaths(rootDir: string): Promise<Set<string>> {
   const paths = new Set<string>();
-  await walkPaths(rootDir, rootDir, paths);
+  const aborted = await walkPaths(rootDir, rootDir, paths);
+  if (aborted) {
+    // Return empty set — file change detection will be skipped for this job
+    return new Set();
+  }
   return paths;
 }
 
+/** Returns true if the walk was aborted due to hitting the path limit. */
 async function walkPaths(
   dir: string,
   rootDir: string,
   paths: Set<string>,
-) {
+): Promise<boolean> {
   let items;
   try {
     items = await readdir(dir, { withFileTypes: true });
   } catch {
-    return;
+    return false;
   }
 
   for (const item of items) {
@@ -37,11 +46,13 @@ async function walkPaths(
     const fullPath = join(dir, item.name);
 
     if (item.isDirectory()) {
-      await walkPaths(fullPath, rootDir, paths);
+      if (await walkPaths(fullPath, rootDir, paths)) return true;
     } else if (item.isFile() || item.isSymbolicLink()) {
       paths.add(relative(rootDir, fullPath).replaceAll("\\", "/"));
+      if (paths.size >= MAX_COLLECT_PATHS) return true;
     }
   }
+  return false;
 }
 
 /**
