@@ -274,9 +274,18 @@
             {/each}
           </div>
         {/if}
-        <button class="boot-cancel" onclick={() => { booting = false; connection.clearSession(); wizard.reset(); }}>
-          Cancel
-        </button>
+        <div class="boot-actions">
+          <button class="boot-cancel" onclick={() => { booting = false; connection.clearSession(); wizard.reset(); }}>
+            Cancel
+          </button>
+          <button
+            class="boot-reset"
+            onclick={() => { localStorage.clear(); window.location.reload(); }}
+            title="Clear all saved credentials and reload"
+          >
+            Reset
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -370,8 +379,13 @@
     word-break: break-all;
     line-height: 1.4;
   }
-  .boot-cancel {
+  .boot-actions {
+    display: flex;
+    gap: 8px;
     margin-top: 16px;
+    justify-content: center;
+  }
+  .boot-cancel, .boot-reset {
     padding: 6px 20px;
     font-size: var(--font-size-sm);
     background: none;
@@ -380,9 +394,19 @@
     color: var(--text-secondary);
     cursor: pointer;
   }
-  .boot-cancel:hover {
+  .boot-cancel:hover, .boot-reset:hover {
     color: var(--text-primary);
     border-color: var(--text-muted);
+  }
+  .boot-reset {
+    color: var(--red, #e74c3c);
+    border-color: var(--red, #e74c3c);
+    opacity: 0.7;
+  }
+  .boot-reset:hover {
+    opacity: 1;
+    color: var(--red, #e74c3c);
+    border-color: var(--red, #e74c3c);
   }
   .legal-card {
     max-width: 620px;

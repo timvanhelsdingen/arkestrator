@@ -55,6 +55,7 @@
 
   // Reset menu
   let showResetMenu = $state(false);
+  let confirmingFullReset = $state(false);
   let resetting = $state(false);
 
   function clearClientData() {
@@ -65,18 +66,15 @@
   async function fullReset() {
     resetting = true;
     try {
-      // Stop local server if running
       if (serverState.isRunning) {
         await serverState.stop();
       }
-      // Wipe server data directory
       await invoke("wipe_app_data_dir");
-      // Clear all client state
       localStorage.clear();
-      // Restart the app
       await invoke("restart_app");
     } catch (err: any) {
       resetting = false;
+      confirmingFullReset = false;
       loginError = `Reset failed: ${err?.message ?? err}`;
     }
   }
@@ -513,40 +511,59 @@
         </div>
       </form>
     {/if}
+  </div>
 
-    <!-- Reset menu cog — bottom right -->
-    <div class="reset-cog-wrapper">
-      <button
-        class="reset-cog"
-        title="Troubleshooting options"
-        onclick={() => (showResetMenu = !showResetMenu)}
-        type="button"
-      >&#9881;</button>
-      {#if showResetMenu}
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div class="reset-backdrop" onclick={() => (showResetMenu = false)}></div>
-        <div class="reset-menu">
-          <button
-            class="reset-menu-item"
-            onclick={() => { showResetMenu = false; clearClientData(); }}
-            type="button"
-          >
-            <strong>Clear Client Data</strong>
-            <span>Clears saved credentials and session. Does not affect the server.</span>
-          </button>
+  <!-- Troubleshoot cog — fixed to bottom-right of the page -->
+  <div class="reset-cog-wrapper">
+    <button
+      class="reset-cog"
+      title="Troubleshooting options"
+      onclick={() => { showResetMenu = !showResetMenu; confirmingFullReset = false; }}
+      type="button"
+    >&#9881; Troubleshoot</button>
+    {#if showResetMenu}
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="reset-backdrop" onclick={() => { showResetMenu = false; confirmingFullReset = false; }}></div>
+      <div class="reset-menu">
+        <button
+          class="reset-menu-item"
+          onclick={() => { showResetMenu = false; clearClientData(); }}
+          type="button"
+        >
+          <strong>Clear Client Data</strong>
+          <span>Clears saved credentials and session. Does not affect the server.</span>
+        </button>
+        {#if !confirmingFullReset}
           <button
             class="reset-menu-item danger"
-            onclick={() => { showResetMenu = false; fullReset(); }}
-            disabled={resetting}
+            onclick={() => { confirmingFullReset = true; }}
             type="button"
           >
-            <strong>{resetting ? "Resetting..." : "Full Reset"}</strong>
+            <strong>Full Reset</strong>
             <span>Stops the server, wipes all data, and restarts fresh.</span>
           </button>
-        </div>
-      {/if}
-    </div>
+        {:else}
+          <div class="reset-confirm">
+            <strong>Are you sure?</strong>
+            <span>This will delete all server data, users, jobs, and settings.</span>
+            <div class="reset-confirm-actions">
+              <button
+                class="btn-confirm-cancel"
+                onclick={() => { confirmingFullReset = false; }}
+                type="button"
+              >Cancel</button>
+              <button
+                class="btn-confirm-reset"
+                onclick={() => { showResetMenu = false; fullReset(); }}
+                disabled={resetting}
+                type="button"
+              >{resetting ? "Resetting..." : "Yes, wipe everything"}</button>
+            </div>
+          </div>
+        {/if}
+      </div>
+    {/if}
   </div>
 
   {#if showForcedTotpSetup}
@@ -575,7 +592,6 @@
     background: var(--bg-base);
   }
   .setup-card {
-    position: relative;
     background: var(--bg-surface);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
@@ -751,22 +767,25 @@
     word-break: break-all;
   }
 
-  /* Reset cog + dropdown */
+  /* Reset cog + dropdown — fixed to page corner */
   .reset-cog-wrapper {
-    position: absolute;
-    bottom: 12px;
-    right: 12px;
+    position: fixed;
+    bottom: 16px;
+    right: 16px;
   }
   .reset-cog {
     background: none;
     border: none;
     color: var(--text-muted);
-    font-size: 18px;
+    font-size: 11px;
     cursor: pointer;
-    padding: 4px;
+    padding: 4px 8px;
     border-radius: var(--radius-sm);
-    opacity: 0.5;
+    opacity: 0.6;
     transition: opacity 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 4px;
   }
   .reset-cog:hover {
     opacity: 1;
@@ -815,5 +834,52 @@
   }
   .reset-menu-item.danger:hover {
     background: rgba(231, 76, 60, 0.1);
+  }
+  .reset-confirm {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px 14px;
+    border-top: 1px solid var(--border);
+  }
+  .reset-confirm strong {
+    color: var(--red, #e74c3c);
+    font-size: 13px;
+  }
+  .reset-confirm span {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .reset-confirm-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+  }
+  .btn-confirm-cancel, .btn-confirm-reset {
+    flex: 1;
+    padding: 6px 12px;
+    font-size: 12px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    border: 1px solid var(--border);
+  }
+  .btn-confirm-cancel {
+    background: none;
+    color: var(--text-secondary);
+  }
+  .btn-confirm-cancel:hover {
+    background: var(--bg-hover);
+  }
+  .btn-confirm-reset {
+    background: var(--red, #e74c3c);
+    color: white;
+    border-color: var(--red, #e74c3c);
+  }
+  .btn-confirm-reset:hover {
+    opacity: 0.9;
+  }
+  .btn-confirm-reset:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 </style>
