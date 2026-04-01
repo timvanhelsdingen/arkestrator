@@ -101,6 +101,7 @@ describe("skill-validator", () => {
       priority: 50,
       autoFetch: false,
       enabled: true,
+      locked: false,
       version: 1,
       createdAt: "2024-01-01",
       updatedAt: "2024-01-01",

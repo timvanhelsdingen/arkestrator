@@ -21,6 +21,7 @@
     priority: number;
     autoFetch: boolean;
     enabled: boolean;
+    locked: boolean;
   }
 
   interface EffectivenessStats {
@@ -504,6 +505,19 @@
     }
   }
 
+  async function toggleLock() {
+    if (!detailSkill) return;
+    try {
+      const newLocked = !detailSkill.locked;
+      await api.skills.update(detailSkill.slug, { locked: newLocked }, detailSkill.program || undefined);
+      detailSkill = { ...detailSkill, locked: newLocked };
+      toast.success(newLocked ? "Skill locked" : "Skill unlocked");
+      load();
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  }
+
   async function openDetail(skill: SkillEntry) {
     playbookContent = [];
     expandedPlaybooks = new Set();
@@ -753,14 +767,15 @@
         <th>Success</th>
         <th>Playbooks</th>
         <th>Enabled</th>
+        <th style="width:24px"></th>
         <th>Actions</th>
       </tr>
     </thead>
     <tbody>
       {#if loading}
-        <tr><td colspan="11" class="muted">Loading skills...</td></tr>
+        <tr><td colspan="12" class="muted">Loading skills...</td></tr>
       {:else if filteredSkills.length === 0}
-        <tr><td colspan="11" class="muted">
+        <tr><td colspan="12" class="muted">
           {#if skills.length === 0}
             No skills loaded yet.
             <button class="btn-link" onclick={pullAll} disabled={pullingAll}>
@@ -813,6 +828,7 @@
                 <span class="badge badge-off">no</span>
               {/if}
             </td>
+            <td style="text-align:center">{#if skill.locked}<span title="Locked">&#128274;</span>{/if}</td>
             <td class="actions-cell">
               <button class="btn-small" onclick={() => openDetail(skill)}>View</button>
               <button class="btn-small btn-danger" onclick={() => (confirmDelete = skill)}>Delete</button>
@@ -835,7 +851,8 @@
 <Modal title="Skill Detail" open={detailSkill !== null} onclose={() => { detailSkill = null; editMode = false; }}>
   {#if detailSkill}
     <div class="detail-toolbar">
-      <button class="btn-secondary btn-small" onclick={startEdit} disabled={editMode || viewingOldVersion}>Edit</button>
+      <button class="btn-secondary btn-small" onclick={startEdit} disabled={editMode || viewingOldVersion || detailSkill.locked} title={detailSkill.locked ? "Skill is locked" : ""}>Edit</button>
+      <button class="btn-secondary btn-small" onclick={toggleLock}>{detailSkill.locked ? "Unlock" : "Lock"}</button>
       <button class="btn-secondary btn-small" onclick={exportSingleSkill}>Export</button>
       <button class="btn-secondary btn-small" onclick={() => { detailSkill = null; editMode = false; }}>Close</button>
     </div>
@@ -911,6 +928,7 @@
         <div><strong>Enabled:</strong> {detailSkill.enabled ? "Yes" : "No"}</div>
         <div><strong>Priority:</strong> {detailSkill.priority}</div>
         <div><strong>Auto-fetch:</strong> {detailSkill.autoFetch ? "Yes" : "No"}</div>
+        <div><strong>Locked:</strong> {detailSkill.locked ? "Yes" : "No"}</div>
         {#if detailSkill.keywords.length > 0}
           <div><strong>Keywords:</strong> {detailSkill.keywords.join(", ")}</div>
         {/if}

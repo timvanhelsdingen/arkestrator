@@ -181,6 +181,7 @@ export interface SkillSummary {
   priority: number;
   autoFetch: boolean;
   enabled: boolean;
+  locked: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -427,6 +428,7 @@ export class SkillIndex {
         priority: s.priority,
         autoFetch: s.autoFetch,
         enabled: s.enabled,
+        locked: s.locked,
       }));
   }
 

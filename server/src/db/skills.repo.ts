@@ -22,6 +22,7 @@ export interface Skill {
   priority: number;
   autoFetch: boolean;
   enabled: boolean;
+  locked: boolean;
   version: number;
   createdAt: string;
   updatedAt: string;
@@ -55,6 +56,7 @@ interface SkillRow {
   priority: number;
   auto_fetch: number;
   enabled: number;
+  locked: number;
   version: number;
   created_at: string;
   updated_at: string;
@@ -92,6 +94,7 @@ export interface UpdateSkillInput {
   priority?: number;
   autoFetch?: boolean;
   enabled?: boolean;
+  locked?: boolean;
 }
 
 function parseJsonArray(raw: string | undefined | null): string[] {
@@ -117,6 +120,7 @@ function rowToSkill(row: SkillRow): Skill {
     priority: row.priority,
     autoFetch: row.auto_fetch === 1,
     enabled: row.enabled === 1,
+    locked: row.locked === 1,
     version: row.version ?? 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -244,6 +248,7 @@ export class SkillsRepo {
     if (updates.priority !== undefined) { sets.push("priority = ?"); values.push(updates.priority); }
     if (updates.autoFetch !== undefined) { sets.push("auto_fetch = ?"); values.push(updates.autoFetch ? 1 : 0); }
     if (updates.enabled !== undefined) { sets.push("enabled = ?"); values.push(updates.enabled ? 1 : 0); }
+    if (updates.locked !== undefined) { sets.push("locked = ?"); values.push(updates.locked ? 1 : 0); }
 
     if (sets.length === 0) return existing;
 

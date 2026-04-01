@@ -222,6 +222,7 @@
     priority?: number;
     autoFetch?: boolean;
     enabled?: boolean;
+    locked?: boolean;
   }
   let serverSkills = $state<SkillEntry[]>([]);
   let skillsLoading = $state(false);
@@ -1403,6 +1404,19 @@
     }
   }
 
+  async function toggleSkillLock() {
+    if (!skillViewData) return;
+    try {
+      const newLocked = !skillViewData.locked;
+      await api.skills.update(skillViewData.slug, { locked: newLocked }, skillViewData.program);
+      skillViewData = { ...skillViewData, locked: newLocked };
+      info = newLocked ? "Skill locked" : "Skill unlocked";
+      loadSkills();
+    } catch (err: any) {
+      error = err.message ?? "Failed to toggle skill lock";
+    }
+  }
+
   async function editSkillFromTable(slug: string, prog: string) {
     await viewSkill(slug, prog);
     startSkillEdit();
@@ -1776,12 +1790,12 @@
                 selectedSkillKeys = next;
               }}
             /></th>
-            <th>Slug</th><th>Title</th><th>Bridge</th><th>Category</th><th>Source</th><th>Uses</th><th>Success</th><th>Actions</th></tr></thead>
+            <th>Slug</th><th>Title</th><th>Bridge</th><th>Category</th><th>Source</th><th>Uses</th><th>Success</th><th style="width:24px"></th><th>Actions</th></tr></thead>
           <tbody>
             {#if skillsLoading}
-              <tr><td colspan="9" class="muted">Loading...</td></tr>
+              <tr><td colspan="10" class="muted">Loading...</td></tr>
             {:else if filteredSkills.length === 0}
-              <tr><td colspan="9" class="muted">
+              <tr><td colspan="10" class="muted">
                 {#if serverSkills.length === 0}No skills loaded. <button class="btn-link" onclick={pullAllSkills}>Pull from Bridge Repo</button>{:else}No match.{/if}
               </td></tr>
             {:else}
@@ -1822,10 +1836,11 @@
                       <span class="muted">-</span>
                     {/if}
                   </td>
+                  <td style="text-align:center">{#if skill.locked}<span title="Locked">&#128274;</span>{/if}</td>
                   <td class="actions">
                     <button class="btn-sm" onclick={() => viewSkill(skill.slug, skill.program)}>View</button>
                     {#if canManage}
-                      <button class="btn-sm" onclick={() => editSkillFromTable(skill.slug, skill.program)}>Edit</button>
+                      <button class="btn-sm" onclick={() => editSkillFromTable(skill.slug, skill.program)} disabled={skill.locked} title={skill.locked ? "Skill is locked" : ""}>Edit</button>
                       <button class="btn-sm danger" onclick={() => deleteSkill(skill.slug, skill.program)}>Delete</button>
                     {/if}
                   </td>
@@ -2223,7 +2238,8 @@
         <h4>{skillViewData?.title ?? skillViewSlug}</h4>
         <div class="skill-view-toolbar">
           {#if canManage && !skillEditMode && !viewingOldVersion}
-            <button class="btn-sm" onclick={startSkillEdit}>Edit</button>
+            <button class="btn-sm" onclick={startSkillEdit} disabled={skillViewData?.locked} title={skillViewData?.locked ? "Skill is locked" : ""}>Edit</button>
+            <button class="btn-sm" onclick={toggleSkillLock}>{skillViewData?.locked ? "Unlock" : "Lock"}</button>
           {/if}
           <button class="btn-sm" onclick={exportViewedSkill}>Export</button>
           <button class="btn-sm" onclick={closeSkillView}>X</button>
@@ -2295,6 +2311,7 @@
             <div><strong>Priority:</strong> {skillViewData.priority ?? "-"}</div>
             <div><strong>Enabled:</strong> {skillViewData.enabled ? "Yes" : "No"}</div>
             <div><strong>Auto-fetch:</strong> {skillViewData.autoFetch ? "Yes" : "No"}</div>
+            <div><strong>Locked:</strong> {skillViewData.locked ? "Yes" : "No"}</div>
             {#if skillViewData.keywords && skillViewData.keywords.length > 0}
               <div><strong>Keywords:</strong> {skillViewData.keywords.join(", ")}</div>
             {/if}
