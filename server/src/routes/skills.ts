@@ -449,7 +449,9 @@ export function createSkillsRoutes(
 
     const zipData = zipSync(zipEntries, { level: 6 });
     const date = new Date().toISOString().slice(0, 10);
-    const fileName = `arkestrator-skills-${date}.zip`;
+    const fileName = skills.length === 1
+      ? `arkestrator_skill_${skills[0].slug}_${date}.zip`
+      : `arkestrator_skills_${date}.zip`;
 
     return new Response(Buffer.from(zipData), {
       status: 200,
@@ -605,6 +607,33 @@ export function createSkillsRoutes(
 
     skillIndex.refresh();
     return c.json({ ok: true, skill: restored });
+  });
+
+  // DELETE /:slug/versions/:version — delete a specific version snapshot
+  router.delete("/:slug/versions/:version", async (c) => {
+    const auth = await requireWriteAccess(c);
+    if (!auth) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+
+    const slug = c.req.param("slug");
+    const program = c.req.query("program");
+    const version = Number(c.req.param("version"));
+
+    const skill = skillIndex.get(slug, program || undefined);
+    if (!skill) return errorResponse(c, 404, `Skill not found: ${slug}`, "NOT_FOUND");
+
+    if (!Number.isFinite(version) || version < 1) {
+      return errorResponse(c, 400, "Invalid version number", "INVALID_INPUT");
+    }
+
+    // Don't allow deleting the current version
+    if (version === skill.version) {
+      return errorResponse(c, 400, "Cannot delete the current version", "INVALID_INPUT");
+    }
+
+    const deleted = skillsRepo.deleteVersion(skill.id, version);
+    if (!deleted) return errorResponse(c, 404, `Version ${version} not found`, "NOT_FOUND");
+
+    return c.json({ ok: true });
   });
 
   // ── Skill validation ──────────────────────────────────────────────────

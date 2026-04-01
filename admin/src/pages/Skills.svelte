@@ -98,7 +98,17 @@
   let versions = $state<Array<{ id: string; version: number; content: string; keywords: string[]; description: string; createdAt: string }>>([]);
   let currentVersion = $state(0);
   let loadingVersions = $state(false);
-  let versionsOpen = $state(false);
+  let selectedVersionNumber = $state(0);
+
+  function versionTimeAgo(dateStr: string): string {
+    const diff = Date.now() - new Date(dateStr).getTime();
+    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+    return `${Math.floor(diff / 86400000)}d ago`;
+  }
+
+  const viewingOldVersion = $derived(selectedVersionNumber > 0 && selectedVersionNumber !== currentVersion);
+  const selectedVersionData = $derived(versions.find(v => v.version === selectedVersionNumber));
 
   function togglePlaybook(path: string) {
     const next = new Set(expandedPlaybooks);
@@ -412,6 +422,7 @@
       const result = await api.skills.listVersions(slug, program);
       versions = result.versions;
       currentVersion = result.currentVersion;
+      selectedVersionNumber = currentVersion;
     } catch { versions = []; }
     loadingVersions = false;
   }
@@ -465,6 +476,18 @@
     }
   }
 
+  async function deleteSelectedVersion() {
+    if (!detailSkill || !selectedVersionNumber) return;
+    try {
+      await api.skills.deleteVersion(detailSkill.slug, selectedVersionNumber, detailSkill.program || undefined);
+      toast.success(`Deleted version ${selectedVersionNumber}`);
+      await loadVersions(detailSkill.slug, detailSkill.program || undefined);
+      selectedVersionNumber = currentVersion;
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  }
+
   async function exportSingleSkill() {
     if (!detailSkill) return;
     try {
@@ -485,8 +508,8 @@
     playbookContent = [];
     expandedPlaybooks = new Set();
     editMode = false;
-    versionsOpen = false;
     versions = [];
+    selectedVersionNumber = 0;
     // Fetch full skill detail (list endpoint returns summary without content/playbooks)
     try {
       const data = await api.skills.get(skill.slug, skill.program || undefined);
@@ -812,10 +835,26 @@
 <Modal title="Skill Detail" open={detailSkill !== null} onclose={() => { detailSkill = null; editMode = false; }}>
   {#if detailSkill}
     <div class="detail-toolbar">
-      <button class="btn-secondary btn-small" onclick={startEdit} disabled={editMode}>Edit</button>
+      <button class="btn-secondary btn-small" onclick={startEdit} disabled={editMode || viewingOldVersion}>Edit</button>
       <button class="btn-secondary btn-small" onclick={exportSingleSkill}>Export</button>
       <button class="btn-secondary btn-small" onclick={() => { detailSkill = null; editMode = false; }}>Close</button>
     </div>
+
+    <!-- Version selector -->
+    {#if versions.length > 0}
+      <div class="version-selector">
+        <select bind:value={selectedVersionNumber}>
+          <option value={currentVersion}>v{currentVersion} · current</option>
+          {#each versions.filter(v => v.version !== currentVersion) as v}
+            <option value={v.version}>v{v.version} · {versionTimeAgo(v.createdAt)}</option>
+          {/each}
+        </select>
+        {#if viewingOldVersion}
+          <button class="btn-primary btn-small restore-btn" onclick={() => rollbackToVersion(selectedVersionNumber)}>Restore this version</button>
+          <button class="btn-danger-sm" onclick={deleteSelectedVersion}>Delete Version</button>
+        {/if}
+      </div>
+    {/if}
 
     {#if editMode}
       <!-- Edit Mode -->
@@ -854,7 +893,7 @@
       </div>
       <label class="field">
         <span>Content</span>
-        <textarea bind:value={editContent} rows="14" class="content-editor"></textarea>
+        <textarea bind:value={editContent} rows="15" class="content-editor"></textarea>
       </label>
       <div class="actions">
         <button class="btn-secondary" onclick={() => { editMode = false; }}>Cancel</button>
@@ -920,45 +959,18 @@
           </div>
         </div>
       {/if}
-      <label class="field">
-        <span>Content</span>
-        <textarea rows="10" value={detailSkill.content} readonly class="content-viewer"></textarea>
-      </label>
-    {/if}
-
-    <!-- Version History -->
-    <div class="version-section">
-      <button class="ranking-toggle" onclick={() => { versionsOpen = !versionsOpen; }}>
-        <span class="ranking-arrow">{versionsOpen ? "v" : ">"}</span>
-        Version History {currentVersion > 0 ? `(current: v${currentVersion})` : ""}
-      </button>
-      {#if versionsOpen}
-        <div class="version-panel">
-          {#if loadingVersions}
-            <p class="muted">Loading versions...</p>
-          {:else if versions.length === 0}
-            <p class="muted">No version history available.</p>
-          {:else}
-            <div class="version-list">
-              {#each versions as v}
-                <div class="version-item {v.version === currentVersion ? 'version-current' : ''}">
-                  <div class="version-info">
-                    <span class="version-number">v{v.version}</span>
-                    <span class="version-date">{new Date(v.createdAt).toLocaleString()}</span>
-                    {#if v.version === currentVersion}
-                      <span class="badge badge-ok">current</span>
-                    {/if}
-                  </div>
-                  {#if v.version !== currentVersion}
-                    <button class="btn-small" onclick={() => rollbackToVersion(v.version)}>Restore</button>
-                  {/if}
-                </div>
-              {/each}
-            </div>
-          {/if}
-        </div>
+      {#if viewingOldVersion && selectedVersionData}
+        <label class="field">
+          <span>Content (v{selectedVersionNumber})</span>
+          <textarea rows="10" value={selectedVersionData.content} readonly class="content-viewer"></textarea>
+        </label>
+      {:else}
+        <label class="field">
+          <span>Content</span>
+          <textarea rows="10" value={detailSkill.content} readonly class="content-viewer"></textarea>
+        </label>
       {/if}
-    </div>
+    {/if}
   {/if}
 </Modal>
 
@@ -1129,10 +1141,12 @@
   .btn-danger { background: rgba(220, 50, 50, 0.15); color: #e05555; border: none; padding: 8px 16px; border-radius: var(--radius-sm); font-weight: 500; cursor: pointer; }
   .btn-danger:hover { background: rgba(220, 50, 50, 0.25); }
   .btn-small.btn-danger { padding: 4px 10px; font-size: var(--font-size-sm); }
+  .btn-danger-sm { background: rgba(220, 50, 50, 0.15); color: #e05555; border: none; padding: 4px 10px; border-radius: var(--radius-sm); font-size: var(--font-size-sm); cursor: pointer; }
+  .btn-danger-sm:hover { background: rgba(220, 50, 50, 0.25); }
   .actions-cell { display: flex; gap: 6px; }
   .actions { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
-  .field { display: block; margin-bottom: 12px; }
-  .field span { display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: var(--font-size-sm); }
+  .field { display: block; margin-bottom: 10px; }
+  .field span { display: block; margin-bottom: 3px; color: var(--text-secondary); font-size: 11px; }
   .field input, .field textarea, .field select { width: 100%; }
   .field-row { display: flex; gap: 16px; margin-bottom: 12px; }
   .checkbox-field { display: flex; align-items: center; gap: 6px; margin-bottom: 0; }
@@ -1140,7 +1154,8 @@
   .checkbox-field span { display: inline; margin-bottom: 0; }
   .hint { color: var(--text-secondary); margin-bottom: 12px; }
   .summary { margin-top: 12px; color: var(--text-muted); font-size: var(--font-size-sm); }
-  .detail-grid { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; font-size: var(--font-size-sm); }
+  .detail-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px 12px; margin-bottom: 10px; font-size: var(--font-size-sm); }
+  .detail-grid strong { font-size: 11px; color: var(--text-muted); }
   .content-viewer {
     font-family: var(--font-mono);
     font-size: var(--font-size-sm);
@@ -1187,7 +1202,7 @@
   .th-check, .td-check { width: 32px; text-align: center; }
   .th-check input, .td-check input { cursor: pointer; }
   .badge-selection { color: var(--accent); background: rgba(78, 156, 230, 0.12); display: inline-flex; align-items: center; font-size: var(--font-size-sm); padding: 4px 10px; border-radius: 999px; }
-  .detail-toolbar { display: flex; gap: 8px; margin-bottom: 12px; justify-content: flex-end; }
+  .detail-toolbar { display: flex; gap: 8px; margin-bottom: 8px; justify-content: flex-end; }
   .content-editor {
     font-family: var(--font-mono);
     font-size: var(--font-size-sm);
@@ -1195,12 +1210,7 @@
     resize: vertical;
     min-height: 280px;
   }
-  .version-section { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 12px; }
-  .version-panel { padding: 8px 0; }
-  .version-list { display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow-y: auto; }
-  .version-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; border-radius: var(--radius-sm); font-size: var(--font-size-sm); }
-  .version-current { background: rgba(78, 156, 230, 0.08); }
-  .version-info { display: flex; align-items: center; gap: 10px; }
-  .version-number { font-family: var(--font-mono); font-weight: 600; }
-  .version-date { color: var(--text-muted); }
+  .version-selector { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .version-selector select { font-size: var(--font-size-sm); padding: 4px 8px; background: var(--bg-elevated, #1e1e24); color: var(--text-primary); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+  .restore-btn { font-weight: 600; }
 </style>

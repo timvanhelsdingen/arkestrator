@@ -1311,6 +1311,14 @@ export const api = {
         body: JSON.stringify({ version }),
       });
     },
+    deleteVersion: (slug: string, version: number, program?: string) => {
+      const params = new URLSearchParams();
+      if (program) params.set("program", program);
+      const qs = params.toString();
+      return request(`/api/skills/${encodeURIComponent(slug)}/versions/${version}${qs ? `?${qs}` : ""}`, {
+        method: "DELETE",
+      });
+    },
     export: async (opts?: { program?: string; category?: string; source?: string; slugs?: string[] }) => {
       const body: Record<string, any> = {};
       if (opts?.program) body.program = opts.program;
