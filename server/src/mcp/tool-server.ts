@@ -1255,6 +1255,9 @@ export function createMcpServer(deps: McpDeps): McpServer {
       if (!skill) {
         return { content: [{ type: "text" as const, text: `Skill not found: ${slug}` }], isError: true };
       }
+      if (skill.locked) {
+        return { content: [{ type: "text" as const, text: `Skill "${slug}" is locked and cannot be edited by agents. Only humans can unlock it via the UI.` }], isError: true };
+      }
       const updates: Record<string, any> = {};
       if (content !== undefined) updates.content = content;
       if (title !== undefined) updates.title = title;

@@ -383,6 +383,8 @@ const COLUMN_ADDITIONS = [
   // Configurable per-turn timeout and reasoning mode for local-oss agent configs
   `ALTER TABLE agent_configs ADD COLUMN turn_timeout_ms INTEGER`,
   `ALTER TABLE agent_configs ADD COLUMN reasoning_mode TEXT CHECK(reasoning_mode IN ('disabled','plan-act','plan-act-evaluate'))`,
+  // Lock skills from being edited by agents (humans can still edit via UI)
+  `ALTER TABLE skills ADD COLUMN locked INTEGER NOT NULL DEFAULT 0`,
 ];
 
 // Reset any jobs stuck in 'running' state (server crashed while they were active)
