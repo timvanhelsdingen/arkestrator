@@ -84,6 +84,22 @@
   let loadingPlaybooks = $state(false);
   let expandedPlaybooks = $state<Set<string>>(new Set());
 
+  // Edit mode
+  let editMode = $state(false);
+  let editContent = $state("");
+  let editDescription = $state("");
+  let editKeywords = $state("");
+  let editPriority = $state(50);
+  let editEnabled = $state(true);
+  let editAutoFetch = $state(false);
+  let saving = $state(false);
+
+  // Version history
+  let versions = $state<Array<{ id: string; version: number; content: string; keywords: string[]; description: string; createdAt: string }>>([]);
+  let currentVersion = $state(0);
+  let loadingVersions = $state(false);
+  let versionsOpen = $state(false);
+
   function togglePlaybook(path: string) {
     const next = new Set(expandedPlaybooks);
     if (next.has(path)) next.delete(path);
@@ -390,9 +406,87 @@
     }
   }
 
+  async function loadVersions(slug: string, program?: string) {
+    loadingVersions = true;
+    try {
+      const result = await api.skills.listVersions(slug, program);
+      versions = result.versions;
+      currentVersion = result.currentVersion;
+    } catch { versions = []; }
+    loadingVersions = false;
+  }
+
+  function startEdit() {
+    if (!detailSkill) return;
+    editContent = detailSkill.content;
+    editDescription = detailSkill.description;
+    editKeywords = (detailSkill.keywords ?? []).join(", ");
+    editPriority = detailSkill.priority ?? 50;
+    editEnabled = detailSkill.enabled !== false;
+    editAutoFetch = detailSkill.autoFetch === true;
+    editMode = true;
+  }
+
+  async function saveEdit() {
+    if (!detailSkill) return;
+    saving = true;
+    try {
+      await api.skills.update(detailSkill.slug, {
+        content: editContent,
+        description: editDescription,
+        keywords: editKeywords.split(",").map((k: string) => k.trim()).filter(Boolean),
+        priority: editPriority,
+        enabled: editEnabled,
+        autoFetch: editAutoFetch,
+      }, detailSkill.program || undefined);
+      toast.success("Skill updated");
+      editMode = false;
+      const updated = await api.skills.get(detailSkill.slug, detailSkill.program || undefined);
+      if (updated?.skill) detailSkill = updated.skill;
+      loadVersions(detailSkill!.slug, detailSkill!.program || undefined);
+      load();
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+    saving = false;
+  }
+
+  async function rollbackToVersion(version: number) {
+    if (!detailSkill) return;
+    try {
+      await api.skills.rollback(detailSkill.slug, version, detailSkill.program || undefined);
+      toast.success(`Rolled back to version ${version}`);
+      const updated = await api.skills.get(detailSkill.slug, detailSkill.program || undefined);
+      if (updated?.skill) detailSkill = updated.skill;
+      loadVersions(detailSkill!.slug, detailSkill!.program || undefined);
+      load();
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  }
+
+  async function exportSingleSkill() {
+    if (!detailSkill) return;
+    try {
+      const { blob, fileName } = await api.skills.export({ slugs: [detailSkill.slug] });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName ?? "skill-export.zip";
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  }
+
   async function openDetail(skill: SkillEntry) {
     playbookContent = [];
     expandedPlaybooks = new Set();
+    editMode = false;
+    versionsOpen = false;
+    versions = [];
     // Fetch full skill detail (list endpoint returns summary without content/playbooks)
     try {
       const data = await api.skills.get(skill.slug, skill.program || undefined);
@@ -410,6 +504,10 @@
       } finally {
         loadingPlaybooks = false;
       }
+    }
+    // Load version history
+    if (detailSkill) {
+      loadVersions(detailSkill.slug, detailSkill.program || undefined);
     }
   }
 
@@ -711,72 +809,155 @@
 </div>
 
 <!-- Detail Modal -->
-<Modal title="Skill Detail" open={detailSkill !== null} onclose={() => (detailSkill = null)}>
+<Modal title="Skill Detail" open={detailSkill !== null} onclose={() => { detailSkill = null; editMode = false; }}>
   {#if detailSkill}
-    <div class="detail-grid">
-      <div><strong>Slug:</strong> <span class="mono">{detailSkill.slug}</span></div>
-      <div><strong>Name:</strong> {detailSkill.name}</div>
-      <div><strong>Title:</strong> {detailSkill.title}</div>
-      <div><strong>Bridge:</strong> {detailSkill.program || "-"}</div>
-      <div><strong>Category:</strong> {detailSkill.category}</div>
-      <div><strong>Source:</strong> {detailSkill.source}</div>
-      <div><strong>Enabled:</strong> {detailSkill.enabled ? "Yes" : "No"}</div>
-      <div><strong>Priority:</strong> {detailSkill.priority}</div>
-      <div><strong>Auto-fetch:</strong> {detailSkill.autoFetch ? "Yes" : "No"}</div>
-      {#if detailSkill.keywords.length > 0}
-        <div><strong>Keywords:</strong> {detailSkill.keywords.join(", ")}</div>
-      {/if}
-      {#if detailSkill.description}
-        <div><strong>Description:</strong> {detailSkill.description}</div>
-      {/if}
-      {#if detailSkill.sourcePath}
-        <div><strong>Source Path:</strong> <span class="mono">{detailSkill.sourcePath}</span></div>
-      {/if}
+    <div class="detail-toolbar">
+      <button class="btn-secondary btn-small" onclick={startEdit} disabled={editMode}>Edit</button>
+      <button class="btn-secondary btn-small" onclick={exportSingleSkill}>Export</button>
+      <button class="btn-secondary btn-small" onclick={() => { detailSkill = null; editMode = false; }}>Close</button>
     </div>
-    {#if detailSkill.playbooks?.length > 0}
-      <div class="detail-section">
-        <strong>Playbook References ({detailSkill.playbooks.length})</strong>
-        {#if loadingPlaybooks}
-          <p class="muted">Loading playbook content...</p>
-        {:else if playbookContent.length > 0}
-          {#each playbookContent as pb}
-            <div class="playbook-entry">
-              <button class="playbook-toggle" onclick={() => togglePlaybook(pb.path)}>
-                <span class="playbook-arrow">{expandedPlaybooks.has(pb.path) ? "v" : ">"}</span>
-                <span class="mono">{pb.path}</span>
-              </button>
-              {#if pb.error}
-                <div class="playbook-error">{pb.error}</div>
-              {:else if expandedPlaybooks.has(pb.path) && pb.content}
-                <pre class="playbook-content-view">{formatPlaybookContent(pb.content)}</pre>
-              {/if}
-            </div>
-          {/each}
-        {:else}
-          <div class="playbook-list">
-            {#each detailSkill.playbooks as pb}
-              <div class="playbook-entry mono">{pb}</div>
-            {/each}
-          </div>
+
+    {#if editMode}
+      <!-- Edit Mode -->
+      <div class="detail-grid">
+        <div><strong>Slug:</strong> <span class="mono">{detailSkill.slug}</span></div>
+        <div><strong>Name:</strong> {detailSkill.name}</div>
+        <div><strong>Title:</strong> {detailSkill.title}</div>
+        <div><strong>Bridge:</strong> {detailSkill.program || "-"}</div>
+        <div><strong>Category:</strong> {detailSkill.category}</div>
+        <div><strong>Source:</strong> {detailSkill.source}</div>
+        {#if detailSkill.sourcePath}
+          <div><strong>Source Path:</strong> <span class="mono">{detailSkill.sourcePath}</span></div>
         {/if}
       </div>
-    {/if}
-    {#if detailSkill.relatedSkills?.length > 0}
-      <div class="detail-section">
-        <strong>Related Skills</strong>
-        <div class="related-skills">
-          {#each detailSkill.relatedSkills as slug}
-            <button class="btn-link" onclick={() => navigateToSkill(slug)}>{slug}</button>
-          {/each}
-        </div>
+      <label class="field">
+        <span>Description</span>
+        <input type="text" bind:value={editDescription} />
+      </label>
+      <label class="field">
+        <span>Keywords (comma-separated)</span>
+        <input type="text" bind:value={editKeywords} />
+      </label>
+      <label class="field">
+        <span>Priority</span>
+        <input type="number" bind:value={editPriority} min="0" max="100" />
+      </label>
+      <div class="field-row">
+        <label class="field checkbox-field">
+          <input type="checkbox" bind:checked={editEnabled} />
+          <span>Enabled</span>
+        </label>
+        <label class="field checkbox-field">
+          <input type="checkbox" bind:checked={editAutoFetch} />
+          <span>Auto-fetch</span>
+        </label>
       </div>
+      <label class="field">
+        <span>Content</span>
+        <textarea bind:value={editContent} rows="14" class="content-editor"></textarea>
+      </label>
+      <div class="actions">
+        <button class="btn-secondary" onclick={() => { editMode = false; }}>Cancel</button>
+        <button class="btn-primary" onclick={saveEdit} disabled={saving}>{saving ? "Saving..." : "Save"}</button>
+      </div>
+    {:else}
+      <!-- Read-only Mode -->
+      <div class="detail-grid">
+        <div><strong>Slug:</strong> <span class="mono">{detailSkill.slug}</span></div>
+        <div><strong>Name:</strong> {detailSkill.name}</div>
+        <div><strong>Title:</strong> {detailSkill.title}</div>
+        <div><strong>Bridge:</strong> {detailSkill.program || "-"}</div>
+        <div><strong>Category:</strong> {detailSkill.category}</div>
+        <div><strong>Source:</strong> {detailSkill.source}</div>
+        <div><strong>Enabled:</strong> {detailSkill.enabled ? "Yes" : "No"}</div>
+        <div><strong>Priority:</strong> {detailSkill.priority}</div>
+        <div><strong>Auto-fetch:</strong> {detailSkill.autoFetch ? "Yes" : "No"}</div>
+        {#if detailSkill.keywords.length > 0}
+          <div><strong>Keywords:</strong> {detailSkill.keywords.join(", ")}</div>
+        {/if}
+        {#if detailSkill.description}
+          <div><strong>Description:</strong> {detailSkill.description}</div>
+        {/if}
+        {#if detailSkill.sourcePath}
+          <div><strong>Source Path:</strong> <span class="mono">{detailSkill.sourcePath}</span></div>
+        {/if}
+      </div>
+      {#if detailSkill.playbooks?.length > 0}
+        <div class="detail-section">
+          <strong>Playbook References ({detailSkill.playbooks.length})</strong>
+          {#if loadingPlaybooks}
+            <p class="muted">Loading playbook content...</p>
+          {:else if playbookContent.length > 0}
+            {#each playbookContent as pb}
+              <div class="playbook-entry">
+                <button class="playbook-toggle" onclick={() => togglePlaybook(pb.path)}>
+                  <span class="playbook-arrow">{expandedPlaybooks.has(pb.path) ? "v" : ">"}</span>
+                  <span class="mono">{pb.path}</span>
+                </button>
+                {#if pb.error}
+                  <div class="playbook-error">{pb.error}</div>
+                {:else if expandedPlaybooks.has(pb.path) && pb.content}
+                  <pre class="playbook-content-view">{formatPlaybookContent(pb.content)}</pre>
+                {/if}
+              </div>
+            {/each}
+          {:else}
+            <div class="playbook-list">
+              {#each detailSkill.playbooks as pb}
+                <div class="playbook-entry mono">{pb}</div>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      {/if}
+      {#if detailSkill.relatedSkills?.length > 0}
+        <div class="detail-section">
+          <strong>Related Skills</strong>
+          <div class="related-skills">
+            {#each detailSkill.relatedSkills as slug}
+              <button class="btn-link" onclick={() => navigateToSkill(slug)}>{slug}</button>
+            {/each}
+          </div>
+        </div>
+      {/if}
+      <label class="field">
+        <span>Content</span>
+        <textarea rows="10" value={detailSkill.content} readonly class="content-viewer"></textarea>
+      </label>
     {/if}
-    <label class="field">
-      <span>Content</span>
-      <textarea rows="10" value={detailSkill.content} readonly class="content-viewer"></textarea>
-    </label>
-    <div class="actions">
-      <button class="btn-secondary" onclick={() => (detailSkill = null)}>Close</button>
+
+    <!-- Version History -->
+    <div class="version-section">
+      <button class="ranking-toggle" onclick={() => { versionsOpen = !versionsOpen; }}>
+        <span class="ranking-arrow">{versionsOpen ? "v" : ">"}</span>
+        Version History {currentVersion > 0 ? `(current: v${currentVersion})` : ""}
+      </button>
+      {#if versionsOpen}
+        <div class="version-panel">
+          {#if loadingVersions}
+            <p class="muted">Loading versions...</p>
+          {:else if versions.length === 0}
+            <p class="muted">No version history available.</p>
+          {:else}
+            <div class="version-list">
+              {#each versions as v}
+                <div class="version-item {v.version === currentVersion ? 'version-current' : ''}">
+                  <div class="version-info">
+                    <span class="version-number">v{v.version}</span>
+                    <span class="version-date">{new Date(v.createdAt).toLocaleString()}</span>
+                    {#if v.version === currentVersion}
+                      <span class="badge badge-ok">current</span>
+                    {/if}
+                  </div>
+                  {#if v.version !== currentVersion}
+                    <button class="btn-small" onclick={() => rollbackToVersion(v.version)}>Restore</button>
+                  {/if}
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      {/if}
     </div>
   {/if}
 </Modal>
@@ -1006,4 +1187,20 @@
   .th-check, .td-check { width: 32px; text-align: center; }
   .th-check input, .td-check input { cursor: pointer; }
   .badge-selection { color: var(--accent); background: rgba(78, 156, 230, 0.12); display: inline-flex; align-items: center; font-size: var(--font-size-sm); padding: 4px 10px; border-radius: 999px; }
+  .detail-toolbar { display: flex; gap: 8px; margin-bottom: 12px; justify-content: flex-end; }
+  .content-editor {
+    font-family: var(--font-mono);
+    font-size: var(--font-size-sm);
+    line-height: 1.5;
+    resize: vertical;
+    min-height: 280px;
+  }
+  .version-section { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 12px; }
+  .version-panel { padding: 8px 0; }
+  .version-list { display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow-y: auto; }
+  .version-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; border-radius: var(--radius-sm); font-size: var(--font-size-sm); }
+  .version-current { background: rgba(78, 156, 230, 0.08); }
+  .version-info { display: flex; align-items: center; gap: 10px; }
+  .version-number { font-family: var(--font-mono); font-weight: 600; }
+  .version-date { color: var(--text-muted); }
 </style>

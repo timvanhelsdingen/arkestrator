@@ -1287,6 +1287,30 @@ export const api = {
       const qs = params.toString();
       return request(`/api/skills/${encodeURIComponent(slug)}/playbook-content${qs ? `?${qs}` : ""}`) as Promise<any>;
     },
+    update: (slug: string, updates: Record<string, any>, program?: string) => {
+      const params = new URLSearchParams();
+      if (program) params.set("program", program);
+      const qs = params.toString();
+      return request(`/api/skills/${encodeURIComponent(slug)}${qs ? `?${qs}` : ""}`, {
+        method: "PUT",
+        body: JSON.stringify(updates),
+      });
+    },
+    listVersions: (slug: string, program?: string) => {
+      const params = new URLSearchParams();
+      if (program) params.set("program", program);
+      const qs = params.toString();
+      return request(`/api/skills/${encodeURIComponent(slug)}/versions${qs ? `?${qs}` : ""}`) as Promise<{ versions: Array<{ id: string; version: number; content: string; keywords: string[]; description: string; createdAt: string }>; currentVersion: number }>;
+    },
+    rollback: (slug: string, version: number, program?: string) => {
+      const params = new URLSearchParams();
+      if (program) params.set("program", program);
+      const qs = params.toString();
+      return request(`/api/skills/${encodeURIComponent(slug)}/rollback${qs ? `?${qs}` : ""}`, {
+        method: "POST",
+        body: JSON.stringify({ version }),
+      });
+    },
     export: async (opts?: { program?: string; category?: string; source?: string; slugs?: string[] }) => {
       const body: Record<string, any> = {};
       if (opts?.program) body.program = opts.program;

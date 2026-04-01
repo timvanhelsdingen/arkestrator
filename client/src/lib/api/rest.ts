@@ -1043,5 +1043,16 @@ export const api = {
       const qs = program ? `?program=${encodeURIComponent(program)}` : "";
       return request(`/api/skills/${encodeURIComponent(slug)}/effectiveness${qs}`) as Promise<{ stats: { totalUsed: number; successRate: number }; records: any[] }>;
     },
+    listVersions: (slug: string, program?: string) => {
+      const qs = program ? `?program=${encodeURIComponent(program)}` : "";
+      return request(`/api/skills/${encodeURIComponent(slug)}/versions${qs}`);
+    },
+    rollback: (slug: string, version: number, program?: string) => {
+      const qs = program ? `?program=${encodeURIComponent(program)}` : "";
+      return request(`/api/skills/${encodeURIComponent(slug)}/rollback${qs}`, {
+        method: "POST",
+        body: JSON.stringify({ version }),
+      });
+    },
   },
 };

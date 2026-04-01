@@ -233,6 +233,16 @@
   let skillViewEffectiveness = $state<{ totalUsed: number; successRate: number; pendingOutcomes: number; goodOutcomes: number; averageOutcomes: number; poorOutcomes: number } | null>(null);
   let skillViewFeedback = $state<Array<{ jobOutcome: string; ratingNotes?: string; relevance?: string; accuracy?: string; completeness?: string; createdAt: string }>>([]);
   let skillViewLoading = $state(false);
+  let skillEditMode = $state(false);
+  let skillEditContent = $state("");
+  let skillEditDescription = $state("");
+  let skillEditKeywords = $state("");
+  let skillEditPriority = $state(50);
+  let skillEditEnabled = $state(true);
+  let skillEditAutoFetch = $state(false);
+  let skillSaving = $state(false);
+  let skillVersions = $state<Array<{ id: string; version: number; content: string; keywords: string[]; description: string; createdAt: string }>>([]);
+  let skillCurrentVersion = $state(0);
   let expandedPlaybooks = $state<Set<string>>(new Set());
   let skillCreateOpen = $state(false);
   let skillCreateName = $state("");
@@ -1243,11 +1253,13 @@
     skillViewPlaybooks = [];
     skillViewEffectiveness = null;
     skillViewLoading = true;
+    skillVersions = [];
+    skillCurrentVersion = 0;
     try {
       const data = await api.skills.get(slug, prog);
       const skill = data?.skill ?? data;
       skillViewData = skill;
-      // Fetch playbooks and effectiveness in parallel
+      // Fetch playbooks, effectiveness, and versions in parallel
       const promises: Promise<void>[] = [];
       if (skill?.playbooks?.length > 0) {
         promises.push(
@@ -1262,6 +1274,12 @@
           skillViewFeedback = eff?.records ?? [];
         }).catch(() => { skillViewEffectiveness = null; skillViewFeedback = []; })
       );
+      promises.push(
+        api.skills.listVersions(slug, prog).then((vResult: any) => {
+          skillVersions = vResult?.versions ?? [];
+          skillCurrentVersion = vResult?.currentVersion ?? 0;
+        }).catch(() => { skillVersions = []; })
+      );
       await Promise.all(promises);
     } catch (err: any) {
       skillViewData = { id: "", slug, program: prog, category: "", title: slug, content: `Error: ${err.message}` };
@@ -1275,7 +1293,68 @@
     skillViewData = null;
     skillViewPlaybooks = [];
     skillViewEffectiveness = null;
+    skillEditMode = false;
     expandedPlaybooks = new Set();
+  }
+
+  function startSkillEdit() {
+    if (!skillViewData) return;
+    skillEditContent = skillViewData.content ?? "";
+    skillEditDescription = skillViewData.description ?? "";
+    skillEditKeywords = (skillViewData.keywords ?? []).join(", ");
+    skillEditPriority = skillViewData.priority ?? 50;
+    skillEditEnabled = skillViewData.enabled !== false;
+    skillEditAutoFetch = skillViewData.autoFetch === true;
+    skillEditMode = true;
+  }
+
+  async function saveSkillEdit() {
+    if (!skillViewData) return;
+    skillSaving = true;
+    try {
+      await api.skills.update(skillViewData.slug, {
+        content: skillEditContent,
+        description: skillEditDescription,
+        keywords: skillEditKeywords.split(",").map((k: string) => k.trim()).filter(Boolean),
+        priority: skillEditPriority,
+        enabled: skillEditEnabled,
+        autoFetch: skillEditAutoFetch,
+      }, skillViewData.program);
+      info = "Skill updated";
+      skillEditMode = false;
+      await viewSkill(skillViewData.slug, skillViewData.program);
+      loadSkills();
+    } catch (err: any) {
+      error = err.message ?? "Failed to update skill";
+    }
+    skillSaving = false;
+  }
+
+  async function rollbackSkillVersion(version: number) {
+    if (!skillViewData) return;
+    try {
+      await api.skills.rollback(skillViewData.slug, version, skillViewData.program);
+      info = `Rolled back to version ${version}`;
+      await viewSkill(skillViewData.slug, skillViewData.program);
+      loadSkills();
+    } catch (err: any) {
+      error = err.message ?? "Failed to rollback skill";
+    }
+  }
+
+  async function exportViewedSkill() {
+    if (!skillViewData) return;
+    try {
+      await api.skills.exportZip([skillViewData.slug]);
+      info = "Skill exported";
+    } catch (err: any) {
+      error = err.message ?? "Failed to export skill";
+    }
+  }
+
+  async function editSkillFromTable(slug: string, prog: string) {
+    await viewSkill(slug, prog);
+    startSkillEdit();
   }
 
   function togglePlaybook(path: string) {
@@ -1683,6 +1762,7 @@
                   <td class="actions">
                     <button class="btn-sm" onclick={() => viewSkill(skill.slug, skill.program)}>View</button>
                     {#if canManage}
+                      <button class="btn-sm" onclick={() => editSkillFromTable(skill.slug, skill.program)}>Edit</button>
                       <button class="btn-sm danger" onclick={() => deleteSkill(skill.slug, skill.program)}>Delete</button>
                     {/if}
                   </td>
@@ -2078,93 +2158,151 @@
     <div class="skill-modal-dialog" onclick={(e) => e.stopPropagation()}>
       <div class="skill-view-header">
         <h4>{skillViewData?.title ?? skillViewSlug}</h4>
-        <button class="btn secondary" onclick={closeSkillView}>Close</button>
+        <div class="skill-view-toolbar">
+          {#if canManage && !skillEditMode}
+            <button class="btn-sm" onclick={startSkillEdit}>Edit</button>
+          {/if}
+          <button class="btn-sm" onclick={exportViewedSkill}>Export</button>
+          <button class="btn-sm" onclick={closeSkillView}>X</button>
+        </div>
       </div>
       {#if skillViewLoading}
         <p class="muted">Loading...</p>
       {:else if skillViewData}
-        <div class="skill-detail-grid">
-          <div><strong>Slug:</strong> <span class="mono">{skillViewData.slug}</span></div>
-          {#if skillViewData.name && skillViewData.name !== skillViewData.slug}
-            <div><strong>Name:</strong> {skillViewData.name}</div>
-          {/if}
-          <div><strong>Bridge:</strong> {skillViewData.program || "-"}</div>
-          <div><strong>Category:</strong> {skillViewData.category}</div>
-          <div><strong>Source:</strong> {skillViewData.source ?? "-"}</div>
-          {#if skillViewData.sourcePath}
-            <div><strong>Source Path:</strong> <span class="mono mini">{skillViewData.sourcePath}</span></div>
-          {/if}
-          <div><strong>Priority:</strong> {skillViewData.priority ?? "-"}</div>
-          <div><strong>Enabled:</strong> {skillViewData.enabled ? "Yes" : "No"}</div>
-          <div><strong>Auto-fetch:</strong> {skillViewData.autoFetch ? "Yes" : "No"}</div>
-          {#if skillViewData.keywords && skillViewData.keywords.length > 0}
-            <div><strong>Keywords:</strong> {skillViewData.keywords.join(", ")}</div>
-          {/if}
-          {#if !skillViewData.autoFetch && skillViewEffectiveness}
-            {@const rated = skillViewEffectiveness.totalUsed - (skillViewEffectiveness.pendingOutcomes ?? 0)}
-            <div><strong>Uses:</strong> {skillViewEffectiveness.totalUsed}{skillViewEffectiveness.pendingOutcomes > 0 ? ` (${rated} rated)` : ""}</div>
-            <div><strong>Success Rate:</strong>
-              {#if rated > 0}
-                {@const pct = Math.round(skillViewEffectiveness.successRate * 100)}
-                <span class="badge {pct >= 70 ? 'success' : pct >= 40 ? 'warn' : 'bad'}">{pct}%</span>
-              {:else if skillViewEffectiveness.totalUsed > 0}
-                <span class="muted">pending</span>
-              {:else}
-                -
-              {/if}
+        {#if skillEditMode}
+          <!-- Edit mode -->
+          <div class="skill-edit-form">
+            <label>
+              <span class="label">Description</span>
+              <input type="text" bind:value={skillEditDescription} placeholder="Short description" />
+            </label>
+            <label>
+              <span class="label">Keywords</span>
+              <input type="text" bind:value={skillEditKeywords} placeholder="comma separated" />
+            </label>
+            <div class="form-row">
+              <label style="flex: 0 0 100px;">
+                <span class="label">Priority</span>
+                <input type="number" min="0" max="100" bind:value={skillEditPriority} />
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" bind:checked={skillEditEnabled} /> Enabled
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" bind:checked={skillEditAutoFetch} /> Auto-fetch
+              </label>
             </div>
-            {#if rated > 0}
-              <div><strong>Breakdown:</strong> {skillViewEffectiveness.goodOutcomes} good, {skillViewEffectiveness.averageOutcomes} avg, {skillViewEffectiveness.poorOutcomes} poor</div>
+            <label>
+              <span class="label">Content</span>
+              <textarea rows="20" style="font-family: var(--font-mono); width: 100%; resize: vertical;" bind:value={skillEditContent}></textarea>
+            </label>
+            <div class="form-row" style="justify-content: flex-end;">
+              <button class="btn-sm" onclick={() => { skillEditMode = false; }} disabled={skillSaving}>Cancel</button>
+              <button class="btn-sm" onclick={saveSkillEdit} disabled={skillSaving}>{skillSaving ? "Saving..." : "Save"}</button>
+            </div>
+          </div>
+        {:else}
+          <!-- Read-only mode -->
+          <div class="skill-detail-grid">
+            <div><strong>Slug:</strong> <span class="mono">{skillViewData.slug}</span></div>
+            {#if skillViewData.name && skillViewData.name !== skillViewData.slug}
+              <div><strong>Name:</strong> {skillViewData.name}</div>
             {/if}
-          {/if}
-        </div>
-        {#if skillViewData.description}
-          <div class="skill-detail-desc">{skillViewData.description}</div>
-        {/if}
-        {#if skillViewFeedback.length > 0}
-          <div class="skill-detail-section">
-            <strong>Recent Feedback ({skillViewFeedback.length}):</strong>
-            {#each skillViewFeedback as fb}
-              <div class="feedback-entry" style="padding: 4px 0; border-bottom: 1px solid var(--border); font-size: var(--font-size-sm);">
-                <span class="badge {fb.jobOutcome === 'positive' ? 'success' : fb.jobOutcome === 'negative' ? 'bad' : 'warn'}">{fb.jobOutcome ?? "?"}</span>
-                {#if fb.relevance}<span class="muted" style="margin-left: 6px;">relevance: {fb.relevance}</span>{/if}
-                {#if fb.accuracy}<span class="muted" style="margin-left: 6px;">accuracy: {fb.accuracy}</span>{/if}
-                {#if fb.completeness}<span class="muted" style="margin-left: 6px;">completeness: {fb.completeness}</span>{/if}
-                {#if fb.ratingNotes}<div class="mini" style="margin-top: 2px; color: var(--text-secondary);">{fb.ratingNotes}</div>{/if}
+            <div><strong>Bridge:</strong> {skillViewData.program || "-"}</div>
+            <div><strong>Category:</strong> {skillViewData.category}</div>
+            <div><strong>Source:</strong> {skillViewData.source ?? "-"}</div>
+            {#if skillViewData.sourcePath}
+              <div><strong>Source Path:</strong> <span class="mono mini">{skillViewData.sourcePath}</span></div>
+            {/if}
+            <div><strong>Priority:</strong> {skillViewData.priority ?? "-"}</div>
+            <div><strong>Enabled:</strong> {skillViewData.enabled ? "Yes" : "No"}</div>
+            <div><strong>Auto-fetch:</strong> {skillViewData.autoFetch ? "Yes" : "No"}</div>
+            {#if skillViewData.keywords && skillViewData.keywords.length > 0}
+              <div><strong>Keywords:</strong> {skillViewData.keywords.join(", ")}</div>
+            {/if}
+            {#if !skillViewData.autoFetch && skillViewEffectiveness}
+              {@const rated = skillViewEffectiveness.totalUsed - (skillViewEffectiveness.pendingOutcomes ?? 0)}
+              <div><strong>Uses:</strong> {skillViewEffectiveness.totalUsed}{skillViewEffectiveness.pendingOutcomes > 0 ? ` (${rated} rated)` : ""}</div>
+              <div><strong>Success Rate:</strong>
+                {#if rated > 0}
+                  {@const pct = Math.round(skillViewEffectiveness.successRate * 100)}
+                  <span class="badge {pct >= 70 ? 'success' : pct >= 40 ? 'warn' : 'bad'}">{pct}%</span>
+                {:else if skillViewEffectiveness.totalUsed > 0}
+                  <span class="muted">pending</span>
+                {:else}
+                  -
+                {/if}
               </div>
-            {/each}
+              {#if rated > 0}
+                <div><strong>Breakdown:</strong> {skillViewEffectiveness.goodOutcomes} good, {skillViewEffectiveness.averageOutcomes} avg, {skillViewEffectiveness.poorOutcomes} poor</div>
+              {/if}
+            {/if}
           </div>
+          {#if skillViewData.description}
+            <div class="skill-detail-desc">{skillViewData.description}</div>
+          {/if}
+          {#if skillViewFeedback.length > 0}
+            <div class="skill-detail-section">
+              <strong>Recent Feedback ({skillViewFeedback.length}):</strong>
+              {#each skillViewFeedback as fb}
+                <div class="feedback-entry" style="padding: 4px 0; border-bottom: 1px solid var(--border); font-size: var(--font-size-sm);">
+                  <span class="badge {fb.jobOutcome === 'positive' ? 'success' : fb.jobOutcome === 'negative' ? 'bad' : 'warn'}">{fb.jobOutcome ?? "?"}</span>
+                  {#if fb.relevance}<span class="muted" style="margin-left: 6px;">relevance: {fb.relevance}</span>{/if}
+                  {#if fb.accuracy}<span class="muted" style="margin-left: 6px;">accuracy: {fb.accuracy}</span>{/if}
+                  {#if fb.completeness}<span class="muted" style="margin-left: 6px;">completeness: {fb.completeness}</span>{/if}
+                  {#if fb.ratingNotes}<div class="mini" style="margin-top: 2px; color: var(--text-secondary);">{fb.ratingNotes}</div>{/if}
+                </div>
+              {/each}
+            </div>
+          {/if}
+          {#if skillViewData.relatedSkills && skillViewData.relatedSkills.length > 0}
+            <div class="skill-detail-section">
+              <strong>Related Skills:</strong>
+              {#each skillViewData.relatedSkills as rel}
+                <button class="btn-link" onclick={() => viewSkill(rel, skillViewData?.program ?? "")}>{rel}</button>
+              {/each}
+            </div>
+          {/if}
+          {#if skillViewPlaybooks.length > 0}
+            <div class="skill-detail-section">
+              <strong>Playbooks ({skillViewPlaybooks.length}):</strong>
+              {#each skillViewPlaybooks as pb}
+                <div class="playbook-entry">
+                  <button class="playbook-toggle" onclick={() => togglePlaybook(pb.path)}>
+                    <span class="playbook-arrow">{expandedPlaybooks.has(pb.path) ? "v" : ">"}</span>
+                    <span class="mono mini">{pb.path}</span>
+                  </button>
+                  {#if pb.error}
+                    <span class="muted">{pb.error}</span>
+                  {:else if expandedPlaybooks.has(pb.path) && pb.content}
+                    <pre class="playbook-preview expanded">{formatPlaybookContent(pb.content)}</pre>
+                  {/if}
+                </div>
+              {/each}
+            </div>
+          {/if}
+          {#if skillViewData.content}
+            <div class="skill-detail-section">
+              <strong>Content:</strong>
+              <pre class="skill-content">{skillViewData.content}</pre>
+            </div>
+          {/if}
         {/if}
-        {#if skillViewData.relatedSkills && skillViewData.relatedSkills.length > 0}
+        <!-- Version History (visible in both modes) -->
+        {#if skillVersions.length > 0}
           <div class="skill-detail-section">
-            <strong>Related Skills:</strong>
-            {#each skillViewData.relatedSkills as rel}
-              <button class="btn-link" onclick={() => viewSkill(rel, skillViewData?.program ?? "")}>{rel}</button>
-            {/each}
-          </div>
-        {/if}
-        {#if skillViewPlaybooks.length > 0}
-          <div class="skill-detail-section">
-            <strong>Playbooks ({skillViewPlaybooks.length}):</strong>
-            {#each skillViewPlaybooks as pb}
-              <div class="playbook-entry">
-                <button class="playbook-toggle" onclick={() => togglePlaybook(pb.path)}>
-                  <span class="playbook-arrow">{expandedPlaybooks.has(pb.path) ? "v" : ">"}</span>
-                  <span class="mono mini">{pb.path}</span>
-                </button>
-                {#if pb.error}
-                  <span class="muted">{pb.error}</span>
-                {:else if expandedPlaybooks.has(pb.path) && pb.content}
-                  <pre class="playbook-preview expanded">{formatPlaybookContent(pb.content)}</pre>
+            <strong>Version History ({skillVersions.length}):</strong>
+            {#each skillVersions as ver}
+              <div class="skill-version-entry">
+                <span class="mono">v{ver.version}</span>
+                <span class="muted">{formatDateTime(ver.createdAt)}</span>
+                {#if ver.version === skillCurrentVersion}
+                  <span class="badge success">current</span>
+                {:else}
+                  <button class="btn-sm" onclick={() => rollbackSkillVersion(ver.version)}>Restore</button>
                 {/if}
               </div>
             {/each}
-          </div>
-        {/if}
-        {#if skillViewData.content}
-          <div class="skill-detail-section">
-            <strong>Content:</strong>
-            <pre class="skill-content">{skillViewData.content}</pre>
           </div>
         {/if}
       {/if}
@@ -2602,4 +2740,13 @@
   .playbook-preview { white-space: pre-wrap; font-family: var(--font-mono); font-size: 0.8em; max-height: 150px; overflow-y: auto; padding: 6px; background: var(--bg-deep, rgba(0,0,0,0.2)); border-radius: 4px; margin-top: 2px; }
   .playbook-preview.expanded { max-height: 400px; }
   .skill-content { white-space: pre-wrap; font-family: var(--font-mono); font-size: 0.85em; max-height: 400px; overflow-y: auto; padding: 8px; background: var(--bg-deep, rgba(0,0,0,0.2)); border-radius: 4px; }
+  .skill-view-toolbar { display: flex; gap: 6px; align-items: center; }
+  .skill-edit-form { display: flex; flex-direction: column; gap: 8px; }
+  .skill-edit-form label { display: flex; flex-direction: column; gap: 2px; font-size: var(--font-size-sm); }
+  .skill-edit-form .label { color: var(--text-secondary); font-weight: 500; }
+  .skill-edit-form .form-row { display: flex; gap: 8px; align-items: flex-end; }
+  .skill-edit-form .checkbox-label { display: flex; flex-direction: row; align-items: center; gap: 6px; white-space: nowrap; }
+  .skill-edit-form .checkbox-label input[type="checkbox"] { width: auto; }
+  .skill-edit-form textarea { font-size: 0.85em; }
+  .skill-version-entry { display: flex; align-items: center; gap: 8px; padding: 3px 0; border-bottom: 1px solid var(--border); font-size: var(--font-size-sm); }
 </style>
