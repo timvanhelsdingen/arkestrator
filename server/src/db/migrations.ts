@@ -380,8 +380,9 @@ const COLUMN_ADDITIONS = [
   // Performance indexes for hot-path queries at scale (v0.1.102+)
   `CREATE INDEX IF NOT EXISTS idx_jobs_deleted ON jobs(deleted_at, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_jobs_parent ON jobs(parent_job_id) WHERE parent_job_id IS NOT NULL`,
-  // Configurable per-turn timeout for local-oss agent configs
+  // Configurable per-turn timeout and reasoning mode for local-oss agent configs
   `ALTER TABLE agent_configs ADD COLUMN turn_timeout_ms INTEGER`,
+  `ALTER TABLE agent_configs ADD COLUMN reasoning_mode TEXT CHECK(reasoning_mode IN ('disabled','plan-act','plan-act-evaluate'))`,
 ];
 
 // Reset any jobs stuck in 'running' state (server crashed while they were active)

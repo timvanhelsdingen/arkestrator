@@ -1332,12 +1332,8 @@ async function runLocalAgenticLoop(
       };
     },
 
-    async generateChatResponse(messages, tools, timeoutMs) {
-      logger.debug("spawner", `[local-oss] chat request: model=${modelName} messages=${messages.length} tools=${tools.length} timeout=${timeoutMs}ms baseUrl=${ollamaBaseUrl}`);
-      if (messages.length <= 2) {
-        logger.debug("spawner", `[local-oss] system prompt length: ${messages[0]?.content?.length ?? 0} chars`);
-        logger.debug("spawner", `[local-oss] tool names: ${tools.map((t: any) => t.function?.name).join(", ")}`);
-      }
+    async generateChatResponse(messages, tools, timeoutMs, think) {
+      logger.debug("spawner", `[local-oss] chat request: model=${modelName} messages=${messages.length} tools=${tools.length} think=${think ?? "auto"} timeout=${timeoutMs}ms`);
       const { ollamaChatWithTools } = await import("../local-models/ollama.js");
       const result = await ollamaChatWithTools({
         baseUrl: ollamaBaseUrl,
@@ -1345,6 +1341,7 @@ async function runLocalAgenticLoop(
         messages,
         tools,
         timeoutMs,
+        think,
       });
       if (result.message) {
         const tc = result.message.tool_calls;
@@ -1423,6 +1420,7 @@ async function runLocalAgenticLoop(
     systemPrompt: effectiveSystemPrompt,
     logPrefix: "[local-agentic]",
     toolSchemas,
+    reasoningMode: config.reasoningMode ?? "plan-act",
   };
 
   try {

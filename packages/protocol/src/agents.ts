@@ -36,6 +36,14 @@ export const AgentConfig = z.object({
    */
   turnTimeoutMs: z.number().int().min(30_000).max(1_200_000).optional(),
   /**
+   * Reasoning mode for local-oss agentic loop.
+   * - `"disabled"` — no thinking, tool calls only (fastest, least capable)
+   * - `"plan-act"` — think before each tool call (good balance)
+   * - `"plan-act-evaluate"` — think before AND after each tool call (best quality, 3x slower)
+   * Defaults to `"plan-act"` when unset. Only meaningful for `engine === "local-oss"`.
+   */
+  reasoningMode: z.enum(["disabled", "plan-act", "plan-act-evaluate"]).optional(),
+  /**
    * Where local-oss (Ollama) models are hosted.
    * - `"server"` — use Ollama on the server machine itself
    * - `"client"` — auto-distribute to any online worker with localLlmEnabled
