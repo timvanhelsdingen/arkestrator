@@ -29,6 +29,13 @@ export const AgentConfig = z.object({
   })).optional(),
   priority: z.number().int().min(0).max(100).default(50),
   /**
+   * Per-turn timeout in milliseconds for local-oss agentic loop.
+   * Controls how long the server waits for the LLM to respond per turn.
+   * Larger models (14B-32B) on consumer GPUs need higher values (180-600s).
+   * Defaults to 180s when unset. Only meaningful for `engine === "local-oss"`.
+   */
+  turnTimeoutMs: z.number().int().min(30_000).max(1_200_000).optional(),
+  /**
    * Where local-oss (Ollama) models are hosted.
    * - `"server"` — use Ollama on the server machine itself
    * - `"client"` — auto-distribute to any online worker with localLlmEnabled

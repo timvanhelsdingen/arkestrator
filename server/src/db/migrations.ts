@@ -378,10 +378,10 @@ const COLUMN_ADDITIONS = [
   `ALTER TABLE skill_effectiveness ADD COLUMN accuracy TEXT`,
   `ALTER TABLE skill_effectiveness ADD COLUMN completeness TEXT`,
   // Performance indexes for hot-path queries at scale (v0.1.102+)
-  // Every list() call filters on deleted_at IS NULL — without this index it's a full table scan
   `CREATE INDEX IF NOT EXISTS idx_jobs_deleted ON jobs(deleted_at, created_at DESC)`,
-  // getDescendantJobs() and child-job queries need parent_job_id lookups
   `CREATE INDEX IF NOT EXISTS idx_jobs_parent ON jobs(parent_job_id) WHERE parent_job_id IS NOT NULL`,
+  // Configurable per-turn timeout for local-oss agent configs
+  `ALTER TABLE agent_configs ADD COLUMN turn_timeout_ms INTEGER`,
 ];
 
 // Reset any jobs stuck in 'running' state (server crashed while they were active)

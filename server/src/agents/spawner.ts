@@ -1249,7 +1249,10 @@ async function runLocalAgenticLoop(
   let effectiveJobTimeoutMs = getEffectiveJobTimeoutMs(deps, job);
   if (trainingLevel === "high") effectiveJobTimeoutMs = Math.round(effectiveJobTimeoutMs * 2);
   else if (trainingLevel === "low") effectiveJobTimeoutMs = Math.round(effectiveJobTimeoutMs * 0.5);
-  const rawTurnTimeout = Math.floor(effectiveJobTimeoutMs / Math.max(1, maxTurns));
+  // Per-turn timeout: prefer agent config setting, fall back to computed value
+  const configuredTurnTimeout = config.turnTimeoutMs ?? null;
+  const rawTurnTimeout = configuredTurnTimeout
+    ?? Math.max(Math.floor(effectiveJobTimeoutMs / Math.max(1, maxTurns)), LOCAL_AGENTIC_DEFAULTS.DEFAULT_TURN_TIMEOUT_MS);
   const effectiveTurnTimeoutMs = Math.min(
     Math.max(rawTurnTimeout, LOCAL_AGENTIC_DEFAULTS.MIN_TURN_TIMEOUT_MS),
     LOCAL_AGENTIC_DEFAULTS.MAX_TURN_TIMEOUT_MS,
@@ -2041,12 +2044,13 @@ export async function spawnAgent(
         let cliJobTimeoutMs = getEffectiveJobTimeoutMs(deps, job);
         if (cliTrainingLevel === "low") { maxTurns = Math.max(Math.round(maxTurns * 0.5), 10); cliJobTimeoutMs = Math.round(cliJobTimeoutMs * 0.5); }
         else if (cliTrainingLevel === "high") { maxTurns = maxTurns * 2; cliJobTimeoutMs = Math.round(cliJobTimeoutMs * 2); }
+        const cliRawTurnTimeout = config.turnTimeoutMs
+          ?? Math.max(Math.floor(cliJobTimeoutMs / Math.max(1, maxTurns)), LOCAL_AGENTIC_DEFAULTS.DEFAULT_TURN_TIMEOUT_MS);
         const turnTimeoutMs = Math.min(
-          Math.max(Math.floor(cliJobTimeoutMs / Math.max(1, maxTurns)), LOCAL_AGENTIC_DEFAULTS.MIN_TURN_TIMEOUT_MS),
+          Math.max(cliRawTurnTimeout, LOCAL_AGENTIC_DEFAULTS.MIN_TURN_TIMEOUT_MS),
           LOCAL_AGENTIC_DEFAULTS.MAX_TURN_TIMEOUT_MS,
         );
         const perModelPrompt = config.modelOverrides?.[resolvedModel]?.systemPrompt
-          ?? config.modelSystemPrompts?.[resolvedModel]
           ?? config.systemPrompt;
         const clientLocalSystemPrompt = deps.settingsRepo?.get("local_model_system_prompt") ?? undefined;
         const clientEffectivePrompt = [clientLocalSystemPrompt, perModelPrompt].filter(Boolean).join("\n\n") || undefined;

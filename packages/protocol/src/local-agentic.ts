@@ -334,10 +334,13 @@ export function compactJson(data: unknown, maxLen: number): string {
 export const LOCAL_AGENTIC_DEFAULTS = {
   MAX_TURNS: 300,
   DEFAULT_TURNS: 12,
-  DEFAULT_TURN_TIMEOUT_MS: 120_000,
-  MAX_TURN_TIMEOUT_MS: 600_000,
+  /** Default per-turn timeout when not configured on agent config. */
+  DEFAULT_TURN_TIMEOUT_MS: 300_000,
+  /** Absolute max per-turn timeout (20 minutes). */
+  MAX_TURN_TIMEOUT_MS: 1_200_000,
+  /** First turn gets extra time for model loading / cold start. */
   FIRST_TURN_MIN_TIMEOUT_MS: 300_000,
-  /** Min turn timeout. 180s accommodates 14B-32B models generating long code on consumer GPUs. */
+  /** Floor: no turn can be shorter than 3 minutes. */
   MIN_TURN_TIMEOUT_MS: 180_000,
   MAX_INVALID_PROTOCOL_TURNS: 3,
   MAX_CONSECUTIVE_ERRORS: 5,
