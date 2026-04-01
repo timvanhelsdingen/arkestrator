@@ -1757,7 +1757,11 @@ export async function spawnAgent(
     logger.info("spawner", `Collecting paths and starting watcher for ${cwd}`);
     beforePaths = await collectPaths(cwd);
     watcher = startWatching(cwd);
-    logger.info("spawner", `Tracking ${beforePaths.size} existing paths`);
+    if (beforePaths.size === 0) {
+      logger.warn("spawner", `Directory ${cwd} exceeds path limit — file change detection disabled for this job`);
+    } else {
+      logger.info("spawner", `Tracking ${beforePaths.size} existing paths`);
+    }
   }
 
   // 6. Spawn process — strip nested-agent session env vars so child CLIs do not
@@ -2377,9 +2381,13 @@ export async function spawnAgent(
         }, POST_RESULT_KILL_MS);
       }
     }, 2000);
+    // Absolute safety: clear the interval after 2 hours even if result was never received.
+    // Prevents leaked intervals from accumulating on hung processes.
+    const absoluteTimeout = setTimeout(() => clearInterval(checkInterval), 2 * 60 * 60 * 1000);
     // Clean up interval when process exits normally
     proc.exited.then(() => {
       clearInterval(checkInterval);
+      clearTimeout(absoluteTimeout);
       if (postResultKillTimer) clearTimeout(postResultKillTimer);
     });
   }

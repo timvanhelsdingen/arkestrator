@@ -149,21 +149,26 @@ export function resolveBridgeTargets(
 
   // Filter out bridges belonging to workers with workerMode disabled,
   // unless the job submitter is on the same machine (self-routing).
+  // Uses Set-based lookup (O(1) per bridge) instead of cross-product iteration.
   const normalizedSubmitterWorker = String(submitterWorkerName ?? "").trim().toLowerCase();
   const disabledClients = hub.getClients().filter((c) => c.workerMode === false);
   if (disabledClients.length > 0) {
+    const disabledMachines = new Set<string>();
+    const disabledWorkers = new Set<string>();
+    for (const c of disabledClients) {
+      const m = String(c.machineId ?? "").trim().toLowerCase();
+      const w = String(c.workerName ?? "").trim().toLowerCase();
+      if (m) disabledMachines.add(m);
+      if (w) disabledWorkers.add(w);
+    }
     targets = targets.filter((ws) => {
       const bridgeMachine = String(ws.data.machineId ?? "").trim().toLowerCase();
       const bridgeWorker = String(ws.data.workerName ?? "").trim().toLowerCase();
       // Self-routing: allow if submitter's worker matches bridge's worker/machine
       if (normalizedSubmitterWorker && bridgeWorker && normalizedSubmitterWorker === bridgeWorker) return true;
-      // Check if any disabled client owns this bridge
-      for (const c of disabledClients) {
-        const clientMachine = String(c.machineId ?? "").trim().toLowerCase();
-        const clientWorker = String(c.workerName ?? "").trim().toLowerCase();
-        if (clientMachine && bridgeMachine && clientMachine === bridgeMachine) return false;
-        if (clientWorker && bridgeWorker && clientWorker === bridgeWorker) return false;
-      }
+      // O(1) check against disabled sets
+      if (bridgeMachine && disabledMachines.has(bridgeMachine)) return false;
+      if (bridgeWorker && disabledWorkers.has(bridgeWorker)) return false;
       return true;
     });
   }
