@@ -80,11 +80,14 @@ export interface AgenticLoopDeps {
   generateResponse(prompt: string, timeoutMs: number): Promise<AgenticLoopLlmResponse>;
 
   /** Call the LLM with chat messages + tools (Ollama native tool calling mode).
-   *  When provided, the loop prefers this over generateResponse. */
+   *  When provided, the loop prefers this over generateResponse.
+   *  @param think — when set, controls whether the model uses thinking/reasoning mode.
+   *    true = enable thinking (for planning/evaluation), false = disable (for tool calls). */
   generateChatResponse?(
     messages: OllamaChatMessage[],
     tools: OllamaToolSchema[],
     timeoutMs: number,
+    think?: boolean,
   ): Promise<AgenticLoopChatResponse>;
 
   /** Execute a tool call and return the result. */
@@ -137,6 +140,13 @@ export interface AgenticLoopConfig {
   logPrefix?: string;
   /** External tool schemas (e.g. from MCP). When provided, overrides hardcoded schemas. */
   toolSchemas?: OllamaToolSchema[];
+  /**
+   * Reasoning mode for multi-phase turns.
+   * - "disabled" — no thinking, tool calls only (default, fastest)
+   * - "plan-act" — think before each tool call
+   * - "plan-act-evaluate" — think before AND after each tool call
+   */
+  reasoningMode?: "disabled" | "plan-act" | "plan-act-evaluate";
 }
 
 // ---------------------------------------------------------------------------
@@ -548,10 +558,26 @@ export async function runChatAgenticLoop(
         )
       : Math.min(config.turnTimeoutMs, LOCAL_AGENTIC_DEFAULTS.MAX_TURN_TIMEOUT_MS);
 
-    deps.log(`${prefix} turn ${turn}/${config.maxTurns} (timeout: ${turnTimeoutMs}ms)`);
+    const reasoning = config.reasoningMode ?? "disabled";
+    deps.log(`${prefix} turn ${turn}/${config.maxTurns} (timeout: ${turnTimeoutMs}ms${reasoning !== "disabled" ? `, reasoning: ${reasoning}` : ""})`);
 
-    // 5. Call LLM with chat messages + tools (empty in hybrid mode to avoid Ollama thinking+tools bug)
-    const chatResult = await deps.generateChatResponse(messages, hybridMode ? [] : toolSchemas, turnTimeoutMs);
+    // 5a. PLAN phase: if reasoning mode is active, call LLM with think=true + no tools
+    // to let it reason about the next step before making a tool call.
+    if (reasoning !== "disabled" && !hybridMode) {
+      const planResult = await deps.generateChatResponse(messages, [], turnTimeoutMs, true);
+      if (planResult.message?.content) {
+        const planText = planResult.message.content.trim();
+        if (planText) {
+          deps.log(`${prefix} [plan] ${planText.length > 500 ? planText.slice(0, 500) + "..." : planText}`);
+          // Add the plan as an assistant message so the model has context for the tool call
+          messages.push({ role: "assistant", content: planText });
+          messages.push({ role: "user", content: "Now execute your plan. Call a tool with the JSON format." });
+        }
+      }
+    }
+
+    // 5b. ACT phase: Call LLM with tools (think=false) to get structured tool calls
+    const chatResult = await deps.generateChatResponse(messages, hybridMode ? [] : toolSchemas, turnTimeoutMs, false);
 
     // Check cancellation after LLM call (can take 30-60s for large models)
     if (await deps.isCancelled()) {
@@ -672,6 +698,21 @@ export async function runChatAgenticLoop(
         lastErrorMessage = "";
         successfulToolCalls++;
         deps.log(`${prefix} tool_ok(${toolName}): ${compactJson(toolResult.data, 800)}`);
+      }
+
+      // EVALUATE phase: if plan-act-evaluate mode, let the model reason about
+      // the tool result before the next turn. This helps it understand errors
+      // and change approach instead of repeating the same failing command.
+      const evalReasoning = config.reasoningMode ?? "disabled";
+      if (evalReasoning === "plan-act-evaluate" && deps.generateChatResponse) {
+        const evalResult = await deps.generateChatResponse(messages, [], 60_000, true);
+        if (evalResult.message?.content) {
+          const evalText = evalResult.message.content.trim();
+          if (evalText) {
+            deps.log(`${prefix} [eval] ${evalText.length > 500 ? evalText.slice(0, 500) + "..." : evalText}`);
+            messages.push({ role: "assistant", content: evalText });
+          }
+        }
       }
 
       // Slide window

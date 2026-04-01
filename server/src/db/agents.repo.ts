@@ -37,6 +37,7 @@ interface AgentConfigRow {
   model_overrides: string | null;
   priority: number;
   turn_timeout_ms: number | null;
+  reasoning_mode: string | null;
   local_model_host: string | null;
   created_at: string;
   updated_at: string;
@@ -80,6 +81,7 @@ function rowToConfig(row: AgentConfigRow): AgentConfig {
     ),
     priority: row.priority,
     turnTimeoutMs: row.turn_timeout_ms ?? undefined,
+    reasoningMode: (row.reasoning_mode as AgentConfig["reasoningMode"]) ?? undefined,
     localModelHost: (row.local_model_host as AgentConfig["localModelHost"]) ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -95,15 +97,15 @@ export class AgentsRepo {
 
   constructor(private db: Database) {
     this.insertStmt = db.prepare(
-      `INSERT INTO agent_configs (id, name, engine, command, args, model, fallback_config_id, max_turns, system_prompt, model_system_prompts, model_overrides, priority, turn_timeout_ms, local_model_host, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO agent_configs (id, name, engine, command, args, model, fallback_config_id, max_turns, system_prompt, model_system_prompts, model_overrides, priority, turn_timeout_ms, reasoning_mode, local_model_host, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     this.getByIdStmt = db.prepare(
       `SELECT * FROM agent_configs WHERE id = ?`,
     );
     this.listStmt = db.prepare(`SELECT * FROM agent_configs ORDER BY name`);
     this.updateStmt = db.prepare(
-      `UPDATE agent_configs SET name=?, engine=?, command=?, args=?, model=?, fallback_config_id=?, max_turns=?, system_prompt=?, model_system_prompts=?, model_overrides=?, priority=?, turn_timeout_ms=?, local_model_host=?, updated_at=? WHERE id=?`,
+      `UPDATE agent_configs SET name=?, engine=?, command=?, args=?, model=?, fallback_config_id=?, max_turns=?, system_prompt=?, model_system_prompts=?, model_overrides=?, priority=?, turn_timeout_ms=?, reasoning_mode=?, local_model_host=?, updated_at=? WHERE id=?`,
     );
     this.deleteStmt = db.prepare(`DELETE FROM agent_configs WHERE id = ?`);
   }
@@ -125,6 +127,7 @@ export class AgentsRepo {
       input.modelOverrides ? JSON.stringify(input.modelOverrides) : null,
       input.priority,
       input.turnTimeoutMs ?? null,
+      input.reasoningMode ?? null,
       input.localModelHost ?? null,
       now,
       now,
@@ -157,6 +160,7 @@ export class AgentsRepo {
       config.modelOverrides ? JSON.stringify(config.modelOverrides) : null,
       config.priority,
       config.turnTimeoutMs ?? null,
+      config.reasoningMode ?? null,
       config.localModelHost ?? null,
       now,
       config.id,

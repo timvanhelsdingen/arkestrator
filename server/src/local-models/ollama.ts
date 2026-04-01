@@ -395,6 +395,8 @@ export interface OllamaChatWithToolsOptions {
     content: string;
     tool_calls?: Array<{ function: { name: string; arguments: Record<string, unknown> } }>;
   }>;
+  /** Explicit thinking mode control. true = enable reasoning, false = disable, undefined = auto. */
+  think?: boolean;
   tools: Array<{
     type: "function";
     function: {
@@ -425,10 +427,9 @@ export async function ollamaChatWithTools(
   const timer = setTimeout(() => controller.abort(), options.timeoutMs);
 
   try {
-    // When tools are provided, disable thinking mode for models that support it
-    // (qwen3, etc.). Thinking mode consumes the response budget with chain-of-thought
-    // text and prevents the model from making tool calls.
     const hasTools = !!options.tools?.length;
+    // think param: explicit value from caller, or auto (false when tools active)
+    const thinkValue = options.think !== undefined ? options.think : (hasTools ? false : undefined);
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -439,9 +440,7 @@ export async function ollamaChatWithTools(
         // broken tool serialization for thinking models (qwen3, etc.)
         ...(hasTools ? { tools: options.tools } : {}),
         stream: false,
-        // Disable thinking/reasoning mode when tools are active — thinking
-        // consumes the entire response and prevents structured tool calls
-        ...(hasTools ? { think: false } : {}),
+        ...(thinkValue !== undefined ? { think: thinkValue } : {}),
       }),
       signal: controller.signal,
     });
