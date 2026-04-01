@@ -996,6 +996,52 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ skillIds }),
       }) as Promise<{ stats: Record<string, { totalUsed: number; goodOutcomes: number; averageOutcomes: number; poorOutcomes: number; pendingOutcomes: number; successRate: number }> }>,
+    exportZip: async (slugs?: string[]) => {
+      const headers: Record<string, string> = {};
+      if (connection.sessionToken) {
+        headers["Authorization"] = `Bearer ${connection.sessionToken}`;
+      } else if (connection.apiKey) {
+        headers["Authorization"] = `Bearer ${connection.apiKey}`;
+      }
+      headers["Content-Type"] = "application/json";
+      const res = await fetch(`${connection.url}/api/skills/export-zip`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(slugs?.length ? { slugs } : {}),
+      });
+      if (!res.ok) throw new Error(`Export failed: ${res.status}`);
+      const blob = await res.blob();
+      const disposition = res.headers.get("content-disposition") || "";
+      const fileNameMatch = disposition.match(/filename="?([^"]+)"?/);
+      const fileName = fileNameMatch?.[1] || `arkestrator-skills-${new Date().toISOString().slice(0, 10)}.zip`;
+      // Trigger download
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
+      a.click();
+      URL.revokeObjectURL(url);
+    },
+    importZip: async (file: File) => {
+      const headers: Record<string, string> = {};
+      if (connection.sessionToken) {
+        headers["Authorization"] = `Bearer ${connection.sessionToken}`;
+      } else if (connection.apiKey) {
+        headers["Authorization"] = `Bearer ${connection.apiKey}`;
+      }
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch(`${connection.url}/api/skills/import-zip`, {
+        method: "POST",
+        headers,
+        body: formData,
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`Import failed: ${res.status}: ${text}`);
+      }
+      return res.json();
+    },
     getPlaybookContent: (slug: string, program?: string) => {
       const qs = program ? `?program=${encodeURIComponent(program)}` : "";
       return request(`/api/skills/${encodeURIComponent(slug)}/playbook-content${qs}`);

@@ -95,6 +95,25 @@
     try { return JSON.stringify(JSON.parse(raw), null, 2); } catch { return raw; }
   }
 
+  // Selection
+  let selectedSlugs = $state(new Set<string>());
+  function skillKey(s: SkillEntry): string { return s.program + ":" + s.slug; }
+
+  function toggleSelectAll() {
+    if (selectedSlugs.size === filteredSkills.length && filteredSkills.length > 0) {
+      selectedSlugs = new Set();
+    } else {
+      selectedSlugs = new Set(filteredSkills.map(skillKey));
+    }
+  }
+
+  function toggleSelect(key: string) {
+    const next = new Set(selectedSlugs);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    selectedSlugs = next;
+  }
+
   // Delete confirm
   let confirmDelete = $state<SkillEntry | null>(null);
 
@@ -126,6 +145,13 @@
       result = result.filter((s) => s.source === filterSource);
     }
     return result;
+  });
+
+  // Clear selection when filters change
+  $effect(() => {
+    // Subscribe to filter values
+    filterProgram; filterCategory; filterSource;
+    selectedSlugs = new Set();
   });
 
   let uniquePrograms = $derived.by(() => {
@@ -295,10 +321,15 @@
 
   async function exportSkills() {
     try {
+      // If skills are selected, export only those; otherwise export all (respecting filters)
+      const slugs = selectedSlugs.size > 0
+        ? filteredSkills.filter(s => selectedSlugs.has(skillKey(s))).map(s => s.slug)
+        : undefined;
       const { blob, fileName } = await api.skills.export({
         program: filterProgram || undefined,
         category: filterCategory || undefined,
         source: filterSource || undefined,
+        slugs,
       });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -492,7 +523,10 @@
       <button class="btn-secondary" onclick={pullAll} disabled={pullingAll}>
         {pullingAll ? "Pulling..." : "Pull from Bridge Repo"}
       </button>
-      <button class="btn-secondary" onclick={exportSkills}>Export</button>
+      {#if selectedSlugs.size > 0}
+        <span class="badge badge-selection">{selectedSlugs.size} selected</span>
+      {/if}
+      <button class="btn-secondary" onclick={exportSkills}>{selectedSlugs.size > 0 ? "Export Selected" : "Export All"}</button>
       <button class="btn-secondary" onclick={() => importFileInput?.click()} disabled={importing}>
         {importing ? "Importing..." : "Import"}
       </button>
@@ -582,6 +616,13 @@
   <table class="table">
     <thead>
       <tr>
+        <th class="th-check">
+          <input
+            type="checkbox"
+            checked={filteredSkills.length > 0 && selectedSlugs.size === filteredSkills.length}
+            onclick={toggleSelectAll}
+          />
+        </th>
         <th>Slug</th>
         <th>Title</th>
         <th>Bridge</th>
@@ -596,9 +637,9 @@
     </thead>
     <tbody>
       {#if loading}
-        <tr><td colspan="10" class="muted">Loading skills...</td></tr>
+        <tr><td colspan="11" class="muted">Loading skills...</td></tr>
       {:else if filteredSkills.length === 0}
-        <tr><td colspan="10" class="muted">
+        <tr><td colspan="11" class="muted">
           {#if skills.length === 0}
             No skills loaded yet.
             <button class="btn-link" onclick={pullAll} disabled={pullingAll}>
@@ -612,7 +653,15 @@
       {:else}
         {#each filteredSkills as skill}
           {@const eff = effectivenessStats[skill.id]}
+          {@const key = skillKey(skill)}
           <tr>
+            <td class="td-check">
+              <input
+                type="checkbox"
+                checked={selectedSlugs.has(key)}
+                onclick={() => toggleSelect(key)}
+              />
+            </td>
             <td class="mono">{skill.slug}</td>
             <td>{skill.title}</td>
             <td class="muted">{skill.program || "-"}</td>
@@ -954,4 +1003,7 @@
   .ranking-input-row input { width: 100px; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-base); color: var(--text-primary); font-size: var(--font-size-sm); }
   .ranking-default { font-size: 11px; color: var(--text-muted); }
   .ranking-actions { display: flex; gap: 8px; margin-top: 14px; }
+  .th-check, .td-check { width: 32px; text-align: center; }
+  .th-check input, .td-check input { cursor: pointer; }
+  .badge-selection { color: var(--accent); background: rgba(78, 156, 230, 0.12); display: inline-flex; align-items: center; font-size: var(--font-size-sm); padding: 4px 10px; border-radius: 999px; }
 </style>
