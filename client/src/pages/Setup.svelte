@@ -53,6 +53,34 @@
   let showForcedTotpSetup = $state(false);
   let deferredLoginResult: any = $state(null);
 
+  // Reset menu
+  let showResetMenu = $state(false);
+  let resetting = $state(false);
+
+  function clearClientData() {
+    localStorage.clear();
+    window.location.reload();
+  }
+
+  async function fullReset() {
+    resetting = true;
+    try {
+      // Stop local server if running
+      if (serverState.isRunning) {
+        await serverState.stop();
+      }
+      // Wipe server data directory
+      await invoke("wipe_app_data_dir");
+      // Clear all client state
+      localStorage.clear();
+      // Restart the app
+      await invoke("restart_app");
+    } catch (err: any) {
+      resetting = false;
+      loginError = `Reset failed: ${err?.message ?? err}`;
+    }
+  }
+
   onMount(() => {
     // Ensure data dir is resolved for local server display
     if (isLoopbackUrl(serverUrl)) {
@@ -485,6 +513,40 @@
         </div>
       </form>
     {/if}
+
+    <!-- Reset menu cog — bottom right -->
+    <div class="reset-cog-wrapper">
+      <button
+        class="reset-cog"
+        title="Troubleshooting options"
+        onclick={() => (showResetMenu = !showResetMenu)}
+        type="button"
+      >&#9881;</button>
+      {#if showResetMenu}
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div class="reset-backdrop" onclick={() => (showResetMenu = false)}></div>
+        <div class="reset-menu">
+          <button
+            class="reset-menu-item"
+            onclick={() => { showResetMenu = false; clearClientData(); }}
+            type="button"
+          >
+            <strong>Clear Client Data</strong>
+            <span>Clears saved credentials and session. Does not affect the server.</span>
+          </button>
+          <button
+            class="reset-menu-item danger"
+            onclick={() => { showResetMenu = false; fullReset(); }}
+            disabled={resetting}
+            type="button"
+          >
+            <strong>{resetting ? "Resetting..." : "Full Reset"}</strong>
+            <span>Stops the server, wipes all data, and restarts fresh.</span>
+          </button>
+        </div>
+      {/if}
+    </div>
   </div>
 
   {#if showForcedTotpSetup}
@@ -513,6 +575,7 @@
     background: var(--bg-base);
   }
   .setup-card {
+    position: relative;
     background: var(--bg-surface);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
@@ -686,5 +749,71 @@
     font-size: 11px;
     color: var(--text-muted);
     word-break: break-all;
+  }
+
+  /* Reset cog + dropdown */
+  .reset-cog-wrapper {
+    position: absolute;
+    bottom: 12px;
+    right: 12px;
+  }
+  .reset-cog {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 18px;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: var(--radius-sm);
+    opacity: 0.5;
+    transition: opacity 0.15s;
+  }
+  .reset-cog:hover {
+    opacity: 1;
+    background: var(--bg-hover);
+  }
+  .reset-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 99;
+  }
+  .reset-menu {
+    position: absolute;
+    bottom: 100%;
+    right: 0;
+    margin-bottom: 6px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    min-width: 240px;
+    z-index: 100;
+    overflow: hidden;
+  }
+  .reset-menu-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+    padding: 10px 14px;
+    background: none;
+    border: none;
+    text-align: left;
+    cursor: pointer;
+    color: var(--text-primary);
+    font-size: 13px;
+  }
+  .reset-menu-item:hover {
+    background: var(--bg-hover);
+  }
+  .reset-menu-item span {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .reset-menu-item.danger strong {
+    color: var(--red, #e74c3c);
+  }
+  .reset-menu-item.danger:hover {
+    background: rgba(231, 76, 60, 0.1);
   }
 </style>
