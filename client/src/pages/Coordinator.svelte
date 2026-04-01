@@ -243,6 +243,7 @@
   let skillSaving = $state(false);
   let skillVersions = $state<Array<{ id: string; version: number; content: string; keywords: string[]; description: string; createdAt: string }>>([]);
   let skillCurrentVersion = $state(0);
+  let selectedVersionNumber = $state(0);
   let expandedPlaybooks = $state<Set<string>>(new Set());
   let skillCreateOpen = $state(false);
   let skillCreateName = $state("");
@@ -516,6 +517,16 @@
     return status?.enabled ? "Headless CLI" : "None";
   }
 
+
+  function versionTimeAgo(dateStr: string): string {
+    const diff = Date.now() - new Date(dateStr).getTime();
+    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+    return `${Math.floor(diff / 86400000)}d ago`;
+  }
+
+  const viewingOldVersion = $derived(selectedVersionNumber > 0 && selectedVersionNumber !== skillCurrentVersion);
+  const selectedVersionData = $derived(skillVersions.find(v => v.version === selectedVersionNumber));
 
   function formatDateTime(iso: string | null | undefined): string {
     const value = String(iso ?? "").trim();
@@ -1255,6 +1266,7 @@
     skillViewLoading = true;
     skillVersions = [];
     skillCurrentVersion = 0;
+    selectedVersionNumber = 0;
     try {
       const data = await api.skills.get(slug, prog);
       const skill = data?.skill ?? data;
@@ -1278,6 +1290,7 @@
         api.skills.listVersions(slug, prog).then((vResult: any) => {
           skillVersions = vResult?.versions ?? [];
           skillCurrentVersion = vResult?.currentVersion ?? 0;
+          selectedVersionNumber = skillCurrentVersion;
         }).catch(() => { skillVersions = []; })
       );
       await Promise.all(promises);
@@ -1295,6 +1308,7 @@
     skillViewEffectiveness = null;
     skillEditMode = false;
     expandedPlaybooks = new Set();
+    selectedVersionNumber = 0;
   }
 
   function startSkillEdit() {
@@ -2159,7 +2173,7 @@
       <div class="skill-view-header">
         <h4>{skillViewData?.title ?? skillViewSlug}</h4>
         <div class="skill-view-toolbar">
-          {#if canManage && !skillEditMode}
+          {#if canManage && !skillEditMode && !viewingOldVersion}
             <button class="btn-sm" onclick={startSkillEdit}>Edit</button>
           {/if}
           <button class="btn-sm" onclick={exportViewedSkill}>Export</button>
@@ -2169,6 +2183,20 @@
       {#if skillViewLoading}
         <p class="muted">Loading...</p>
       {:else if skillViewData}
+        <!-- Version selector -->
+        {#if skillVersions.length > 0}
+          <div class="skill-version-selector">
+            <select bind:value={selectedVersionNumber}>
+              <option value={skillCurrentVersion}>v{skillCurrentVersion} · current</option>
+              {#each skillVersions.filter(v => v.version !== skillCurrentVersion) as v}
+                <option value={v.version}>v{v.version} · {versionTimeAgo(v.createdAt)}</option>
+              {/each}
+            </select>
+            {#if viewingOldVersion}
+              <button class="btn-sm restore-btn" onclick={() => rollbackSkillVersion(selectedVersionNumber)}>Restore this version</button>
+            {/if}
+          </div>
+        {/if}
         {#if skillEditMode}
           <!-- Edit mode -->
           <div class="skill-edit-form">
@@ -2281,29 +2309,17 @@
               {/each}
             </div>
           {/if}
-          {#if skillViewData.content}
+          {#if viewingOldVersion && selectedVersionData}
+            <div class="skill-detail-section">
+              <strong>Content (v{selectedVersionNumber}):</strong>
+              <pre class="skill-content">{selectedVersionData.content}</pre>
+            </div>
+          {:else if skillViewData.content}
             <div class="skill-detail-section">
               <strong>Content:</strong>
               <pre class="skill-content">{skillViewData.content}</pre>
             </div>
           {/if}
-        {/if}
-        <!-- Version History (visible in both modes) -->
-        {#if skillVersions.length > 0}
-          <div class="skill-detail-section">
-            <strong>Version History ({skillVersions.length}):</strong>
-            {#each skillVersions as ver}
-              <div class="skill-version-entry">
-                <span class="mono">v{ver.version}</span>
-                <span class="muted">{formatDateTime(ver.createdAt)}</span>
-                {#if ver.version === skillCurrentVersion}
-                  <span class="badge success">current</span>
-                {:else}
-                  <button class="btn-sm" onclick={() => rollbackSkillVersion(ver.version)}>Restore</button>
-                {/if}
-              </div>
-            {/each}
-          </div>
         {/if}
       {/if}
     </div>
@@ -2748,5 +2764,7 @@
   .skill-edit-form .checkbox-label { display: flex; flex-direction: row; align-items: center; gap: 6px; white-space: nowrap; }
   .skill-edit-form .checkbox-label input[type="checkbox"] { width: auto; }
   .skill-edit-form textarea { font-size: 0.85em; }
-  .skill-version-entry { display: flex; align-items: center; gap: 8px; padding: 3px 0; border-bottom: 1px solid var(--border); font-size: var(--font-size-sm); }
+  .skill-version-selector { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .skill-version-selector select { font-size: var(--font-size-sm); padding: 3px 6px; background: var(--bg-deep, rgba(0,0,0,0.2)); color: var(--text-primary); border: 1px solid var(--border); border-radius: var(--radius-sm, 4px); }
+  .restore-btn { background: var(--accent, #4e9ce6) !important; color: #fff !important; font-weight: 600; }
 </style>
