@@ -476,6 +476,18 @@
     }
   }
 
+  async function deleteSelectedVersion() {
+    if (!detailSkill || !selectedVersionNumber) return;
+    try {
+      await api.skills.deleteVersion(detailSkill.slug, selectedVersionNumber, detailSkill.program || undefined);
+      toast.success(`Deleted version ${selectedVersionNumber}`);
+      await loadVersions(detailSkill.slug, detailSkill.program || undefined);
+      selectedVersionNumber = currentVersion;
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  }
+
   async function exportSingleSkill() {
     if (!detailSkill) return;
     try {
@@ -839,6 +851,7 @@
         </select>
         {#if viewingOldVersion}
           <button class="btn-primary btn-small restore-btn" onclick={() => rollbackToVersion(selectedVersionNumber)}>Restore this version</button>
+          <button class="btn-danger-sm" onclick={deleteSelectedVersion}>Delete Version</button>
         {/if}
       </div>
     {/if}
@@ -880,7 +893,7 @@
       </div>
       <label class="field">
         <span>Content</span>
-        <textarea bind:value={editContent} rows="14" class="content-editor"></textarea>
+        <textarea bind:value={editContent} rows="15" class="content-editor"></textarea>
       </label>
       <div class="actions">
         <button class="btn-secondary" onclick={() => { editMode = false; }}>Cancel</button>
@@ -1128,10 +1141,12 @@
   .btn-danger { background: rgba(220, 50, 50, 0.15); color: #e05555; border: none; padding: 8px 16px; border-radius: var(--radius-sm); font-weight: 500; cursor: pointer; }
   .btn-danger:hover { background: rgba(220, 50, 50, 0.25); }
   .btn-small.btn-danger { padding: 4px 10px; font-size: var(--font-size-sm); }
+  .btn-danger-sm { background: rgba(220, 50, 50, 0.15); color: #e05555; border: none; padding: 4px 10px; border-radius: var(--radius-sm); font-size: var(--font-size-sm); cursor: pointer; }
+  .btn-danger-sm:hover { background: rgba(220, 50, 50, 0.25); }
   .actions-cell { display: flex; gap: 6px; }
   .actions { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
-  .field { display: block; margin-bottom: 12px; }
-  .field span { display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: var(--font-size-sm); }
+  .field { display: block; margin-bottom: 10px; }
+  .field span { display: block; margin-bottom: 3px; color: var(--text-secondary); font-size: 11px; }
   .field input, .field textarea, .field select { width: 100%; }
   .field-row { display: flex; gap: 16px; margin-bottom: 12px; }
   .checkbox-field { display: flex; align-items: center; gap: 6px; margin-bottom: 0; }
@@ -1139,7 +1154,8 @@
   .checkbox-field span { display: inline; margin-bottom: 0; }
   .hint { color: var(--text-secondary); margin-bottom: 12px; }
   .summary { margin-top: 12px; color: var(--text-muted); font-size: var(--font-size-sm); }
-  .detail-grid { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; font-size: var(--font-size-sm); }
+  .detail-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px 12px; margin-bottom: 10px; font-size: var(--font-size-sm); }
+  .detail-grid strong { font-size: 11px; color: var(--text-muted); }
   .content-viewer {
     font-family: var(--font-mono);
     font-size: var(--font-size-sm);
@@ -1186,7 +1202,7 @@
   .th-check, .td-check { width: 32px; text-align: center; }
   .th-check input, .td-check input { cursor: pointer; }
   .badge-selection { color: var(--accent); background: rgba(78, 156, 230, 0.12); display: inline-flex; align-items: center; font-size: var(--font-size-sm); padding: 4px 10px; border-radius: 999px; }
-  .detail-toolbar { display: flex; gap: 8px; margin-bottom: 12px; justify-content: flex-end; }
+  .detail-toolbar { display: flex; gap: 8px; margin-bottom: 8px; justify-content: flex-end; }
   .content-editor {
     font-family: var(--font-mono);
     font-size: var(--font-size-sm);
@@ -1194,7 +1210,7 @@
     resize: vertical;
     min-height: 280px;
   }
-  .version-selector { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .version-selector { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
   .version-selector select { font-size: var(--font-size-sm); padding: 4px 8px; background: var(--bg-elevated, #1e1e24); color: var(--text-primary); border: 1px solid var(--border); border-radius: var(--radius-sm); }
   .restore-btn { font-weight: 600; }
 </style>

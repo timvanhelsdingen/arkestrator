@@ -1012,7 +1012,9 @@ export const api = {
       });
       if (!res.ok) throw new Error(`Export failed: ${res.status}`);
       const blob = await res.blob();
-      const defaultName = `arkestrator-skills-${new Date().toISOString().slice(0, 10)}.zip`;
+      const defaultName = slugs?.length === 1
+        ? `arkestrator_skill_${slugs[0]}_${new Date().toISOString().slice(0, 10)}.zip`
+        : `arkestrator_skills_${new Date().toISOString().slice(0, 10)}.zip`;
       await saveFileWithDialog(defaultName, blob, [{ name: "ZIP Archive", extensions: ["zip"] }], "Export Skills");
     },
     importZip: async (file: File) => {
@@ -1052,6 +1054,12 @@ export const api = {
       return request(`/api/skills/${encodeURIComponent(slug)}/rollback${qs}`, {
         method: "POST",
         body: JSON.stringify({ version }),
+      });
+    },
+    deleteVersion: (slug: string, version: number, program?: string) => {
+      const qs = program ? `?program=${encodeURIComponent(program)}` : "";
+      return request(`/api/skills/${encodeURIComponent(slug)}/versions/${version}${qs}`, {
+        method: "DELETE",
       });
     },
   },

@@ -227,6 +227,8 @@
   let skillsLoading = $state(false);
   let skillEffectiveness = $state<Record<string, { totalUsed: number; successRate: number; pendingOutcomes: number; goodOutcomes: number; averageOutcomes: number; poorOutcomes: number }>>({});
   let skillsFilter = $state("");
+  let skillFilterCategory = $state("");
+  let skillFilterSource = $state("");
   let skillViewSlug = $state<string | null>(null);
   let skillViewData = $state<SkillEntry | null>(null);
   let skillViewPlaybooks = $state<Array<{ path: string; content: string | null; error?: string }>>([]);
@@ -272,6 +274,12 @@
     let list = serverSkills.filter(
       (s) => s.program === program || s.program === "global",
     );
+    if (skillFilterCategory) {
+      list = list.filter((s) => s.category === skillFilterCategory);
+    }
+    if (skillFilterSource) {
+      list = list.filter((s) => (s.source ?? "") === skillFilterSource);
+    }
     if (q) {
       list = list.filter(
         (s) =>
@@ -284,9 +292,24 @@
     return list;
   });
 
-  // Clear skill selection when filter changes
+  // Derive unique categories and sources from loaded skills
+  const skillCategories = $derived.by(() => {
+    const set = new Set<string>();
+    for (const s of serverSkills) if (s.category) set.add(s.category);
+    return Array.from(set).sort();
+  });
+
+  const skillSources = $derived.by(() => {
+    const set = new Set<string>();
+    for (const s of serverSkills) if (s.source) set.add(s.source);
+    return Array.from(set).sort();
+  });
+
+  // Clear skill selection when any filter changes
   $effect(() => {
     skillsFilter; // track
+    skillFilterCategory; // track
+    skillFilterSource; // track
     selectedSkillKeys = new Set();
   });
 
@@ -1356,6 +1379,20 @@
     }
   }
 
+  async function deleteSkillVersion(version: number) {
+    if (!skillViewData) return;
+    try {
+      await api.skills.deleteVersion(skillViewData.slug, version, skillViewData.program);
+      info = `Deleted version ${version}`;
+      const vResult = await api.skills.listVersions(skillViewData.slug, skillViewData.program);
+      skillVersions = vResult.versions ?? [];
+      skillCurrentVersion = vResult.currentVersion ?? 0;
+      selectedVersionNumber = skillCurrentVersion;
+    } catch (err: any) {
+      error = err.message ?? "Failed to delete version";
+    }
+  }
+
   async function exportViewedSkill() {
     if (!skillViewData) return;
     try {
@@ -1649,6 +1686,18 @@
         <h3>Server Skills</h3>
         <p class="desc">Skills loaded on the server that customize coordinator behavior per bridge.</p>
         <div class="skill-toolbar">
+          <select class="skill-filter-select" bind:value={skillFilterCategory}>
+            <option value="">All Categories</option>
+            {#each skillCategories as cat}
+              <option value={cat}>{cat}</option>
+            {/each}
+          </select>
+          <select class="skill-filter-select" bind:value={skillFilterSource}>
+            <option value="">All Sources</option>
+            {#each skillSources as src}
+              <option value={src}>{src}</option>
+            {/each}
+          </select>
           <input type="text" placeholder="Filter skills..." bind:value={skillsFilter} class="skill-search" />
           {#if selectedSkillKeys.size > 0}
             <span class="badge">{selectedSkillKeys.size} selected</span>
@@ -2194,6 +2243,7 @@
             </select>
             {#if viewingOldVersion}
               <button class="btn-sm restore-btn" onclick={() => rollbackSkillVersion(selectedVersionNumber)}>Restore this version</button>
+              <button class="btn-sm danger" onclick={() => deleteSkillVersion(selectedVersionNumber)}>Delete Version</button>
             {/if}
           </div>
         {/if}
@@ -2222,7 +2272,7 @@
             </div>
             <label>
               <span class="label">Content</span>
-              <textarea rows="20" style="font-family: var(--font-mono); width: 100%; resize: vertical;" bind:value={skillEditContent}></textarea>
+              <textarea rows="15" style="font-family: var(--font-mono); width: 100%; resize: vertical; font-size: 0.85em;" bind:value={skillEditContent}></textarea>
             </label>
             <div class="form-row" style="justify-content: flex-end;">
               <button class="btn-sm" onclick={() => { skillEditMode = false; }} disabled={skillSaving}>Cancel</button>
@@ -2701,6 +2751,7 @@
 
   /* Skills tab */
   .skill-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+  .skill-filter-select { padding: 5px 8px; font-size: var(--font-size-sm); background: var(--bg-deep, rgba(0,0,0,0.2)); color: var(--text-primary); border: 1px solid var(--border); border-radius: var(--radius-sm, 4px); min-width: 120px; }
   .skill-search { flex: 1; min-width: 160px; padding: 6px 8px; font-size: var(--font-size-sm); }
   .skill-table { width: 100%; border-collapse: collapse; font-size: var(--font-size-sm); }
   .skill-table th { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); font-weight: 600; }
@@ -2737,25 +2788,26 @@
     background: var(--bg-surface);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
-    padding: 16px 20px;
+    padding: 12px 16px;
     width: 100%;
-    max-width: 600px;
+    max-width: 640px;
     max-height: 85vh;
     overflow-y: auto;
   }
-  .skill-view-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-  .skill-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; font-size: var(--font-size-sm); margin-bottom: 10px; }
-  .skill-detail-grid strong { color: var(--text-secondary); }
-  .skill-detail-desc { font-size: var(--font-size-sm); color: var(--text-secondary); margin-bottom: 10px; padding: 6px 8px; background: var(--bg-deep, rgba(0,0,0,0.15)); border-radius: 4px; }
-  .skill-detail-section { margin-bottom: 10px; font-size: var(--font-size-sm); }
-  .skill-detail-section strong { display: block; margin-bottom: 4px; color: var(--text-secondary); }
+  .skill-view-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .skill-view-header h4 { font-size: 0.95em; margin: 0; }
+  .skill-detail-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 2px 12px; font-size: 0.8em; margin-bottom: 8px; }
+  .skill-detail-grid strong { color: var(--text-secondary); font-size: 11px; }
+  .skill-detail-desc { font-size: 0.8em; color: var(--text-secondary); margin-bottom: 8px; padding: 4px 6px; background: var(--bg-deep, rgba(0,0,0,0.15)); border-radius: 4px; }
+  .skill-detail-section { margin-bottom: 8px; font-size: 0.8em; }
+  .skill-detail-section strong { display: block; margin-bottom: 2px; color: var(--text-secondary); font-size: 11px; }
   .playbook-entry { margin-bottom: 4px; }
   .playbook-toggle { display: flex; align-items: center; gap: 6px; background: none; border: none; color: var(--link, #6bb8ff); cursor: pointer; padding: 2px 0; text-align: left; width: 100%; }
   .playbook-toggle:hover { text-decoration: underline; }
   .playbook-arrow { font-family: var(--font-mono); font-size: 0.75em; width: 10px; flex-shrink: 0; color: var(--text-muted, #888); }
   .playbook-preview { white-space: pre-wrap; font-family: var(--font-mono); font-size: 0.8em; max-height: 150px; overflow-y: auto; padding: 6px; background: var(--bg-deep, rgba(0,0,0,0.2)); border-radius: 4px; margin-top: 2px; }
   .playbook-preview.expanded { max-height: 400px; }
-  .skill-content { white-space: pre-wrap; font-family: var(--font-mono); font-size: 0.85em; max-height: 400px; overflow-y: auto; padding: 8px; background: var(--bg-deep, rgba(0,0,0,0.2)); border-radius: 4px; }
+  .skill-content { white-space: pre-wrap; font-family: var(--font-mono); font-size: 0.8em; max-height: 300px; overflow-y: auto; padding: 6px; background: var(--bg-deep, rgba(0,0,0,0.2)); border-radius: 4px; }
   .skill-view-toolbar { display: flex; gap: 6px; align-items: center; }
   .skill-edit-form { display: flex; flex-direction: column; gap: 8px; }
   .skill-edit-form label { display: flex; flex-direction: column; gap: 2px; font-size: var(--font-size-sm); }

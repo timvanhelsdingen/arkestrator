@@ -401,4 +401,16 @@ export class SkillsRepo {
       return null; // skill_versions table may not exist
     }
   }
+
+  /** Delete a specific version snapshot. Returns true if a row was deleted. */
+  deleteVersion(skillId: string, version: number): boolean {
+    try {
+      const result = this.db.prepare(
+        "DELETE FROM skill_versions WHERE skill_id = ? AND version = ?"
+      ).run(skillId, version);
+      return result.changes > 0;
+    } catch {
+      return false;
+    }
+  }
 }
