@@ -194,6 +194,7 @@ export class JobsRepo {
   private purgeOldTrashStmt;
   private countCompletedSinceStmt;
   private countCompletedSinceForProgramStmt;
+  private getChildJobsStmt;
 
   constructor(private db: Database) {
     this.insertStmt = db.prepare(
@@ -228,12 +229,14 @@ export class JobsRepo {
     this.appendLogStmt = db.prepare(
       `UPDATE jobs SET logs = COALESCE(logs, '') || ? WHERE id = ?`,
     );
+    // Use NOT EXISTS instead of NOT IN for better SQLite query planner performance
+    // at scale — NOT IN rescans the subquery for each candidate row.
     this.pickNextStmt = db.prepare(
       `SELECT * FROM jobs WHERE status = 'queued'
-       AND id NOT IN (
-         SELECT d.job_id FROM job_dependencies d
-         JOIN jobs j ON j.id = d.depends_on_job_id
-         WHERE j.status NOT IN ('completed')
+       AND NOT EXISTS (
+         SELECT 1 FROM job_dependencies d
+         JOIN jobs dep ON dep.id = d.depends_on_job_id
+         WHERE d.job_id = jobs.id AND dep.status NOT IN ('completed')
        )
        AND (retry_after IS NULL OR retry_after <= datetime('now'))
        AND (expires_at IS NULL OR expires_at > datetime('now'))
@@ -247,10 +250,10 @@ export class JobsRepo {
     );
     this.pickNextForWorkerStmt = db.prepare(
       `SELECT * FROM jobs WHERE status = 'queued'
-       AND id NOT IN (
-         SELECT d.job_id FROM job_dependencies d
-         JOIN jobs j ON j.id = d.depends_on_job_id
-         WHERE j.status NOT IN ('completed')
+       AND NOT EXISTS (
+         SELECT 1 FROM job_dependencies d
+         JOIN jobs dep ON dep.id = d.depends_on_job_id
+         WHERE d.job_id = jobs.id AND dep.status NOT IN ('completed')
        )
        AND (retry_after IS NULL OR retry_after <= datetime('now'))
        AND (expires_at IS NULL OR expires_at > datetime('now'))
@@ -362,6 +365,10 @@ export class JobsRepo {
        WHERE status = 'completed' AND completed_at > ?
        AND (bridge_program IS NULL OR bridge_program NOT IN ('coordinator-training', 'housekeeping'))
        AND EXISTS (SELECT 1 FROM json_each(used_bridges) WHERE value = ?)`,
+    );
+    // Targeted child-job lookup using parent_job_id index — avoids loading all jobs
+    this.getChildJobsStmt = db.prepare(
+      `SELECT * FROM jobs WHERE parent_job_id = ? AND deleted_at IS NULL`,
     );
   }
 
@@ -609,6 +616,12 @@ export class JobsRepo {
     const normalized = normalizeQuotes(workerName).trim().toLowerCase();
     const row = this.pickNextForWorkerStmt.get(normalized, normalized) as JobRow | null;
     return row ? rowToJob(row) : null;
+  }
+
+  /** Get all direct child jobs of a parent — uses the parent_job_id index for O(log n) lookup. */
+  getChildJobs(parentJobId: string): Job[] {
+    const rows = this.getChildJobsStmt.all(parentJobId) as JobRow[];
+    return rows.map(rowToJob);
   }
 
   /** Returns true if the job has any sub-jobs (parentJobId = jobId) still in a non-terminal state. */

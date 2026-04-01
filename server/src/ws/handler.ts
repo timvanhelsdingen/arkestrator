@@ -64,18 +64,48 @@ function errorReply(ws: ServerWebSocket<WsData>, code: string, message: string, 
   });
 }
 
+/**
+ * Short-lived cache for enrichJob() DB lookups to avoid redundant queries
+ * when the same job is enriched multiple times within a tight window
+ * (e.g. broadcast to 1000 clients). TTL = 5 seconds.
+ */
+const enrichCache = new Map<string, { data: any; expiresAt: number }>();
+const ENRICH_CACHE_TTL_MS = 5_000;
+const ENRICH_CACHE_MAX = 500;
+
 function enrichJob(job: any, deps: HandlerDeps) {
+  const now = Date.now();
+  const cached = enrichCache.get(job.id);
+  if (cached && now < cached.expiresAt) {
+    // Return cached enrichment merged with fresh job data
+    return { ...job, ...cached.data };
+  }
+
   const tokenUsage = deps.usageRepo.getByJobId(job.id) ?? undefined;
   const dependsOn = deps.depsRepo.getDependencies(job.id);
   const submittedByUsername = job.submittedBy
     ? deps.usersRepo.getById(job.submittedBy)?.username ?? undefined
     : undefined;
-  return {
-    ...job,
+
+  const enrichment = {
     tokenUsage,
     dependsOn: dependsOn.length > 0 ? dependsOn : undefined,
     submittedByUsername,
   };
+
+  // Evict oldest if at capacity
+  if (enrichCache.size >= ENRICH_CACHE_MAX) {
+    const firstKey = enrichCache.keys().next().value;
+    if (firstKey !== undefined) enrichCache.delete(firstKey);
+  }
+  enrichCache.set(job.id, { data: enrichment, expiresAt: now + ENRICH_CACHE_TTL_MS });
+
+  return { ...job, ...enrichment };
+}
+
+/** Invalidate enrichment cache for a job (call when job state changes). */
+export function invalidateEnrichCache(jobId: string) {
+  enrichCache.delete(jobId);
 }
 
 function enrichJobs(rows: any[], deps: HandlerDeps) {
