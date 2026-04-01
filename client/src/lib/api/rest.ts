@@ -56,7 +56,23 @@ export interface LocalModelPullProgressEvent {
   progressPercent?: number;
 }
 
+/**
+ * In-flight request deduplication for GET requests.
+ * If the same GET URL is already pending, return the same Promise
+ * instead of firing a duplicate network request. This prevents
+ * concurrent model catalog / bridge list fetches when components re-render.
+ */
+const inflightGets = new Map<string, Promise<any>>();
+
 async function request(path: string, options: RequestInit = {}) {
+  const method = (options.method ?? "GET").toUpperCase();
+
+  // Deduplicate concurrent GET requests to the same path
+  if (method === "GET") {
+    const existing = inflightGets.get(path);
+    if (existing) return existing;
+  }
+
   const headers: Record<string, string> = {};
   if (!(options.body instanceof FormData)) {
     headers["Content-Type"] = "application/json";
@@ -68,11 +84,22 @@ async function request(path: string, options: RequestInit = {}) {
     headers["Authorization"] = `Bearer ${connection.apiKey}`;
   }
 
-  const res = await fetch(`${connection.url}${path}`, {
+  const promise = fetch(`${connection.url}${path}`, {
     ...options,
     headers: { ...headers, ...(options.headers as Record<string, string>) },
   });
 
+  if (method === "GET") {
+    const deduped = promise.then(processResponse).finally(() => inflightGets.delete(path));
+    inflightGets.set(path, deduped);
+    return deduped;
+  }
+
+  const res = await promise;
+  return processResponse(res);
+}
+
+async function processResponse(res: Response) {
   if (!res.ok) {
     const text = await res.text();
     try {

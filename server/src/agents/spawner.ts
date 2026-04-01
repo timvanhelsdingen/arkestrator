@@ -315,6 +315,22 @@ async function ensureOllamaModelPresent(
   sendLog(deps, job, done);
 }
 
+// Pre-compiled regex patterns for bridge program inference — avoids re-compiling
+// 7 RegExps on every job completion. Combined into a single alternation for
+// single-pass scanning of potentially megabyte-sized log buffers.
+const BRIDGE_PROGRAM_PATTERN = new RegExp(
+  [
+    /\[get_bridge_context\]\s+([a-z0-9_-]+)/.source,
+    /\[execute_multiple_commands\]\s+([a-z0-9_-]+)\s*:/.source,
+    /\[execute_command\]\s+([a-z0-9_-]+)\s*\/[a-z0-9_-]+/.source,
+    /\[run_headless_check\]\s+([a-z0-9_-]+)/.source,
+    /\[exec\][^\r\n]*\bam\s+context\s+([a-z0-9_-]+)/.source,
+    /\[exec\][^\r\n]*\bam\s+exec\b[^\r\n]*(?:-t|--target)\s+([a-z0-9_-]+)/.source,
+    /\[exec\][^\r\n]*\bam\s+headless-check\s+([a-z0-9_-]+)/.source,
+  ].join("|"),
+  "gi",
+);
+
 function inferUsedBridgeProgramsFromLogs(
   job: Job,
   logs: string,
@@ -328,27 +344,18 @@ function inferUsedBridgeProgramsFromLogs(
       .filter(Boolean),
   );
   if (known.size === 0) return [];
-  const add = (value: string) => {
-    const p = String(value ?? "").trim().toLowerCase();
-    if (!p) return;
-    if (known.has(p)) out.add(p);
-  };
 
-  // Only infer from structured execution markers emitted during real tool calls.
-  // Avoid generic `target="blender"` prompt examples that cause false positives.
-  const patterns: RegExp[] = [
-    /\[get_bridge_context\]\s+([a-z0-9_-]+)/gi,
-    /\[execute_multiple_commands\]\s+([a-z0-9_-]+)\s*:/gi,
-    /\[execute_command\]\s+([a-z0-9_-]+)\s*\/[a-z0-9_-]+/gi,
-    /\[run_headless_check\]\s+([a-z0-9_-]+)/gi,
-    /\[exec\][^\r\n]*\bam\s+context\s+([a-z0-9_-]+)/gi,
-    /\[exec\][^\r\n]*\bam\s+exec\b[^\r\n]*(?:-t|--target)\s+([a-z0-9_-]+)/gi,
-    /\[exec\][^\r\n]*\bam\s+headless-check\s+([a-z0-9_-]+)/gi,
-  ];
-  for (const re of patterns) {
-    let match: RegExpExecArray | null = null;
-    while ((match = re.exec(raw)) !== null) {
-      add(match[1]);
+  // Single-pass scan with combined regex (reset lastIndex for reuse)
+  BRIDGE_PROGRAM_PATTERN.lastIndex = 0;
+  let match: RegExpExecArray | null = null;
+  while ((match = BRIDGE_PROGRAM_PATTERN.exec(raw)) !== null) {
+    // Find the first non-undefined capture group (alternation puts each in different group)
+    for (let i = 1; i < match.length; i++) {
+      if (match[i]) {
+        const p = match[i].trim().toLowerCase();
+        if (p && known.has(p)) out.add(p);
+        break;
+      }
     }
   }
 
@@ -430,9 +437,12 @@ function resolveBridgeProgramTarget(rawTarget: string, deps: SpawnerDeps, prefer
     return normalizedTarget;
   }
 
+  // Cache getBridges() once — avoids 3 separate O(n) iterations
+  const allBridges = deps.hub.getBridges();
+
   const targetPath = normalizePathLike(target);
   if (targetPath.includes("/")) {
-    for (const bridge of deps.hub.getBridges()) {
+    for (const bridge of allBridges) {
       const program = parseStringArg((bridge as any).program).toLowerCase();
       if (!program) continue;
       const projectPath = normalizePathLike(parseStringArg((bridge as any).projectPath));
@@ -445,7 +455,7 @@ function resolveBridgeProgramTarget(rawTarget: string, deps: SpawnerDeps, prefer
     }
   }
 
-  for (const bridge of deps.hub.getBridges()) {
+  for (const bridge of allBridges) {
     const program = parseStringArg((bridge as any).program).toLowerCase();
     if (!program) continue;
     if (normalizedTarget.includes(program)) return program;
@@ -457,7 +467,7 @@ function resolveBridgeProgramTarget(rawTarget: string, deps: SpawnerDeps, prefer
   }
 
   const connectedPrograms = [...new Set(
-    deps.hub.getBridges()
+    allBridges
       .map((bridge) => parseStringArg((bridge as any).program).toLowerCase())
       .filter(Boolean),
   )];
@@ -489,12 +499,15 @@ function buildGodotLabelAddScriptFromPrompt(prompt: string): string | null {
   ].join("\n");
 }
 
+// Pre-compiled regex for training block stripping (constants never change)
+const TRAINING_BLOCK_PATTERN = new RegExp(
+  `${escapeRegex(TRAINING_BLOCK_START)}[\\s\\S]*?${escapeRegex(TRAINING_BLOCK_END)}`,
+  "g",
+);
+
 /** Remove auto-generated training blocks from coordinator/playbook text. */
 function stripTrainingBlocks(text: string): string {
-  const pattern = new RegExp(
-    `${escapeRegex(TRAINING_BLOCK_START)}[\\s\\S]*?${escapeRegex(TRAINING_BLOCK_END)}`,
-    "g",
-  );
+  const pattern = TRAINING_BLOCK_PATTERN;
   return text.replace(pattern, "").replace(/\n{3,}/g, "\n\n").trim();
 }
 
@@ -1375,6 +1388,9 @@ export async function spawnAgent(
   config: AgentConfig,
   deps: SpawnerDeps,
 ) {
+  // Allow the orphan sweep to flush stale wsLogBuffers entries
+  if (!wsLogSweepDeps) wsLogSweepDeps = deps;
+
   // Server-managed orchestrator jobs (training orchestrator, housekeeping parent)
   // run server-side in a setTimeout — they must NOT be dispatched as agent processes.
   if (job.editorContext?.metadata?.coordinator_training_orchestrator) {
@@ -3082,6 +3098,34 @@ function flushWsLogNow(deps: SpawnerDeps, jobId: string) {
     wsLogBuffers.delete(jobId);
   }
 }
+
+/**
+ * Periodic sweep to clean up orphaned wsLogBuffers entries.
+ * Entries can become orphaned if a job is killed externally (process tracker
+ * timeout, manual cancellation) without going through sendComplete().
+ * Runs every 60s, removes entries older than 5 minutes with no active process.
+ */
+const WS_LOG_ORPHAN_MAX_AGE_MS = 5 * 60 * 1000;
+let wsLogSweepDeps: SpawnerDeps | null = null;
+const wsLogSweepInterval = setInterval(() => {
+  if (!wsLogSweepDeps) return;
+  const now = Date.now();
+  for (const [jobId, buf] of wsLogBuffers) {
+    // If no timer is pending and buffer is empty, it's just a stale reference
+    if (!buf.timer && !buf.text) {
+      wsLogBuffers.delete(jobId);
+      continue;
+    }
+    // If the job object's createdAt is old and no process is running, it's orphaned
+    const createdAt = buf.job.createdAt ? new Date(buf.job.createdAt).getTime() : 0;
+    if (now - createdAt > WS_LOG_ORPHAN_MAX_AGE_MS) {
+      if (buf.timer) clearTimeout(buf.timer);
+      wsLogBuffers.delete(jobId);
+    }
+  }
+}, 60_000);
+// Prevent interval from keeping process alive on shutdown
+if (wsLogSweepInterval.unref) wsLogSweepInterval.unref();
 
 function broadcastInterventionUpdates(
   deps: SpawnerDeps,

@@ -48,7 +48,7 @@ export interface BridgeContextState {
 
 export class WebSocketHub {
   private connections = new Map<string, ServerWebSocket<WsData>>();
-  private pendingCommands = new Map<string, { resolve: (result: any) => void; timer: ReturnType<typeof setTimeout> }>();
+  private pendingCommands = new Map<string, { resolve: (result: any) => void; timer: ReturnType<typeof setTimeout>; settled: boolean }>();
   private bridgeContexts = new Map<string, BridgeContextState>();
   /** Job log subscriptions: jobId → Set of connection IDs actively viewing that job */
   private logSubscriptions = new Map<string, Set<string>>();
@@ -56,6 +56,12 @@ export class WebSocketHub {
   private lastReplacementTime = new Map<string, number>();
   /** Per-worker headless capabilities reported by desktop clients. Keyed by normalized workerKey. */
   private workerHeadlessCapabilities = new Map<string, WorkerHeadlessCapability[]>();
+
+  // --- Secondary indexes for O(1) lookups at scale ---
+  /** program (lowercase) → Set of connection IDs. Updated on register/unregister. */
+  private bridgesByProgram = new Map<string, Set<string>>();
+  /** "program/workerKey/project" → connection ID. For O(1) duplicate detection. */
+  private bridgeIdentityIndex = new Map<string, string>();
   private static readonly MAX_ACTIVE_PROJECTS = 8;
 
   private normalizeProjectPath(projectPath?: string | null): string | undefined {
@@ -117,6 +123,10 @@ export class WebSocketHub {
     return changedCount;
   }
 
+  private makeBridgeIdentityKey(prog: string, workerKey: string, project: string | undefined): string {
+    return `${prog}/${workerKey}/${project ?? "<none>"}`;
+  }
+
   register(ws: ServerWebSocket<WsData>) {
     const workerKey = String(ws.data.machineId ?? ws.data.workerName ?? "").trim().toLowerCase();
     // Kick stale duplicates only when they map to the same session identity:
@@ -125,27 +135,15 @@ export class WebSocketHub {
     if (ws.data.type === "bridge" && ws.data.program && workerKey) {
       const prog = ws.data.program.toLowerCase();
       const incomingProject = this.normalizeProjectPath(ws.data.projectPath);
-      const stale: string[] = [];
-      for (const [id, existing] of this.connections) {
-        const existingProject = this.normalizeProjectPath(existing.data.projectPath);
-        const sameProject = !!incomingProject && incomingProject === existingProject;
-        const existingWorkerKey = String(existing.data.machineId ?? existing.data.workerName ?? "").trim().toLowerCase();
-        if (
-          id !== ws.data.id &&
-          existing.data.type === "bridge" &&
-          existing.data.program?.toLowerCase() === prog &&
-          existingWorkerKey === workerKey &&
-          sameProject
-        ) {
-          stale.push(id);
-        }
-      }
-      const rapidKey = `${prog}/${workerKey}/${incomingProject ?? "<none>"}`;
-      for (const id of stale) {
-        const old = this.connections.get(id);
+      const identityKey = this.makeBridgeIdentityKey(prog, workerKey, incomingProject);
+
+      // O(1) lookup via identity index instead of iterating all connections
+      const existingId = this.bridgeIdentityIndex.get(identityKey);
+      if (existingId && existingId !== ws.data.id) {
+        const old = this.connections.get(existingId);
         if (old) {
           const now = Date.now();
-          const lastReplaced = this.lastReplacementTime.get(rapidKey) ?? 0;
+          const lastReplaced = this.lastReplacementTime.get(identityKey) ?? 0;
           const msSinceLastReplace = now - lastReplaced;
           if (lastReplaced > 0 && msSinceLastReplace < 30_000) {
             logger.warn(
@@ -157,17 +155,29 @@ export class WebSocketHub {
           } else {
             logger.info(
               "ws-hub",
-              `Replacing stale bridge ${id} (${old.data.program}/${old.data.workerName}/${incomingProject ?? "<none>"})`,
+              `Replacing stale bridge ${existingId} (${old.data.program}/${old.data.workerName}/${incomingProject ?? "<none>"})`,
             );
           }
-          this.lastReplacementTime.set(rapidKey, now);
-          this.connections.delete(id);
-          this.bridgeContexts.delete(id);
+          this.lastReplacementTime.set(identityKey, now);
+          this.removeConnectionFromIndexes(existingId, old);
+          this.connections.delete(existingId);
+          this.bridgeContexts.delete(existingId);
           // Use code 4001 (app-specific) so the bridge knows it was replaced
           // and should NOT trigger its reconnect logic.
           try { old.close(4001, "Replaced by new connection"); } catch {}
         }
       }
+
+      // Update identity index
+      this.bridgeIdentityIndex.set(identityKey, ws.data.id);
+
+      // Update program index
+      let progSet = this.bridgesByProgram.get(prog);
+      if (!progSet) {
+        progSet = new Set();
+        this.bridgesByProgram.set(prog, progSet);
+      }
+      progSet.add(ws.data.id);
     }
 
     this.connections.set(ws.data.id, ws);
@@ -178,6 +188,27 @@ export class WebSocketHub {
       "ws-hub",
       `${ws.data.type} connected: ${ws.data.id} (role: ${ws.data.role})`,
     );
+  }
+
+  /** Remove a connection from secondary indexes. */
+  private removeConnectionFromIndexes(id: string, ws: ServerWebSocket<WsData>) {
+    if (ws.data.type === "bridge" && ws.data.program) {
+      const prog = ws.data.program.toLowerCase();
+      const progSet = this.bridgesByProgram.get(prog);
+      if (progSet) {
+        progSet.delete(id);
+        if (progSet.size === 0) this.bridgesByProgram.delete(prog);
+      }
+      // Remove from identity index
+      const wk = String(ws.data.machineId ?? ws.data.workerName ?? "").trim().toLowerCase();
+      if (wk) {
+        const project = this.normalizeProjectPath(ws.data.projectPath);
+        const key = this.makeBridgeIdentityKey(prog, wk, project);
+        if (this.bridgeIdentityIndex.get(key) === id) {
+          this.bridgeIdentityIndex.delete(key);
+        }
+      }
+    }
   }
 
   // -- Log subscription management ------------------------------------------
@@ -193,11 +224,16 @@ export class WebSocketHub {
 
   unsubscribeJobLogs(connectionId: string, jobId?: string) {
     if (jobId) {
-      this.logSubscriptions.get(jobId)?.delete(connectionId);
-    } else {
-      // Unsubscribe from all jobs
-      for (const subs of this.logSubscriptions.values()) {
+      const subs = this.logSubscriptions.get(jobId);
+      if (subs) {
         subs.delete(connectionId);
+        if (subs.size === 0) this.logSubscriptions.delete(jobId);
+      }
+    } else {
+      // Unsubscribe from all jobs, cleaning up empty Sets
+      for (const [jid, subs] of this.logSubscriptions) {
+        subs.delete(connectionId);
+        if (subs.size === 0) this.logSubscriptions.delete(jid);
       }
     }
   }
@@ -210,6 +246,7 @@ export class WebSocketHub {
   // -------------------------------------------------------------------------
 
   unregister(ws: ServerWebSocket<WsData>) {
+    this.removeConnectionFromIndexes(ws.data.id, ws);
     this.connections.delete(ws.data.id);
     // Clean up log subscriptions on disconnect
     this.unsubscribeJobLogs(ws.data.id);
@@ -328,11 +365,13 @@ export class WebSocketHub {
   }
 
   getBridgesByProgram(program: string): ServerWebSocket<WsData>[] {
+    // O(k) via program index instead of O(n) full scan
+    const ids = this.bridgesByProgram.get(program.toLowerCase());
+    if (!ids || ids.size === 0) return [];
     const results: ServerWebSocket<WsData>[] = [];
-    for (const ws of this.connections.values()) {
-      if (ws.data.type === "bridge" && ws.data.program === program) {
-        results.push(ws);
-      }
+    for (const id of ids) {
+      const ws = this.connections.get(id);
+      if (ws) results.push(ws);
     }
     return results;
   }
@@ -357,6 +396,17 @@ export class WebSocketHub {
    *  Terminates connections that didn't respond to the previous ping, OR that
    *  haven't sent any application-level message for 2+ minutes (catches cases
    *  where Bun auto-replies to pings on half-open connections). */
+  /** Remove a stale connection during pingAll — cleans up all indexes. */
+  private removeStale(id: string, ws: ServerWebSocket<WsData>, reason: string) {
+    logger.warn("ws-hub", `${reason}: ${ws.data.type} ${id} (${ws.data.program ?? "client"}/${ws.data.workerName ?? "?"}), removing`);
+    try { ws.close(1001, reason); } catch {}
+    this.removeConnectionFromIndexes(id, ws);
+    this.connections.delete(id);
+    if (ws.data.type === "bridge") {
+      this.bridgeContexts.delete(id);
+    }
+  }
+
   pingAll() {
     const now = Date.now();
     const messageStaleMs = 120_000; // 2 minutes with zero messages = dead
@@ -366,26 +416,14 @@ export class WebSocketHub {
       if (ws.data.awaitingPong) {
         const lastPong = ws.data.lastPongAt;
         const age = lastPong ? Math.round((now - lastPong) / 1000) : "never";
-        logger.warn("ws-hub", `Stale connection (no pong, last pong ${age}s ago): ${ws.data.type} ${id} (${ws.data.program ?? "client"}/${ws.data.workerName ?? "?"}), removing`);
-        try { ws.close(1001, "Stale connection"); } catch {}
-        this.connections.delete(id);
-        if (ws.data.type === "bridge") {
-          this.bridgeContexts.delete(id);
-        }
+        this.removeStale(id, ws, `Stale connection (no pong, last pong ${age}s ago)`);
         removedAny = true;
         continue;
       }
       // Check 2: No activity for 2+ minutes (no messages AND no pongs).
-      // This catches half-open connections where the OS or runtime auto-replies
-      // to WebSocket pings but the remote endpoint is actually unreachable.
       const lastActivity = Math.max(ws.data.lastMessageAt ?? 0, ws.data.lastPongAt ?? 0) || now;
       if (now - lastActivity > messageStaleMs) {
-        logger.warn("ws-hub", `Stale connection (no messages for ${Math.round((now - lastActivity) / 1000)}s): ${ws.data.type} ${id} (${ws.data.program ?? "client"}/${ws.data.workerName ?? "?"}), removing`);
-        try { ws.close(1001, "Stale connection — no messages"); } catch {}
-        this.connections.delete(id);
-        if (ws.data.type === "bridge") {
-          this.bridgeContexts.delete(id);
-        }
+        this.removeStale(id, ws, `Stale connection (no messages for ${Math.round((now - lastActivity) / 1000)}s)`);
         removedAny = true;
         continue;
       }
@@ -393,13 +431,7 @@ export class WebSocketHub {
         ws.data.awaitingPong = true;
         ws.ping();
       } catch {
-        // Connection is dead — clean it up
-        logger.warn("ws-hub", `Ping failed for ${ws.data.type} ${id} (${ws.data.program ?? "client"}/${ws.data.workerName ?? "?"}), removing`);
-        try { ws.close(1001, "Ping failed"); } catch {}
-        this.connections.delete(id);
-        if (ws.data.type === "bridge") {
-          this.bridgeContexts.delete(id);
-        }
+        this.removeStale(id, ws, "Ping failed");
         removedAny = true;
       }
     }
@@ -464,21 +496,31 @@ export class WebSocketHub {
     });
   }
 
+  /** Max pending commands to prevent unbounded memory under sustained load. */
+  private static readonly MAX_PENDING_COMMANDS = 5000;
+
   /** Register a pending bridge command from the REST API. Returns a Promise that resolves with the result. */
   registerPendingCommand(correlationId: string, timeoutMs: number): Promise<any> {
+    if (this.pendingCommands.size >= WebSocketHub.MAX_PENDING_COMMANDS) {
+      return Promise.reject(new Error("Too many pending bridge commands — server is overloaded"));
+    }
     return new Promise((resolve, reject) => {
+      let settled = false;
       const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
         this.pendingCommands.delete(correlationId);
         reject(new Error("Bridge command timed out"));
       }, timeoutMs);
-      this.pendingCommands.set(correlationId, { resolve, timer });
+      this.pendingCommands.set(correlationId, { resolve, timer, settled: false });
     });
   }
 
   /** Try to resolve a pending REST bridge command. Returns true if matched. */
   resolvePendingCommand(correlationId: string, result: any): boolean {
     const pending = this.pendingCommands.get(correlationId);
-    if (!pending) return false;
+    if (!pending || pending.settled) return false;
+    pending.settled = true;
     clearTimeout(pending.timer);
     this.pendingCommands.delete(correlationId);
     pending.resolve(result);
@@ -536,11 +578,18 @@ export class WebSocketHub {
 
   // --- Bridge Context Management ---
 
+  /** Max context items per bridge to prevent unbounded memory growth. */
+  private static readonly MAX_CONTEXT_ITEMS_PER_BRIDGE = 200;
+
   addBridgeContextItem(bridgeId: string, item: ContextItem): ContextItem {
     let ctx = this.bridgeContexts.get(bridgeId);
     if (!ctx) {
       ctx = { items: [], nextIndex: 1, files: [] };
       this.bridgeContexts.set(bridgeId, ctx);
+    }
+    // Evict oldest items if at capacity
+    while (ctx.items.length >= WebSocketHub.MAX_CONTEXT_ITEMS_PER_BRIDGE) {
+      ctx.items.shift();
     }
     // Server assigns the index so numbering stays sequential after removals.
     const serverItem = { ...item, index: ctx.nextIndex++ };

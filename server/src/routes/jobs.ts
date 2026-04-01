@@ -58,6 +58,9 @@ const jobSubmitRates = new Map<
   { count: number; resetAt: number; windowMs: number; max: number }
 >();
 
+/** Max distinct rate limit keys to prevent unbounded Map growth from key rotation. */
+const RATE_LIMIT_MAX_ENTRIES = 10_000;
+
 function checkJobRateLimit(
   key: string,
   config: { windowMs: number; max: number },
@@ -70,6 +73,11 @@ function checkJobRateLimit(
     || entry.windowMs !== config.windowMs
     || entry.max !== config.max
   ) {
+    // Evict oldest entries if at capacity (LRU-style: delete first key)
+    if (!entry && jobSubmitRates.size >= RATE_LIMIT_MAX_ENTRIES) {
+      const firstKey = jobSubmitRates.keys().next().value;
+      if (firstKey !== undefined) jobSubmitRates.delete(firstKey);
+    }
     jobSubmitRates.set(key, {
       count: 1,
       resetAt: now + config.windowMs,
@@ -398,36 +406,24 @@ export function createJobRoutes(
     return status === "completed" || status === "failed" || status === "cancelled";
   }
 
-  function buildChildrenByParentMap(
-    allJobs: Array<{ id: string; parentJobId?: string }>,
-  ): Map<string, string[]> {
-    const childrenByParent = new Map<string, string[]>();
-    for (const row of allJobs) {
-      if (!row.parentJobId) continue;
-      const list = childrenByParent.get(row.parentJobId) ?? [];
-      list.push(row.id);
-      childrenByParent.set(row.parentJobId, list);
-    }
-    return childrenByParent;
-  }
-
+  /**
+   * Get all descendant jobs of a root job using targeted BFS queries.
+   * Uses getChildJobs() with the parent_job_id index instead of loading
+   * the entire jobs table — O(d) queries where d = depth, not O(n) memory.
+   */
   function getDescendantJobs(rootJobId: string): ReturnType<JobsRepo["list"]>["jobs"] {
-    const { jobs: allJobs } = jobsRepo.list();
-    const jobsById = new Map(allJobs.map((row) => [row.id, row]));
-    const childrenByParent = buildChildrenByParentMap(allJobs);
     const visited = new Set<string>();
     const descendants: ReturnType<JobsRepo["list"]>["jobs"] = [];
-    const queue = [...(childrenByParent.get(rootJobId) ?? [])];
+    const queue = [rootJobId];
 
     while (queue.length > 0) {
-      const currentId = queue.shift() as string;
-      if (visited.has(currentId)) continue;
-      visited.add(currentId);
-      const job = jobsById.get(currentId);
-      if (!job) continue;
-      descendants.push(job);
-      for (const childId of childrenByParent.get(currentId) ?? []) {
-        if (!visited.has(childId)) queue.push(childId);
+      const parentId = queue.shift() as string;
+      const children = jobsRepo.getChildJobs(parentId);
+      for (const child of children) {
+        if (visited.has(child.id)) continue;
+        visited.add(child.id);
+        descendants.push(child);
+        queue.push(child.id);
       }
     }
 
