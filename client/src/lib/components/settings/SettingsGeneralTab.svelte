@@ -261,15 +261,12 @@
   async function exportServerSnapshot() {
     exportingSnapshot = true;
     try {
+      const { saveFileWithDialog } = await import("../../utils/format");
       const snapshot = await api.settings.exportConfigSnapshot(true);
-      const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `arkestrator-backup-${new Date().toISOString().slice(0, 10)}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-      exportSnapshotDone = true;
+      const json = JSON.stringify(snapshot, null, 2);
+      const defaultName = `arkestrator-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      const saved = await saveFileWithDialog(defaultName, json, [{ name: "JSON", extensions: ["json"] }], "Export Server Backup");
+      if (saved) exportSnapshotDone = true;
     } catch (err: any) {
       clearDataError = `Export failed: ${err?.message ?? err}`;
     } finally {
