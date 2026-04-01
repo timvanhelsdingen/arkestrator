@@ -997,6 +997,7 @@ export const api = {
         body: JSON.stringify({ skillIds }),
       }) as Promise<{ stats: Record<string, { totalUsed: number; goodOutcomes: number; averageOutcomes: number; poorOutcomes: number; pendingOutcomes: number; successRate: number }> }>,
     exportZip: async (slugs?: string[]) => {
+      const { saveFileWithDialog } = await import("../utils/format");
       const headers: Record<string, string> = {};
       if (connection.sessionToken) {
         headers["Authorization"] = `Bearer ${connection.sessionToken}`;
@@ -1011,16 +1012,8 @@ export const api = {
       });
       if (!res.ok) throw new Error(`Export failed: ${res.status}`);
       const blob = await res.blob();
-      const disposition = res.headers.get("content-disposition") || "";
-      const fileNameMatch = disposition.match(/filename="?([^"]+)"?/);
-      const fileName = fileNameMatch?.[1] || `arkestrator-skills-${new Date().toISOString().slice(0, 10)}.zip`;
-      // Trigger download
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = fileName;
-      a.click();
-      URL.revokeObjectURL(url);
+      const defaultName = `arkestrator-skills-${new Date().toISOString().slice(0, 10)}.zip`;
+      await saveFileWithDialog(defaultName, blob, [{ name: "ZIP Archive", extensions: ["zip"] }], "Export Skills");
     },
     importZip: async (file: File) => {
       const headers: Record<string, string> = {};

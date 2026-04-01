@@ -1023,16 +1023,9 @@
       .slice(0, 40);
   }
 
-  function downloadTextFile(filename: string, content: string) {
-    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = filename;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 0);
+  async function downloadTextFile(filename: string, content: string) {
+    const { saveFileWithDialog } = await import("../lib/utils/format");
+    await saveFileWithDialog(filename, content, [{ name: "Log File", extensions: ["log", "txt"] }], "Save Job Log");
   }
 
   async function saveJobLog(job: Job) {
