@@ -1230,7 +1230,6 @@ async function runLocalAgenticLoop(
   const usedBridgePrograms = new Set<string>();
 
   const perModelPrompt = config.modelOverrides?.[modelName]?.systemPrompt
-    ?? config.modelSystemPrompts?.[modelName]
     ?? config.systemPrompt;
 
   // Resolve Ollama base URL for native tool calling

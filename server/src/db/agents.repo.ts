@@ -2,6 +2,27 @@ import { Database } from "bun:sqlite";
 import type { AgentConfig, AgentConfigCreate } from "@arkestrator/protocol";
 import { newId } from "../utils/id.js";
 
+/**
+ * Merge legacy modelSystemPrompts into modelOverrides at read time.
+ * modelOverrides takes precedence — legacy entries only fill gaps.
+ * This allows the spawner to use a single lookup path (modelOverrides only).
+ */
+function mergeModelSystemPromptsIntoOverrides(
+  overrides?: Record<string, { systemPrompt?: string }>,
+  legacyPrompts?: Record<string, string>,
+): Record<string, { systemPrompt?: string }> | undefined {
+  if (!legacyPrompts || Object.keys(legacyPrompts).length === 0) return overrides;
+  const merged = { ...(overrides ?? {}) };
+  for (const [model, prompt] of Object.entries(legacyPrompts)) {
+    if (!merged[model]) {
+      merged[model] = { systemPrompt: prompt };
+    } else if (!merged[model].systemPrompt) {
+      merged[model] = { ...merged[model], systemPrompt: prompt };
+    }
+  }
+  return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
 interface AgentConfigRow {
   id: string;
   name: string;
@@ -52,7 +73,10 @@ function rowToConfig(row: AgentConfigRow): AgentConfig {
     maxTurns: row.max_turns,
     systemPrompt: row.system_prompt ?? undefined,
     modelSystemPrompts: row.model_system_prompts ? JSON.parse(row.model_system_prompts) : undefined,
-    modelOverrides: row.model_overrides ? JSON.parse(row.model_overrides) : undefined,
+    modelOverrides: mergeModelSystemPromptsIntoOverrides(
+      row.model_overrides ? JSON.parse(row.model_overrides) : undefined,
+      row.model_system_prompts ? JSON.parse(row.model_system_prompts) : undefined,
+    ),
     priority: row.priority,
     localModelHost: (row.local_model_host as AgentConfig["localModelHost"]) ?? undefined,
     createdAt: row.created_at,
