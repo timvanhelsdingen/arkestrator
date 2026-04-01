@@ -2022,9 +2022,10 @@ export async function spawnAgent(
     }
   }
 
-  // Local-OSS command-mode can run a strict local tool loop (MCP-style parity)
-  // before falling back to legacy fenced-command parsing.
-  if (config.engine === "local-oss" && workspace.mode === "command") {
+  // Local-OSS native tool loop: runs Ollama chat API with structured tool calling.
+  // Applies to all workspace modes — the native loop handles bridge commands directly
+  // via MCP tools, so it doesn't need the legacy subprocess+fenced-command path.
+  if (config.engine === "local-oss") {
     // Use the lean prompt for the agentic loop — the protocol instructions,
     // tool list, and turn transcript are added by buildLocalAgenticTurnPrompt().
     // The full orchestrator prompt (MCP gates, CLI fallbacks, etc.) overwhelms
