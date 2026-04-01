@@ -889,6 +889,20 @@ export function buildLocalAgenticBasePrompt(
     }
   }
 
+  // Infer target bridge from prompt when not explicitly set — helps local models
+  // (14-32B) that struggle to figure out the right bridge from the coordinator prompt.
+  const connectedPrograms = bridges.map((b) => String(b.program ?? "").toLowerCase()).filter(Boolean);
+  const explicitBridge = String(job.bridgeProgram ?? "").trim().toLowerCase();
+  if (!explicitBridge && connectedPrograms.length > 0) {
+    const promptLower = job.prompt.toLowerCase();
+    const matches = connectedPrograms.filter((p) => promptLower.includes(p));
+    if (matches.length === 1) {
+      sections.push(`Target bridge: ${matches[0]} — use execute_command with target="${matches[0]}" for this task.`);
+    }
+  } else if (explicitBridge) {
+    sections.push(`Target bridge: ${explicitBridge} — use execute_command with target="${explicitBridge}" for this task.`);
+  }
+
   // User prompt (with context items if any)
   sections.push(buildPrompt(job, workspace));
 
