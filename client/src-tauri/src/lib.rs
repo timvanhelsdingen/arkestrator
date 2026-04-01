@@ -1057,6 +1057,23 @@ fn restart_app(app: tauri::AppHandle) {
     app.request_restart();
 }
 
+/// Delete the entire app data directory (server database, config, training data).
+/// Used by the client "Full Reset" feature when the user is locked out.
+#[tauri::command]
+fn wipe_app_data_dir(app: tauri::AppHandle) -> Result<String, String> {
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to resolve app data dir: {e}"))?;
+
+    if data_dir.exists() {
+        std::fs::remove_dir_all(&data_dir)
+            .map_err(|e| format!("Failed to delete app data dir: {e}"))?;
+    }
+
+    Ok(data_dir.to_string_lossy().to_string())
+}
+
 // --- Filesystem Commands ---
 // These enable the client to act as a file delivery endpoint for cross-machine
 // asset transfer (e.g., Blender exports on Machine A → Godot imports on Machine B).
@@ -1341,6 +1358,7 @@ pub fn run() {
             pull_local_ollama_model,
             run_worker_headless,
             restart_app,
+            wipe_app_data_dir,
             fs_apply_file_changes,
             fs_create_directory,
             fs_write_file,
