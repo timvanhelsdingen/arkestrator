@@ -398,12 +398,16 @@
   async function comfyStart() {
     comfyLaunching = true;
     comfyError = "";
+    comfyTestResult = null;
     try {
       const path = comfySavedPath || comfySelectedPath || comfyCustomPath;
       if (!path) throw new Error("No ComfyUI path configured");
       const msg = await invoke<string>("launch_comfyui", { comfyuiPath: path, extraArgs: [] as string[] });
       comfySuccess = msg;
       comfyRunning = true;
+      // Auto-test connection after a short delay (ComfyUI needs time to start)
+      setTimeout(() => comfyTestConnection(), 5000);
+      setTimeout(() => comfyTestConnection(), 15000);
     } catch (e: any) {
       comfyError = e?.toString() ?? "Launch failed";
     }
