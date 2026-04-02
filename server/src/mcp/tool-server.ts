@@ -453,8 +453,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
         targetId = resolution.targets[0]?.data.id;
       }
       if (!targetId) {
-        // Try any connected bridge
-        const bridges = deps.hub.getBridges();
+        // Try any connected bridge (skip virtual bridges — they can't handle file reads)
+        const bridges = deps.hub.getBridges().filter((b) => !b.id.startsWith("virtual:"));
         const match = effectiveWorker
           ? bridges.find((b) => (b.workerName ?? "").toLowerCase() === effectiveWorker.toLowerCase())
           : bridges[0];
