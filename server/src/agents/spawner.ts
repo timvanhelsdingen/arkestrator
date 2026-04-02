@@ -3180,6 +3180,8 @@ function flushWsLog(deps: SpawnerDeps, jobId: string) {
 }
 
 function sendLog(deps: SpawnerDeps, job: Job, text: string) {
+  // Mark job as active so idle/stall detection doesn't kill it prematurely
+  deps.processTracker.touch(job.id);
   let buf = wsLogBuffers.get(job.id);
   if (!buf) {
     buf = { text: "", timer: null, job };
