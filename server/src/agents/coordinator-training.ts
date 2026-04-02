@@ -1440,66 +1440,64 @@ export function queueCoordinatorTrainingJob(
         // Create per-project skills as lightweight index entries that reference
         // the vault artifact. Skills contain only a short summary + keywords;
         // the full analysis lives in the vault and is loaded at job runtime.
-        const skillSources = projectDetails.length > 0
-          ? projectDetails
-          : result.summaries.map((s) => ({
-              projectPath: s.path,
-              sourcePath: s.path,
-              projectName: s.name,
-              notesExcerpt: undefined as string | undefined,
-              config: undefined as Record<string, unknown> | undefined,
-              inventory: { files: [] as string[], sceneFiles: [] as string[] },
-            }));
-        // Compute the playbook reference — relative path from coordinatorPlaybooksDir
+        //
+        // Strategy: use extracted summaries as the PRIMARY source (they contain
+        // the agent's actual analysis), enriched with filesystem inventory when
+        // available. This avoids the fragile approach of scanning the filesystem
+        // first and then trying to match summaries by name/path.
+        const normPath = (p: string) => p.replace(/\\/g, "/").toLowerCase().replace(/\/+$/, "");
         const artifactRelPath = relative(resolve(coordinatorPlaybooksDir), resolve(artifactPaths.jsonPath))
           .replace(/\\/g, "/");
-        appendJobLog(hub, jobsRepo, created.id, `Skill creation: skillsRepo=${!!deps.skillsRepo}, sources=${skillSources.length}, playbookRef=${artifactRelPath}`);
-        if (deps.skillsRepo && skillSources.length > 0) {
+        appendJobLog(hub, jobsRepo, created.id, `Skill creation: skillsRepo=${!!deps.skillsRepo}, summaries=${result.summaries.length}, fsProjects=${projectDetails.length}, playbookRef=${artifactRelPath}`);
+        if (deps.skillsRepo && result.summaries.length > 0) {
           let skillCount = 0;
-          for (let si = 0; si < skillSources.length; si++) {
-            const project = skillSources[si];
-            const projectName = String(project.projectName ?? "").trim();
-            if (!projectName) continue;
-            const slug = `project-${normalizedProgram}-${projectName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+$/, "")}`;
-            const normPath = (p: string) => p.replace(/\\/g, "/").toLowerCase().replace(/\/+$/, "");
-            const projPathNorm = normPath(project.projectPath);
-            const matchingSummary = result.summaries.find((s) => {
-              if (s.name === projectName || s.name.startsWith(projectName)) return true;
-              const sPathNorm = normPath(s.path);
-              // Exact match, or summary path is a file inside the project dir
-              return sPathNorm === projPathNorm || sPathNorm.startsWith(projPathNorm + "/");
+          const createdSlugs = new Set<string>();
+
+          // Phase 1: create skills from extracted summaries (guaranteed to have content)
+          for (const summary of result.summaries) {
+            const name = String(summary.name ?? "").trim();
+            const summaryPath = String(summary.path ?? "").trim();
+            const summaryText = String(summary.summary ?? "").trim();
+            if (!name) continue;
+            // Derive a clean project name (strip file extensions, decoration)
+            const cleanName = name.replace(/\.[^.]+$/, "").replace(/\s*[—–-]\s.*$/, "").trim() || name;
+            const slug = `project-${normalizedProgram}-${cleanName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+$/, "")}`;
+            if (createdSlugs.has(slug)) continue;
+
+            // Enrich with filesystem inventory if a matching project exists
+            const summaryPathNorm = normPath(summaryPath);
+            const matchingProject = projectDetails.find((p) => {
+              const projNorm = normPath(p.projectPath);
+              return projNorm === summaryPathNorm
+                || summaryPathNorm.startsWith(projNorm + "/")
+                || projNorm.startsWith(summaryPathNorm + "/")
+                || p.projectName === cleanName;
             });
-            const summaryText = matchingSummary?.summary || "";
-            // Build short content — just enough for discovery, NOT the full analysis
+
             const contentParts: string[] = [];
-            contentParts.push(`# ${projectName}`);
+            contentParts.push(`# ${cleanName}`);
             contentParts.push(`**Program:** ${normalizedProgram}`);
             if (summaryText) {
               contentParts.push("");
               contentParts.push(summaryText);
             }
-            if (project.inventory?.sceneFiles?.length) {
+            if (matchingProject?.inventory?.sceneFiles?.length) {
               contentParts.push("");
-              contentParts.push(`Scene files: ${project.inventory.sceneFiles.slice(0, 5).join(", ")}`);
+              contentParts.push(`Scene files: ${matchingProject.inventory.sceneFiles.slice(0, 5).join(", ")}`);
             }
             const content = contentParts.join("\n");
-            // Skip if we have no summary at all
-            if (!summaryText && content.length < 100) {
-              appendJobLog(hub, jobsRepo, created.id, `  → Skipped ${projectName}: no summary available`);
-              continue;
-            }
             try {
               const skillInput = {
                 slug,
-                name: `${projectName} (${normalizedProgram})`,
+                name: `${cleanName} (${normalizedProgram})`,
                 program: normalizedProgram,
                 category: "project-reference",
-                title: `${projectName} — ${normalizedProgram} project reference`,
-                description: summaryText || `Learned patterns and structure from ${projectName}`,
+                title: `${cleanName} — ${normalizedProgram} project reference`,
+                description: summaryText || `Learned patterns and structure from ${cleanName}`,
                 content,
                 playbooks: [artifactRelPath],
                 source: "training",
-                keywords: extractProjectKeywords(projectName, summaryText, content),
+                keywords: extractProjectKeywords(cleanName, summaryText, content),
               };
               if (deps.skillStore) {
                 await deps.skillStore.upsertBySlugAndProgram(skillInput);
@@ -1507,15 +1505,69 @@ export function queueCoordinatorTrainingJob(
                 deps.skillsRepo!.upsertBySlugAndProgram(skillInput);
               }
               skillCount++;
+              createdSlugs.add(slug);
               appendJobLog(hub, jobsRepo, created.id, `  → Skill created: ${slug} → playbook: ${artifactRelPath}`);
             } catch (err: any) {
-              appendJobLog(hub, jobsRepo, created.id, `  → Skill FAILED: ${projectName}: ${String(err?.message ?? err)}`);
-              logger.warn("coordinator-training", `Failed to write skill for ${projectName}: ${String(err?.message ?? err)}`);
+              appendJobLog(hub, jobsRepo, created.id, `  → Skill FAILED: ${cleanName}: ${String(err?.message ?? err)}`);
+              logger.warn("coordinator-training", `Failed to write skill for ${cleanName}: ${String(err?.message ?? err)}`);
             }
           }
+
+          // Phase 2: create skills for filesystem projects that weren't covered by summaries
+          for (const project of projectDetails) {
+            const projectName = String(project.projectName ?? "").trim();
+            if (!projectName) continue;
+            const slug = `project-${normalizedProgram}-${projectName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+$/, "")}`;
+            if (createdSlugs.has(slug)) continue;
+            // Only create if there's meaningful inventory content
+            const sceneFiles = project.inventory?.sceneFiles ?? [];
+            const notesExcerpt = project.notesExcerpt?.trim() ?? "";
+            if (sceneFiles.length === 0 && !notesExcerpt) continue;
+            const contentParts: string[] = [];
+            contentParts.push(`# ${projectName}`);
+            contentParts.push(`**Program:** ${normalizedProgram}`);
+            if (notesExcerpt) {
+              contentParts.push("");
+              contentParts.push(notesExcerpt.slice(0, 500));
+            }
+            if (sceneFiles.length > 0) {
+              contentParts.push("");
+              contentParts.push(`Scene files: ${sceneFiles.slice(0, 5).join(", ")}`);
+            }
+            const content = contentParts.join("\n");
+            try {
+              const skillInput = {
+                slug,
+                name: `${projectName} (${normalizedProgram})`,
+                program: normalizedProgram,
+                category: "project-reference",
+                title: `${projectName} — ${normalizedProgram} project reference`,
+                description: `Learned patterns and structure from ${projectName}`,
+                content,
+                playbooks: [artifactRelPath],
+                source: "training",
+                keywords: extractProjectKeywords(projectName, "", content),
+              };
+              if (deps.skillStore) {
+                await deps.skillStore.upsertBySlugAndProgram(skillInput);
+              } else {
+                deps.skillsRepo!.upsertBySlugAndProgram(skillInput);
+              }
+              skillCount++;
+              createdSlugs.add(slug);
+              appendJobLog(hub, jobsRepo, created.id, `  → Skill created (fs): ${slug} → playbook: ${artifactRelPath}`);
+            } catch (err: any) {
+              appendJobLog(hub, jobsRepo, created.id, `  → Skill FAILED: ${projectName}: ${String(err?.message ?? err)}`);
+            }
+          }
+
           if (skillCount > 0) {
             appendJobLog(hub, jobsRepo, created.id, `Created ${skillCount} project reference skill(s) with playbook references.`);
+          } else {
+            appendJobLog(hub, jobsRepo, created.id, `Warning: no skills created despite ${result.summaries.length} summary(ies). Check extraction logs.`);
           }
+        } else if (deps.skillsRepo) {
+          appendJobLog(hub, jobsRepo, created.id, `Warning: no summaries available for skill creation.`);
         }
 
         appendJobLog(

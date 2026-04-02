@@ -2523,10 +2523,9 @@ export async function spawnAgent(
   // output (display previews truncate text blocks to 500 chars, which loses
   // structured JSON configs that training extraction depends on).
   if (sjState?.plainText) {
-    const separator = "\n\n--- Full assistant output ---\n";
     const fullText = sjState.plainText.trim();
-    if (fullText && !logBuffer.includes(fullText.slice(0, 200))) {
-      logBuffer += separator + fullText + "\n";
+    if (fullText) {
+      logBuffer += "\n\n--- Full assistant output ---\n" + fullText + "\n";
     }
   }
 
