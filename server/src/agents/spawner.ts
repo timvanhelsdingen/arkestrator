@@ -2529,6 +2529,24 @@ export async function spawnAgent(
     }
   }
 
+  // Guard: detect API auth failures that the CLI reports as exit code 0.
+  // These should be treated as failures, not successful completions.
+  const authFailureMatch = logBuffer.match(/(?:authentication_error|OAuth token has expired|Failed to authenticate.*API Error.*40[13])/i);
+  if (authFailureMatch && exitCode === 0) {
+    const msg = "Agent CLI exited cleanly but authentication failed. Re-authenticate your API credentials.";
+    logger.warn("spawner", `Job ${job.id}: ${msg}`);
+    watcher?.stop();
+    deps.jobsRepo.fail(job.id, msg, logBuffer);
+    const rejected = deps.jobInterventionsRepo?.rejectPendingForJob(job.id, msg) ?? [];
+    broadcastInterventionUpdates(deps, job.id, rejected);
+    sendComplete(deps, job, false, [], [], workspace.mode, msg);
+    broadcastJobUpdated(deps, job.id);
+    recordTokens();
+    cleanupSync(deps, workspace, job.id);
+    cleanupAgentTools(cliWrapper, mcpConfigPath, mcpConfigBackup);
+    return;
+  }
+
   // 8. Handle completion based on mode
   if (exitCode === 0) {
     // Guard: if this coordinator spawned sub-jobs (via MCP create_job) that haven't
