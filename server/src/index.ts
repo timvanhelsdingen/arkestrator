@@ -1122,7 +1122,8 @@ async function main() {
   }
 
   // Auto-pull bridge skills on first run (deferred to avoid startup race conditions)
-  if (shouldAutoPullSkills) {
+  const autoPullDisabled = settingsRepo.get("auto_pull_bridge_skills") === "false";
+  if (shouldAutoPullSkills && !autoPullDisabled) {
     setTimeout(() => {
       logger.info("server", "No skills found — auto-pulling from bridge registry...");
       pullAllBridgeSkills(skillsRepo, settingsRepo, undefined, skillStore)
