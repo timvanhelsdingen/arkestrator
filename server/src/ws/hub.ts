@@ -331,6 +331,19 @@ export class WebSocketHub {
         bridges.push(ws.data);
       }
     }
+    // Include virtual bridges as synthetic WsData entries
+    for (const vb of this.virtualBridges.values()) {
+      bridges.push({
+        id: vb.id,
+        role: "bridge",
+        type: "bridge",
+        name: vb.program,
+        connectedAt: vb.connectedAt,
+        program: vb.program,
+        programVersion: vb.programVersion,
+        bridgeVersion: "http-standalone",
+      });
+    }
     return bridges;
   }
 
@@ -507,51 +520,35 @@ export class WebSocketHub {
   }
 
   private buildBridgeList() {
-    const real = this.getBridges().map((b) => ({
-      id: b.id,
-      name: b.name ?? b.id,
-      type: "bridge",
-      connected: true,
-      lastSeen: new Date().toISOString(),
-      program: b.program,
-      programVersion: b.programVersion,
-      bridgeVersion: b.bridgeVersion,
-      projectPath: b.projectPath,
-      activeProjects: Array.isArray(b.activeProjects)
-        ? b.activeProjects
-        : (b.projectPath ? [b.projectPath] : []),
-      machineId: b.machineId,
-      workerName: b.workerName,
-      ip: b.ip,
-      connectedAt: b.connectedAt,
-      osUser: b.osUser,
-    }));
-
-    // Merge virtual bridges (HTTP-based services)
-    // Use the first connected client's identity so the bridge shows up under the correct worker
+    // Use the first connected client's identity for virtual bridges
+    // so they group under the correct worker in the UI
     const firstClient = this.getClients()[0];
     const localWorkerName = firstClient?.workerName ?? firstClient?.machineId ?? "localhost";
     const localMachineId = firstClient?.machineId;
     const localIp = firstClient?.ip ?? "127.0.0.1";
-    const virtual = Array.from(this.virtualBridges.values()).map((vb) => ({
-      id: vb.id,
-      name: vb.program,
-      type: "bridge" as const,
-      connected: true,
-      lastSeen: new Date().toISOString(),
-      program: vb.program,
-      programVersion: vb.programVersion,
-      bridgeVersion: "http-standalone",
-      projectPath: undefined,
-      activeProjects: [] as string[],
-      machineId: localMachineId,
-      workerName: localWorkerName,
-      ip: localIp,
-      connectedAt: vb.connectedAt,
-      osUser: undefined,
-    }));
 
-    return [...real, ...virtual];
+    return this.getBridges().map((b) => {
+      const isVirtual = b.id.startsWith("virtual:");
+      return {
+        id: b.id,
+        name: b.name ?? b.id,
+        type: "bridge",
+        connected: true,
+        lastSeen: new Date().toISOString(),
+        program: b.program,
+        programVersion: b.programVersion,
+        bridgeVersion: b.bridgeVersion,
+        projectPath: b.projectPath,
+        activeProjects: Array.isArray(b.activeProjects)
+          ? b.activeProjects
+          : (b.projectPath ? [b.projectPath] : []),
+        machineId: isVirtual ? localMachineId : b.machineId,
+        workerName: isVirtual ? localWorkerName : b.workerName,
+        ip: isVirtual ? localIp : b.ip,
+        connectedAt: b.connectedAt,
+        osUser: b.osUser,
+      };
+    });
   }
 
   broadcastBridgeStatus() {

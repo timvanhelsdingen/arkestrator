@@ -45,51 +45,34 @@ export function createWorkerRoutes(
     }));
 
     // Include bridge list so clients can update both workers and bridges in one call.
-    // Keep connected bridge sockets + persisted offline bridge history by worker/program.
-    const bridgeList: any[] = bridges.map((b) => ({
-      id: b.id,
-      name: b.name ?? b.id,
-      type: "bridge",
-      connected: true,
-      lastSeen: new Date().toISOString(),
-      program: b.program,
-      programVersion: b.programVersion,
-      bridgeVersion: b.bridgeVersion,
-      projectPath: b.projectPath,
-      activeProjects: Array.isArray(b.activeProjects)
-        ? b.activeProjects
-        : (b.projectPath ? [b.projectPath] : []),
-      machineId: b.machineId,
-      workerName: b.workerName,
-      ip: b.ip,
-      connectedAt: b.connectedAt as string | undefined,
-      osUser: b.osUser as string | undefined,
-    }));
-    // Include virtual bridges (HTTP-based services like ComfyUI)
-    // Use the first connected client's identity so the bridge groups under the correct worker
+    // getBridges() includes both real WebSocket bridges and virtual HTTP bridges (e.g. ComfyUI).
+    // Use the first connected client's identity for virtual bridges so they group under the correct worker.
     const firstClient = clients[0];
     const localWorkerName = firstClient?.workerName ?? firstClient?.machineId ?? "localhost";
     const localMachineId = firstClient?.machineId;
     const localIp = firstClient?.ip ?? "127.0.0.1";
-    for (const vb of hub.getVirtualBridges()) {
-      bridgeList.push({
-        id: vb.id,
-        name: vb.program,
+    const bridgeList: any[] = bridges.map((b) => {
+      const isVirtual = b.id.startsWith("virtual:");
+      return {
+        id: b.id,
+        name: b.name ?? b.id,
         type: "bridge",
         connected: true,
         lastSeen: new Date().toISOString(),
-        program: vb.program,
-        programVersion: vb.programVersion,
-        bridgeVersion: "http-standalone",
-        projectPath: undefined,
-        activeProjects: [],
-        machineId: localMachineId,
-        workerName: localWorkerName,
-        ip: localIp,
-        connectedAt: vb.connectedAt,
-        osUser: undefined,
-      });
-    }
+        program: b.program,
+        programVersion: b.programVersion,
+        bridgeVersion: b.bridgeVersion,
+        projectPath: b.projectPath,
+        activeProjects: Array.isArray(b.activeProjects)
+          ? b.activeProjects
+          : (b.projectPath ? [b.projectPath] : []),
+        machineId: isVirtual ? localMachineId : b.machineId,
+        workerName: isVirtual ? localWorkerName : b.workerName,
+        ip: isVirtual ? localIp : b.ip,
+        connectedAt: b.connectedAt as string | undefined,
+        osUser: b.osUser as string | undefined,
+      };
+    });
     const connectedKeys = new Set(
       bridgeList.filter((b) => b.connected).map((b) => `${String(b.machineId ?? b.workerName ?? "").toLowerCase()}:${String(b.program ?? "").toLowerCase()}`),
     );

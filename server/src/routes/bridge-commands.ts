@@ -302,7 +302,7 @@ export async function executeBridgeCommand(
 }
 
 /**
- * List currently connected bridges.
+ * List currently connected bridges (real WebSocket + virtual HTTP-based).
  */
 export function listConnectedBridges(hub: WebSocketHub) {
   return hub.getBridges().map((b) => ({
