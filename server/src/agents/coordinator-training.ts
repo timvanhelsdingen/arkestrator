@@ -402,6 +402,19 @@ export function buildTrainingAgenticAnalyzePrompt(
     lines.push(`- ${sourcePath}`);
   }
   lines.push("");
+  lines.push("## Skill Creation (IMPORTANT)");
+  lines.push("As you analyze, **create skills immediately** whenever you discover something reusable:");
+  lines.push("- Non-trivial techniques, workarounds, or patterns");
+  lines.push("- API quirks, version-specific behavior, or gotchas");
+  lines.push("- Workflow patterns, node/component setups, pipeline conventions");
+  lines.push("- Naming conventions, file organization patterns, render settings");
+  lines.push("");
+  lines.push("Use `create_skill` to record each discovery AS you find it — don't wait until the end.");
+  lines.push("Use `search_skills` first to check if a skill already exists; use `update_skill` to improve existing ones.");
+  lines.push("Each skill should be focused on ONE technique/pattern, not a dump of everything.");
+  lines.push("Good slugs: 'nuke-aov-shuffle-rebuild', 'houdini-vdb-from-particles', 'blender-aces-ocio-setup'");
+  lines.push("");
+  lines.push("## Analysis Output");
   lines.push("For each discovered project or content group:");
   lines.push("1) Include concrete findings: pipeline decisions, key nodes/components, validation checks, caveats.");
   lines.push("2) Do not write generic boilerplate; base conclusions on inspected files/scene data.");
@@ -424,7 +437,7 @@ export function buildTrainingAgenticAnalyzePrompt(
   lines.push("- Practical reuse instructions");
   lines.push("- Risks / when not to reuse");
   lines.push("");
-  lines.push("At the end, print a concise summary with counts: discovered, created, updated, skipped.");
+  lines.push("At the end, print a concise summary with counts: discovered, skills created/updated, skipped.");
   return lines.join("\n");
 }
 
