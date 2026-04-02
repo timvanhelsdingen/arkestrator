@@ -336,6 +336,8 @@ const COLUMN_ADDITIONS = [
   // TTL for worker-targeted jobs: if the target worker never connects, the job
   // expires and is failed automatically instead of sitting in the queue forever.
   `ALTER TABLE jobs ADD COLUMN expires_at TEXT`,
+  // Claude CLI session ID for pause/resume
+  `ALTER TABLE jobs ADD COLUMN session_id TEXT`,
   // Skill versioning
   `ALTER TABLE skills ADD COLUMN version INTEGER NOT NULL DEFAULT 1`,
   // Skill effectiveness tracking

@@ -1432,6 +1432,31 @@ export function createJobRoutes(
   });
 
   // Resume a paused job (move to queued so worker picks it up)
+  router.post("/:id/pause", async (c) => {
+    const principal = await getAuthPrincipal(c, usersRepo, apiKeysRepo);
+    if (!principal) {
+      return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+    }
+    const id = c.req.param("id");
+    const job = jobsRepo.getById(id);
+    if (!job) return errorResponse(c, 404, "Not found", "NOT_FOUND");
+    if (!canMutateJob(principal, job)) {
+      return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+    }
+    if (job.status !== "running") {
+      return errorResponse(c, 400, "Can only pause running jobs", "INVALID_INPUT");
+    }
+    if (!job.sessionId) {
+      return errorResponse(c, 400, "Job has no session ID yet (agent may still be initializing)", "INVALID_INPUT");
+    }
+    // Move to paused first (so the exit handler sees paused status), then kill
+    const paused = jobsRepo.pause(id);
+    if (!paused) return errorResponse(c, 400, "Failed to pause job", "INVALID_INPUT");
+    processTracker?.kill(id);
+    broadcastJob(id);
+    return c.json({ ok: true, sessionId: job.sessionId });
+  });
+
   router.post("/:id/resume", async (c) => {
     const principal = await getAuthPrincipal(c, usersRepo, apiKeysRepo);
     if (!principal) {

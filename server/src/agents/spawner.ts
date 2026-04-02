@@ -1793,6 +1793,7 @@ export async function spawnAgent(
   const defaultProjectDir =
     deps.settingsRepo?.get("default_project_dir") || getDefaultProjectDir();
 
+  const resumeSessionId = job.sessionId ?? undefined;
   const { command, args, env, cwd, runAsUser } = buildCommand(
     config,
     jobForLaunch,
@@ -1802,6 +1803,7 @@ export async function spawnAgent(
     headlessPrograms,
     orchestratorPromptOverride || undefined,
     defaultProjectDir || undefined,
+    resumeSessionId,
   );
 
   logger.info(
@@ -2309,6 +2311,7 @@ export async function spawnAgent(
   let logBuffer = "";
   const isStreamJson = config.engine === "claude-code" || config.engine === "codex";
   const sjState: StreamJsonState | null = isStreamJson ? createStreamJsonState() : null;
+  let sessionIdSaved = false;
 
   // Helper: record token usage for this job. Called from every post-process completion path.
   let tokensRecorded = false;
@@ -2415,6 +2418,11 @@ export async function spawnAgent(
         if (done) break;
         const chunk = decoder.decode(value, { stream: true });
         const lines = processStreamJsonChunk(sjState, chunk);
+        // Save session ID as soon as it's available (for pause/resume)
+        if (!sessionIdSaved && sjState.sessionId) {
+          sessionIdSaved = true;
+          try { deps.jobsRepo.setSessionId(job.id, sjState.sessionId); } catch { /* best effort */ }
+        }
         for (const line of lines) {
           const displayText = line.display + "\n";
           if (logBuffer.length < LOG_BUFFER_MAX) {
@@ -2513,6 +2521,16 @@ export async function spawnAgent(
     watcher?.stop();
     const rejected = deps.jobInterventionsRepo?.rejectPendingForJob(job.id, "Job was cancelled before queued guidance could be delivered.") ?? [];
     broadcastInterventionUpdates(deps, job.id, rejected);
+    recordTokens();
+    cleanupSync(deps, workspace, job.id);
+    cleanupAgentTools(cliWrapper, mcpConfigPath, mcpConfigBackup);
+    return;
+  }
+  if (currentAfterExit.status === "paused") {
+    // Job was paused by user — process was killed intentionally.
+    // Don't treat as failure. Logs are already saved. Job will resume later.
+    watcher?.stop();
+    logger.info("spawner", `Job ${job.id} paused by user (session: ${sjState?.sessionId || "none"})`);
     recordTokens();
     cleanupSync(deps, workspace, job.id);
     cleanupAgentTools(cliWrapper, mcpConfigPath, mcpConfigBackup);
