@@ -749,7 +749,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
         const bridges = deps.hub.getBridgesByProgram(target_program);
         if (bridges.length > 0) {
           bridgeId = bridges[0].data.id;
-        } else {
+        } else if (!deps.hub.hasVirtualBridgeForProgram(target_program)) {
           // Check if a headless program is registered for this target (allows CLI-only execution)
           const headless = deps.headlessProgramsRepo?.list()
             .find((hp) => hp.program === target_program && hp.enabled);
