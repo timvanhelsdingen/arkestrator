@@ -256,13 +256,13 @@ export function extractAgenticTrainingSeed(
     }
   }
 
-  const selected = [...candidates]
-    .reverse()
-    .find((candidate) => {
-      const candidateProgram = String(candidate.program ?? "").trim().toLowerCase();
-      return !candidateProgram || candidateProgram === program;
-    });
-  const blockerReason = detectAgenticAnalysisBlocker(text, selected ?? null);
+  // Filter candidates to those matching the target program
+  const matching = candidates.filter((candidate) => {
+    const candidateProgram = String(candidate.program ?? "").trim().toLowerCase();
+    return !candidateProgram || candidateProgram === program;
+  });
+
+  const blockerReason = detectAgenticAnalysisBlocker(text, matching[matching.length - 1] ?? null);
   if (blockerReason) {
     return {
       summaries: [],
@@ -271,7 +271,7 @@ export function extractAgenticTrainingSeed(
       blockedReason: blockerReason,
     };
   }
-  if (!selected) {
+  if (matching.length === 0) {
     // Agent completed analysis but didn't emit a JSON config block.
     // Synthesise a minimal seed from source paths and extract what we can
     // from the markdown so the training run isn't wasted.
@@ -310,48 +310,55 @@ export function extractAgenticTrainingSeed(
       blockedReason: "Agentic analysis did not emit a required structured JSON config block.",
     };
   }
-  const selectedRecord = selected ?? {};
-  const projectPath = String((selectedRecord as Record<string, unknown>).projectPath ?? sourcePaths[0] ?? "").trim();
-  const sourcePath = String(sourcePaths[0] ?? projectPath).trim() || projectPath;
-  const projectName = String(
-    (selectedRecord as Record<string, unknown>).projectName
-      ?? (selectedRecord as Record<string, unknown>).name
-      ?? (projectPath ? basename(projectPath) : `${program}-training-reference`),
-  ).trim() || `${program}-training-reference`;
-  const prompt = String((selectedRecord as Record<string, unknown>).prompt ?? "").trim()
-    || summarizeContextsPrompt(selectedRecord as Record<string, unknown>)
-    || parsePromptSummary(trainingPrompt, 500)
-    || "Bridge-analyzed coordinator training reference.";
 
+  // Build summaries and projects from ALL matching JSON configs (deduplicated by path)
   const notesExcerpt = extractAgenticNotesExcerpt(text);
-  const summary: CoordinatorTrainingSummary = {
-    name: projectName,
-    path: projectPath || sourcePath || `bridge:${program}`,
-    summary: parsePromptSummary(prompt, 220),
-  };
-  const project: CoordinatorTrainingProjectDetail = {
-    projectPath: projectPath || sourcePath || `bridge:${program}`,
-    sourcePath: sourcePath || projectPath || `bridge:${program}`,
-    projectName,
-    configPath: projectPath
-      ? join(projectPath, PROJECT_CONFIG_FILES[0])
-      : `${projectName}/${PROJECT_CONFIG_FILES[0]}`,
-    notesPath: projectPath
-      ? join(projectPath, PROJECT_NOTES_FILES[0])
-      : `${projectName}/${PROJECT_NOTES_FILES[0]}`,
-    config: Object.keys(selectedRecord).length > 0 ? (selectedRecord as Record<string, unknown>) : undefined,
-    notesExcerpt: notesExcerpt || undefined,
-    inventory: {
-      files: [],
-      sceneFiles: [],
-    },
-  };
+  const summaries: CoordinatorTrainingSummary[] = [];
+  const projects: CoordinatorTrainingProjectDetail[] = [];
+  const seenPaths = new Set<string>();
+
+  for (const record of matching) {
+    const rec = record as Record<string, unknown>;
+    const projectPath = String(rec.projectPath ?? sourcePaths[0] ?? "").trim();
+    const sourcePath = String(sourcePaths[0] ?? projectPath).trim() || projectPath;
+    const dedupeKey = projectPath.replace(/\\/g, "/").toLowerCase();
+    if (seenPaths.has(dedupeKey)) continue;
+    seenPaths.add(dedupeKey);
+
+    const projectName = String(
+      rec.projectName ?? rec.name ?? (projectPath ? basename(projectPath) : `${program}-training-reference`),
+    ).trim() || `${program}-training-reference`;
+    const prompt = String(rec.prompt ?? "").trim()
+      || summarizeContextsPrompt(rec)
+      || parsePromptSummary(trainingPrompt, 500)
+      || "Bridge-analyzed coordinator training reference.";
+
+    summaries.push({
+      name: projectName,
+      path: projectPath || sourcePath || `bridge:${program}`,
+      summary: parsePromptSummary(prompt, 220),
+    });
+    projects.push({
+      projectPath: projectPath || sourcePath || `bridge:${program}`,
+      sourcePath: sourcePath || projectPath || `bridge:${program}`,
+      projectName,
+      configPath: projectPath
+        ? join(projectPath, PROJECT_CONFIG_FILES[0])
+        : `${projectName}/${PROJECT_CONFIG_FILES[0]}`,
+      notesPath: projectPath
+        ? join(projectPath, PROJECT_NOTES_FILES[0])
+        : `${projectName}/${PROJECT_NOTES_FILES[0]}`,
+      config: Object.keys(rec).length > 0 ? rec : undefined,
+      notesExcerpt: notesExcerpt || undefined,
+      inventory: { files: [], sceneFiles: [] },
+    });
+  }
 
   return {
-    summaries: [summary],
-    projects: [project],
+    summaries,
+    projects,
     notes: [
-      "Training summaries seeded from bridge-analysis artifact (no server filesystem scan required).",
+      `Training summaries seeded from ${summaries.length} bridge-analysis artifact(s).`,
     ],
   };
 }
