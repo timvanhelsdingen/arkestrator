@@ -34,6 +34,24 @@ export function createConnectionRoutes(
       osUser: ws.osUser,
     }));
 
+    // Include virtual bridges (HTTP-based services like ComfyUI) so they show as online
+    for (const vb of hub.getVirtualBridges()) {
+      connections.push({
+        id: vb.id,
+        type: "bridge",
+        role: "bridge",
+        name: vb.program,
+        connectedAt: vb.connectedAt,
+        program: vb.program,
+        programVersion: vb.programVersion,
+        bridgeVersion: "http-standalone",
+        projectPath: undefined,
+        activeProjects: [],
+        ip: "127.0.0.1",
+        osUser: undefined,
+      });
+    }
+
     return c.json(connections);
   });
 
