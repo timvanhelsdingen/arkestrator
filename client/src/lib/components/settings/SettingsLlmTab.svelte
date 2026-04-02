@@ -356,8 +356,8 @@
 <section>
   <h3>Local Models (Ollama)</h3>
   <p class="desc">
-    Choose where model actions run for <code class="ic">local-oss</code>.
-    <strong>Client (This Desktop)</strong> uses this machine's local Ollama directly.
+    <strong>Client</strong> — browse and pull models from Ollama running on this machine. Use this for single-user setups or to manage your local models.<br/>
+    <strong>Server</strong> — browse and pull models from Ollama running on the Arkestrator server machine. Use this when the server runs on a dedicated GPU machine and you want to manage its models remotely.
   </p>
   <div class="local-model-toolbar">
     <label>
