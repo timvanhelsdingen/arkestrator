@@ -324,7 +324,7 @@ export function createAuthRoutes(
       digits: 6,
     });
 
-    const delta = totp.validate({ token: code.replace(/\s/g, ""), window: 1 });
+    const delta = totp.validate({ token: code.replace(/\s/g, ""), window: 2 });
 
     if (delta !== null) {
       // TOTP code is valid
@@ -428,7 +428,7 @@ export function createAuthRoutes(
       digits: 6,
     });
 
-    const delta = totp.validate({ token: code.replace(/\s/g, ""), window: 1 });
+    const delta = totp.validate({ token: code.replace(/\s/g, ""), window: 2 });
     if (delta === null) {
       return errorResponse(c, 400, "Invalid code. Try again.", "INVALID_INPUT");
     }

@@ -291,13 +291,14 @@ export function createMcpServer(deps: McpDeps): McpServer {
   // Tool: execute_command
   server.tool(
     "execute_command",
-    "Execute a script/command in a connected DCC bridge (Godot, Blender, Houdini). " +
-      'Use "gdscript" language for Godot, "python" for Blender/Houdini. ' +
+    "Execute a script/command in a connected DCC bridge (Godot, Blender, Houdini, ComfyUI). " +
+      'Use "gdscript" language for Godot, "python" for Blender/Houdini, "workflow" for ComfyUI (JSON workflow). ' +
       "The command runs directly in the target application's scripting environment. " +
+      "For ComfyUI, the script should be a JSON workflow object (API format). " +
       "Blocks until execution completes (up to timeout).",
     {
-      target: z.string().describe('Target bridge program name, e.g. "godot", "blender", "houdini"'),
-      language: z.string().describe('Script language: "gdscript" for Godot, "python" for Blender/Houdini'),
+      target: z.string().describe('Target bridge program name, e.g. "godot", "blender", "houdini", "comfyui"'),
+      language: z.string().describe('Script language: "gdscript" for Godot, "python" for Blender/Houdini, "workflow" for ComfyUI'),
       script: z.string().describe("The script code to execute"),
       description: z.string().optional().describe("Optional description of what the script does"),
       timeout: z.number().optional().describe("Timeout in ms (default 60000, max 300000)"),
@@ -364,9 +365,9 @@ export function createMcpServer(deps: McpDeps): McpServer {
     "execute_multiple_commands",
     "Execute multiple scripts in sequence on a bridge. Useful for batch operations.",
     {
-      target: z.string().describe('Target bridge program name, e.g. "godot", "blender"'),
+      target: z.string().describe('Target bridge program name, e.g. "godot", "blender", "comfyui"'),
       commands: z.array(z.object({
-        language: z.string().describe('Script language: "gdscript" or "python"'),
+        language: z.string().describe('Script language: "gdscript", "python", or "workflow" (ComfyUI)'),
         script: z.string().describe("The script code to execute"),
         description: z.string().optional().describe("What this script does"),
       })).describe("Array of commands to execute in order"),
@@ -536,7 +537,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
   // Tool: list_bridges
   server.tool(
     "list_bridges",
-    "List all currently connected DCC bridges (Godot, Blender, Houdini instances).",
+    "List all currently connected DCC bridges (Godot, Blender, Houdini, ComfyUI instances).",
     {},
     async () => {
       const bridges = listConnectedBridges(deps.hub);
