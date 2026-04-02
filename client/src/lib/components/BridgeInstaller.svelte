@@ -355,20 +355,24 @@
     comfyError = "";
     comfySuccess = "";
     try {
-      const path = comfySelectedPath || comfyCustomPath || null;
+      const path = comfySelectedPath || comfyCustomPath || comfySavedPath || null;
       // Save URL
       const urlToSave = comfyUrl !== comfyUrlEffective || comfyUrlSource === "default" ? comfyUrl : null;
       await api.settings.setComfyuiUrl(urlToSave === "http://127.0.0.1:8188" ? null : urlToSave);
-      // Save path
+      // Save path — update the saved path FIRST so subsequent calls use the new one
       if (path) {
         await api.settings.setComfyuiPath(path);
         comfySavedPath = path;
-        // Check nodes
-        const nodes = await invoke<{ installed: boolean }>("check_comfyui_nodes", { comfyuiPath: path });
-        comfyNodesInstalled = nodes.installed;
+        // Check nodes at the NEW path
+        try {
+          const nodes = await invoke<{ installed: boolean }>("check_comfyui_nodes", { comfyuiPath: path });
+          comfyNodesInstalled = nodes.installed;
+        } catch { comfyNodesInstalled = false; }
       }
-      // Save auto-start preference
-      await invoke("set_comfyui_autostart", { autoStart: comfyAutoStart, comfyuiPath: path });
+      // Save auto-start preference with the NEW path
+      try {
+        await invoke("set_comfyui_autostart", { autoStart: comfyAutoStart, comfyuiPath: path ?? "" });
+      } catch { /* auto-start save is non-critical */ }
       comfySuccess = "Configuration saved";
       // Reload config
       const urlConfig = await api.settings.getComfyuiUrl();
@@ -566,117 +570,133 @@
         {/if}
 
         {#if comfyShowSetup && bridge.program === "comfyui"}
-          <div class="comfy-setup">
-            <!-- Location -->
-            <div class="comfy-section">
-              <div class="comfy-section-header">ComfyUI Location</div>
-              <div class="comfy-row">
-                <button class="btn secondary" onclick={comfyDetect} disabled={comfyDetecting}>
-                  {comfyDetecting ? "Detecting..." : "Detect"}
-                </button>
-                <button class="btn secondary" onclick={comfyBrowse}>Browse...</button>
-                {#if comfyCustomPath}
-                  <span class="path-detail">{comfyCustomPath}</span>
-                {/if}
-              </div>
-              {#if comfyDetectedPaths.length > 0}
-                <div class="detected-list">
-                  {#each comfyDetectedPaths as dp}
-                    <label class="radio-option">
-                      <input type="radio" name="comfy-path" value={dp.path}
-                        bind:group={comfySelectedPath} />
-                      <span class="comfy-path-label">
-                        {dp.label}
-                        {#if dp.hasMainPy}
-                          <span class="badge official">Ready</span>
-                        {/if}
-                      </span>
-                    </label>
-                  {/each}
-                </div>
-              {/if}
-              {#if comfySavedPath}
-                <p class="desc">Current: <code>{comfySavedPath}</code></p>
-              {/if}
-            </div>
-
-            <!-- Server URL -->
-            <div class="comfy-section">
-              <div class="comfy-section-header">
-                Server URL
-                <span class="badge type">{comfyUrlSource}</span>
-              </div>
-              <div class="comfy-row">
-                <input type="text" class="comfy-input" bind:value={comfyUrl}
-                  placeholder="http://127.0.0.1:8188" />
-                <button class="btn secondary" onclick={comfyTestConnection} disabled={comfyTesting}>
-                  {comfyTesting ? "Testing..." : "Test"}
-                </button>
-              </div>
-              {#if comfyTestResult}
-                <div class={comfyTestResult.reachable ? "comfy-test-ok" : "comfy-test-fail"}>
-                  {#if comfyTestResult.reachable}
-                    Connected ({comfyTestResult.latencyMs}ms)
-                  {:else}
-                    Unreachable{comfyTestResult.error ? `: ${comfyTestResult.error}` : ""}
-                  {/if}
-                </div>
-              {/if}
-            </div>
-
-            <!-- Custom Nodes -->
-            {#if comfySavedPath}
-              <div class="comfy-section">
-                <div class="comfy-section-header">Arkestrator Custom Nodes</div>
-                {#if comfyNodesInstalled === true}
-                  <span class="comfy-status online">Installed</span>
-                {:else if comfyNodesInstalled === false}
-                  <span class="desc">Not installed yet. Custom nodes will be available from the bridge registry.</span>
-                {:else}
-                  <span class="desc">Checking...</span>
-                {/if}
-              </div>
-            {/if}
-
-            <!-- Auto-Start & Controls -->
-            <div class="comfy-section">
-              <div class="comfy-section-header">Launch</div>
-              <label class="comfy-toggle">
-                <input type="checkbox" bind:checked={comfyAutoStart} />
-                <span>Start ComfyUI when Arkestrator launches</span>
-              </label>
-              <div class="comfy-row">
-                {#if comfyRunning}
-                  <button class="btn danger" onclick={comfyStop}>Stop</button>
-                  <span class="comfy-status online">Running</span>
-                {:else}
-                  <button class="btn" onclick={comfyStart}
-                    disabled={comfyLaunching || (!comfySavedPath && !comfySelectedPath && !comfyCustomPath)}>
-                    {comfyLaunching ? "Starting..." : "Start ComfyUI"}
-                  </button>
-                {/if}
-              </div>
-            </div>
-
-            <!-- Save -->
-            <div class="comfy-row">
-              <button class="btn" onclick={comfySaveConfig} disabled={comfySaving}>
-                {comfySaving ? "Saving..." : "Save Configuration"}
-              </button>
-            </div>
-
-            {#if comfyError}
-              <div class="error">{comfyError}</div>
-            {/if}
-            {#if comfySuccess}
-              <div class="result">{comfySuccess}</div>
-            {/if}
-          </div>
+          <!-- ComfyUI config opens as a modal popup -->
         {/if}
       </div>
     {/each}
   </div>
 </section>
+
+<!-- ComfyUI Configuration Modal -->
+{#if comfyShowSetup}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="comfy-modal-backdrop" onclick={() => (comfyShowSetup = false)}>
+    <div class="comfy-modal" onclick={(e) => e.stopPropagation()}>
+      <div class="comfy-modal-header">
+        <h3>ComfyUI Configuration</h3>
+        <button class="comfy-modal-close" onclick={() => (comfyShowSetup = false)}>&times;</button>
+      </div>
+
+      <div class="comfy-modal-body">
+        <!-- Location -->
+        <div class="comfy-section">
+          <div class="comfy-section-header">Location</div>
+          <div class="comfy-row">
+            <button class="btn secondary" onclick={comfyDetect} disabled={comfyDetecting}>
+              {comfyDetecting ? "Detecting..." : "Detect"}
+            </button>
+            <button class="btn secondary" onclick={comfyBrowse}>Browse...</button>
+          </div>
+          {#if comfyCustomPath}
+            <p class="desc"><code>{comfyCustomPath}</code></p>
+          {/if}
+          {#if comfyDetectedPaths.length > 0}
+            <div class="detected-list">
+              {#each comfyDetectedPaths as dp}
+                <label class="radio-option">
+                  <input type="radio" name="comfy-path" value={dp.path}
+                    bind:group={comfySelectedPath} />
+                  <span class="comfy-path-label">
+                    {dp.path}
+                    {#if dp.hasMainPy}
+                      <span class="badge official">main.py found</span>
+                    {:else}
+                      <span class="badge type">no main.py</span>
+                    {/if}
+                  </span>
+                </label>
+              {/each}
+            </div>
+          {/if}
+          {#if comfySavedPath}
+            <p class="desc">Saved: <code>{comfySavedPath}</code></p>
+          {/if}
+        </div>
+
+        <!-- Server URL -->
+        <div class="comfy-section">
+          <div class="comfy-section-header">
+            Server URL
+            <span class="badge type">{comfyUrlSource}</span>
+          </div>
+          <div class="comfy-row">
+            <input type="text" class="comfy-input" bind:value={comfyUrl}
+              placeholder="http://127.0.0.1:8188" />
+            <button class="btn secondary" onclick={comfyTestConnection} disabled={comfyTesting}>
+              {comfyTesting ? "Testing..." : "Test"}
+            </button>
+          </div>
+          {#if comfyTestResult}
+            <div class={comfyTestResult.reachable ? "comfy-test-ok" : "comfy-test-fail"}>
+              {#if comfyTestResult.reachable}
+                Connected ({comfyTestResult.latencyMs}ms)
+              {:else}
+                Unreachable{comfyTestResult.error ? `: ${comfyTestResult.error}` : ""}
+              {/if}
+            </div>
+          {/if}
+        </div>
+
+        <!-- Custom Nodes -->
+        <div class="comfy-section">
+          <div class="comfy-section-header">Arkestrator Custom Nodes</div>
+          {#if comfyNodesInstalled === true}
+            <span class="comfy-status online">Installed</span>
+          {:else if comfyNodesInstalled === false}
+            <span class="desc">Not installed yet. Install will happen when you save a valid path.</span>
+          {:else}
+            <span class="desc">Select a location first</span>
+          {/if}
+        </div>
+
+        <!-- Launch -->
+        <div class="comfy-section">
+          <div class="comfy-section-header">Launch</div>
+          <label class="comfy-toggle">
+            <input type="checkbox" bind:checked={comfyAutoStart} />
+            <span>Start ComfyUI when Arkestrator launches</span>
+          </label>
+          <div class="comfy-row">
+            {#if comfyRunning}
+              <button class="btn danger" onclick={comfyStop}>Stop</button>
+              <span class="comfy-status online">Running</span>
+            {:else}
+              <button class="btn" onclick={comfyStart}
+                disabled={comfyLaunching || (!comfySavedPath && !comfySelectedPath && !comfyCustomPath)}>
+                {comfyLaunching ? "Starting..." : "Start ComfyUI"}
+              </button>
+            {/if}
+          </div>
+        </div>
+
+        {#if comfyError}
+          <div class="error">{comfyError}</div>
+        {/if}
+        {#if comfySuccess}
+          <div class="result">{comfySuccess}</div>
+        {/if}
+      </div>
+
+      <div class="comfy-modal-footer">
+        <button class="btn secondary" onclick={() => (comfyShowSetup = false)}>Cancel</button>
+        <button class="btn" onclick={comfySaveConfig} disabled={comfySaving}>
+          {comfySaving ? "Saving..." : "Save Configuration"}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 <style>
   .bridge-installer {
@@ -950,5 +970,61 @@
     display: flex;
     align-items: center;
     gap: 6px;
+  }
+
+  /* ComfyUI Config Modal */
+  .comfy-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .comfy-modal {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    width: 560px;
+    max-width: 90vw;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  }
+  .comfy-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .comfy-modal-header h3 {
+    margin: 0;
+    font-size: 15px;
+  }
+  .comfy-modal-close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 20px;
+    cursor: pointer;
+    padding: 0 4px;
+  }
+  .comfy-modal-close:hover {
+    color: var(--text-primary);
+  }
+  .comfy-modal-body {
+    padding: 16px 20px;
+    overflow-y: auto;
+    flex: 1;
+  }
+  .comfy-modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 20px;
+    border-top: 1px solid var(--border);
   }
 </style>
