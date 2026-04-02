@@ -377,6 +377,7 @@ export function buildTrainingAgenticAnalyzePrompt(
     lines.push("Do NOT skip analysis because bridge tools are unavailable — work with what's on disk.");
   } else if (mode === "bridge") {
     lines.push("Use bridge execution for this program when inspecting scene/project internals.");
+    lines.push(`IMPORTANT: Focus ONLY on the specified source paths and ${program}. Do NOT analyze or reference unrelated projects, other programs, or files outside the source paths.`);
   } else if (mode === "headless") {
     lines.push(`No live GUI bridge is available for ${program}. A headless CLI is configured — use execute_command to run ${program}-specific commands for deeper inspection.`);
     lines.push("If headless execution fails or returns errors, continue with deep filesystem analysis and still write detailed outputs.");
@@ -396,7 +397,7 @@ export function buildTrainingAgenticAnalyzePrompt(
     }
     lines.push("");
   }
-  lines.push("Source paths:");
+  lines.push("Source paths (ONLY analyze these — ignore everything else):");
   for (const sourcePath of sourcePaths) {
     lines.push(`- ${sourcePath}`);
   }
