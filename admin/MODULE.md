@@ -10,6 +10,9 @@ Focused web admin panel (served at `/admin`) for:
 
 Job operations and broader operational tooling are intentionally handled in the Tauri client.
 
+## Recent Updates (2026-04-02)
+- Skill locking (2026-04-01): `src/pages/Skills.svelte` skill list and detail view now show lock status toggle. Locked skills are protected from agent modification (housekeeping/training skip them). `src/lib/api/client.ts` skill update includes `locked` field.
+
 ## Recent Updates (2026-03-31)
 - Skills create modal parity (2026-03-31): `src/pages/Skills.svelte` create modal now includes priority (number), autoFetch (checkbox), and enabled (checkbox) fields. Category dropdown adds `project-reference` and `housekeeping` options. New CSS classes: `.field-row`, `.checkbox-field`. `src/lib/api/client.ts` skill `create` method updated to include `priority`, `autoFetch`, and `enabled` fields.
 

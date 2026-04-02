@@ -21,6 +21,7 @@ A skill record looks like this:
 | `autoFetch`    | boolean    | Always inject for matching program, regardless of score|
 | `enabled`      | boolean    | Active/disabled toggle                                 |
 | `version`      | number     | Incremented on content updates                         |
+| `locked`       | boolean    | When true, prevents agent edits (housekeeping/training skip this skill) |
 
 ## How Skills Are Injected
 
@@ -149,6 +150,16 @@ The ranking algorithm uses a three-phase confidence model for effectiveness scor
 
 The floor at 0.10 ensures even poorly performing skills can still surface if the prompt match is strong enough. Skills are never hard-disabled by low effectiveness alone.
 
+## Skill Locking
+
+Skills can be **locked** to prevent modification by automated agents (housekeeping and training). When a skill is locked:
+
+- Housekeeping and training agents skip it entirely
+- Manual edits via the admin panel or API are still allowed
+- The lock state is shown in the UI and toggleable per skill
+
+This is useful for curated skills you don't want agents to modify, such as carefully tuned coordinator scripts or project-specific conventions.
+
 ## Skill Versioning
 
 When a skill's content, keywords, or description change, the current state is snapshotted to `skill_versions` before the update:
@@ -157,19 +168,68 @@ When a skill's content, keywords, or description change, the current state is sn
 skill_versions (id, skill_id, version, content, keywords, description, created_at)
 ```
 
-The skill's `version` counter increments with each content change. Previous versions can be listed and rolled back through the API or admin panel. Rollback creates a new version entry (the pre-rollback state) before restoring the target version's content.
+The skill's `version` counter increments with each content change. Previous versions can be listed and rolled back through the API or admin panel. Rollback creates a new version entry (the pre-rollback state) before restoring the target version's content. Individual versions can also be deleted.
+
+The desktop client provides a **version dropdown selector** in the skill detail view for browsing and restoring previous versions.
+
+## Agent Skills Open Standard (SKILL.md)
+
+Skills are stored on disk as `SKILL.md` files following the [Agent Skills](https://agentskills.io) open standard, the same format used by Claude Code, Cursor, Gemini CLI, and other tools. SQLite serves as a search/effectiveness index cache rebuilt from disk on startup.
+
+```
+coordinator-playbooks/skills/<slug>/SKILL.md
+```
+
+Each SKILL.md file contains YAML frontmatter (metadata) and a markdown body (content):
+
+```yaml
+---
+name: my-skill-slug
+description: Short summary for search results
+program: blender
+category: training
+keywords: [modeling, mesh, topology]
+---
+
+Skill content in markdown...
+```
+
+A file watcher detects external edits to SKILL.md files and auto-syncs changes to the database index.
+
+### Import from GitHub
+
+Pull skills from any public GitHub repository using the Agent Skills standard:
+
+```
+POST /api/skills/import
+{ "repoUrl": "https://github.com/org/skills-repo", "program": "blender", "subPath": "blender/" }
+```
+
+The admin Skills page includes a registry browser for one-click installation of community skills.
 
 ## Managing Skills
 
 ### Admin Panel
 
-The admin UI (Coordinator section) provides:
+The admin UI (Skills & Training section) provides:
 
 - Skill list with filtering by program, category, source, and enabled state
-- Full CRUD: create, edit, delete, toggle enabled/auto-fetch
-- Version history with rollback
+- Compact view toggle for dense skill tables
+- Full CRUD: create, edit, delete, toggle enabled/auto-fetch/locked
+- Inline edit mode with version history and version dropdown
 - Effectiveness stats per skill
+- Registry browser for installing community skills
 - Bulk operations: re-pull bridge skills, reset to defaults
+
+### Desktop Client
+
+The Coordinator (Skills & Training) page provides:
+
+- Skill list with search, filtering, and compact view
+- Skill detail overlay with metadata, playbooks, related skills, effectiveness stats
+- Export/import with checkbox multi-select (JSON bundles)
+- Single-skill export from the detail view
+- Create skills with full field parity (description, keywords, priority, auto-fetch, enabled, category)
 
 ### API Endpoints
 
@@ -183,6 +243,9 @@ Skills are managed through the settings-coordinator routes:
 | `PATCH`  | `/api/settings/skills/:slug`      | Update skill                   |
 | `DELETE` | `/api/settings/skills/:slug`      | Delete skill                   |
 | `POST`   | `/api/settings/skills/pull`       | Force re-pull from bridge repo |
+| `POST`   | `/api/skills/import`              | Import skills from GitHub repo |
+| `GET`    | `/api/skills/ranking-config`      | Get ranking algorithm config   |
+| `PUT`    | `/api/skills/ranking-config`      | Update ranking config          |
 
 ### Skill Validation
 

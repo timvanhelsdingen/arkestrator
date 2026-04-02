@@ -3,6 +3,14 @@
 ## Purpose
 Central hub. Receives jobs via REST+WS, queues them in SQLite, spawns AI CLI tools as subprocesses, streams results back to bridges+clients. Manages all state.
 
+## Recent Updates (2026-04-02)
+- Skill locking (2026-04-01): `src/db/skills.repo.ts` adds `locked` boolean field to Skill interface. `SkillStore` and skill mutation routes respect lock status. Housekeeping and training agents skip locked skills. `src/routes/skills.ts` accepts `locked` in create/update payloads.
+- Reasoning mode for local LLM agents (2026-04-01): `packages/protocol/src/local-agentic-loop.ts` `runAgenticLoop()` and `runChatAgenticLoop()` now support plan-act-evaluate reasoning mode. The agent plans its approach, executes tools, then evaluates results before proceeding.
+- Configurable per-turn timeout (2026-04-01): `src/agents/spawner.ts` now reads `turnTimeout` from agent config and passes it to the agentic loop. Larger models (32B+) get extended timeouts automatically. Cancellation checks run after both LLM calls and tool execution.
+- Auto-infer target bridge from prompt (2026-04-01): `src/agents/spawner.ts` and `src/agents/client-dispatch.ts` analyze prompt content to auto-detect the target bridge program for local LLM jobs.
+- Native Ollama tool loop for all workspace modes (2026-04-01): Removed workspace mode restrictions on the native Ollama tool calling loop. Now works across command, repo, and sync modes.
+- Installation help guides (2026-04-02): `src/routes/settings-general.ts` Ollama setup guide simplified to remove manual steps the client handles automatically. ComfyUI guide updated for the new popup config modal.
+
 ## Recent Updates (2026-03-31)
 - Skill search instructions softened + runtime options preservation (2026-03-31): `src/agents/spawner.ts` skill search instructions changed from MANDATORY to advisory, removed verification search requirement. `src/agents/engines.ts` verification rule updated to not force a `search_skills` call, skill learning section streamlined. `src/agents/runtime-options.ts` `normalizeJobRuntimeOptions()` now preserves `timeoutMinutes`, `skillsMode`, and `cleanupTempFiles` fields (was previously stripping them).
 - MCP migration for local LLM agents (2026-03-31): Local agentic loops now route all tool calls through MCP instead of the legacy `executeLocalAgenticToolCall()` dispatcher. New `src/mcp/stateless-transport.ts` (extracted `StatelessTransport` for reuse) and `src/mcp/in-process-client.ts` (in-process MCP client for server-side loops via `createInProcessMcpClient()`). `src/agents/spawner.ts` `runLocalAgenticLoop()` creates an in-process MCP client, fetches tool schemas, and routes execution through MCP. `src/agents/local-agentic-protocol.ts` adds re-exports for MCP adapter functions/types. `src/agents/client-dispatch.ts` `dispatchToClient()` accepts optional `mcpEndpoint` param for client-side MCP routing. `src/queue/worker.ts` passes `policiesRepo` to `SpawnerDeps`.

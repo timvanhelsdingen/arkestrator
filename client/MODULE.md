@@ -3,6 +3,17 @@
 ## Purpose
 Primary user-facing desktop dashboard (Tauri v2 + Svelte 5). Users manage jobs, configure agents, view workers, manage projects. Connects to server via REST + WebSocket.
 
+## Recent Updates (2026-04-02)
+- Installation help guides (2026-04-02): ComfyUI setup now uses a popup config modal with path detection, connection test, custom nodes status, auto-start toggle, start/stop controls, and Uninstall button. Auto-tests ComfyUI connection after launch. Ollama setup guide simplified to remove manual steps handled automatically by the client.
+- Skill locking (2026-04-01): `pages/Coordinator.svelte` skill detail view and list now show lock status. Users can toggle lock per skill to prevent agent modification by housekeeping/training.
+- Skill edit mode, version history, and export (2026-04-01): Skill detail view now supports inline editing, version history with version dropdown selector for browsing/restoring previous versions. Individual version deletion. Single-skill export from detail view.
+- Skills export/import with multi-select (2026-04-01): Checkbox multi-select in skills table for bulk export as JSON bundles. Import skill bundles from files. All exports use Tauri native save dialog.
+- Skill compact view and filters (2026-04-01): Skills table supports compact view toggle and client-side filtering by program, category, source, enabled state. Better filenames for exported bundles.
+- Reasoning mode for local LLM agents (2026-04-01): `src/lib/services/localAgenticLoop.ts` now supports plan-act-evaluate reasoning mode for local models, improving multi-step task quality.
+- Configurable per-turn timeout (2026-04-01): Agent config `turnTimeout` setting respected in client-dispatched local LLM loops. Larger models (32B+) get extended timeouts automatically.
+- Auto-infer target bridge (2026-04-01): Local LLM jobs analyze prompt content to auto-detect the target bridge program, removing the need for manual bridge selection on simple prompts.
+- Reset options on login screen (2026-04-01): Troubleshoot cog moved to page corner with full reset confirmation dialog for recovering from configuration issues.
+
 ## Recent Updates (2026-03-31)
 - Skill create form parity (2026-03-31): `pages/Coordinator.svelte` skill create form now includes description, keywords (comma-separated), priority (number), autoFetch (checkbox), and enabled (checkbox) fields. Category dropdown adds `playbook`, `project`, `project-reference`, and `housekeeping` options. New state variables: `skillCreateKeywords`, `skillCreatePriority`, `skillCreateAutoFetch`, `skillCreateEnabled`. New CSS class: `.checkbox-label`. `lib/api/rest.ts` skill `create` method updated to include `enabled` field.
 - MCP migration for client-dispatched local LLM jobs (2026-03-31): New `src/lib/services/mcpHttpClient.ts` — HTTP MCP client for Tauri that calls the server `/mcp` endpoint directly. Exports `listMcpTools()` and `callMcpTool()`. `src/lib/services/localAgenticLoop.ts` now uses the MCP HTTP client when `mcpEndpoint` is provided in the dispatch payload, falling back to WS proxy otherwise. Fetches tool schemas from MCP via `listMcpTools()` and passes them as `toolSchemas` in the agentic loop config. `src/lib/services/clientJobManager.ts` `handleJobDispatch()` now accepts and forwards `mcpEndpoint` from the dispatch payload to the agentic loop.

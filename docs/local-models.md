@@ -15,6 +15,10 @@ Local models are useful when:
 
 ## Installing Ollama
 
+The desktop client includes a built-in **Ollama setup guide** (accessible from Settings > Local Models) that walks you through installation and configuration. The client handles model pulling and endpoint detection automatically.
+
+Manual setup:
+
 1. Download and install from [ollama.com](https://ollama.com).
 2. Ollama runs on port **11434** by default.
 3. Pull a model to get started:
@@ -96,28 +100,40 @@ If no explicit URL is set, the server derives the endpoint from the worker's kno
 
 ## The Agentic Loop
 
-Unlike cloud engines (Claude Code, Codex) that handle tool calling natively, local models use a structured agentic protocol built into Arkestrator.
+Unlike cloud engines (Claude Code, Codex) that handle tool calling natively, local models use an agentic tool-calling loop built into Arkestrator.
 
-### How It Works
+### Tool Execution via MCP
 
-1. The server builds a prompt containing the user's task, available tools, and a strict JSON protocol specification.
-2. The model responds with exactly one JSON object per turn — either a **tool call** or a **final result**.
-3. The server executes the tool (e.g., `execute_command` on a bridge) and feeds the result back.
-4. This loop repeats until the model returns a `final` action or hits the turn limit.
+Local model agents execute tools through the **MCP protocol**. Tool schemas are fetched dynamically from `tools/list`, so any tool registered on the MCP server is automatically available to local models — no hardcoded tool lists.
 
-### Protocol Format
+- **Server-side loops** use an in-process MCP client (`in-process-client.ts`) wrapping the existing MCP tool server.
+- **Client-dispatched loops** (Tauri) call `POST /mcp` over HTTP via an MCP HTTP client.
 
-Tool call:
-```json
-{"type": "tool_call", "tool": "execute_command", "args": {"target": "blender", "language": "python", "script": "import bpy; bpy.ops.mesh.primitive_cube_add()"}}
-```
+The MCP adapter (`mcp-tool-adapter.ts`) converts between MCP tool definitions/results and Ollama formats.
 
-Final result:
-```json
-{"type": "final", "status": "completed", "summary": "Added a cube to the scene"}
-```
+### Two Calling Modes
 
-### Available Tools in the Agentic Loop
+**Native tool calling** — For models that support Ollama's native tool calling API (e.g., `llama3.2`, `qwen2.5-coder`). The model receives structured tool definitions and returns `tool_calls` objects directly. This is the default mode.
+
+**Hybrid mode** — For thinking/reasoning models (e.g., `qwen3`) where Ollama's native tool calling conflicts with the thinking token stream. The loop auto-detects when a model returns text instead of `tool_calls` and switches to hybrid mode: tool definitions are embedded in the system prompt as text, and tool calls are parsed from the model's content output. This preserves the model's reasoning while still enabling tool use.
+
+### Reasoning Mode
+
+Local models support a **plan-act-evaluate** reasoning loop for complex tasks:
+
+1. **Plan** — The agent analyzes the task and plans its approach
+2. **Act** — Execute tools according to the plan
+3. **Evaluate** — Assess the results before proceeding to the next step
+
+This improves task completion quality for multi-step jobs compared to simple sequential tool calling.
+
+### Auto-Infer Target Bridge
+
+Local LLM jobs analyze the prompt content to **auto-detect the target bridge program**, so you don't need to manually select a bridge for straightforward prompts (e.g., "add a cube in Blender" automatically targets the Blender bridge).
+
+### Available Tools
+
+Tools are dynamically discovered from the MCP server. The standard set includes:
 
 | Tool | Description |
 |---|---|
@@ -126,24 +142,28 @@ Final result:
 | `execute_command` | Run a script in a bridge (GDScript, Python) |
 | `execute_multiple_commands` | Run multiple scripts in sequence |
 | `run_headless_check` | Run a DCC app in headless/CLI mode |
+| `search_skills` | Search the skill knowledge base |
+| `get_skill` | Retrieve a specific skill's content |
+| `create_skill` | Create a new skill from learned patterns |
+| `rate_skill` | Rate a skill's effectiveness |
 | `list_agent_configs` | List available agent configurations (delegation) |
 | `create_job` | Spawn a sub-job (delegation) |
 | `get_job_status` | Poll a sub-job's status (delegation) |
 | `list_jobs` | List recent jobs (delegation) |
 
-Delegation tools (`create_job`, `get_job_status`, `list_jobs`, `list_agent_configs`) are automatically enabled when the prompt implies multi-agent or cross-bridge work.
+Delegation tools are automatically enabled when the prompt implies multi-agent or cross-bridge work. Skill tools are always available so local models can search and contribute to the knowledge base.
 
 ### Loop Limits
 
 | Setting | Default | Description |
 |---|---|---|
 | Max turns | 12 | Maximum agentic loop iterations per job |
-| Hard max turns | 40 | Absolute ceiling even with overrides |
-| Turn timeout | 120s | Time limit for each model response |
+| Hard max turns | 300 | Absolute ceiling even with overrides |
+| Turn timeout | 120s | Time limit for each model response (configurable per agent) |
 | Max consecutive errors | 5 | Abort after repeated identical errors |
 | Max invalid protocol turns | 3 | Abort after repeated unparseable output |
 
-The loop includes safety features: duplicate tool-call detection (aborts after 3 identical calls), error escalation, and automatic normalization of common model output deviations.
+Turn timeouts are **configurable per agent config** via the `turnTimeout` setting. Larger models (32B+) may need extended timeouts. The loop includes safety features: duplicate tool-call detection (aborts after 3 identical calls), error escalation, cancellation checks after both LLM calls and tool execution, and automatic normalization of common model output deviations.
 
 ## Creating an Agent Config
 

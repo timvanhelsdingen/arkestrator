@@ -137,6 +137,19 @@ if bridge:
 
 Unlike other bridges, the ComfyUI bridge runs as a separate process that connects ComfyUI's HTTP API to the Arkestrator server.
 
+The desktop client provides a built-in **ComfyUI setup panel** accessible from the bridge installer:
+
+- **Auto-detect** ComfyUI installation path (searches common locations)
+- **Browse** for custom ComfyUI install directory
+- **Connection test** to verify ComfyUI is reachable
+- **Custom nodes status** — checks if Arkestrator nodes are installed
+- **Auto-start** toggle — launch ComfyUI automatically when the client starts
+- **Start/Stop** controls for the ComfyUI process
+- **Uninstall** button to remove the bridge
+- Auto-tests the connection after launching ComfyUI
+
+Manual setup:
+
 ```bash
 python -m arkestrator_bridge
 python -m arkestrator_bridge --comfyui-url http://localhost:8188
@@ -146,6 +159,16 @@ python -m arkestrator_bridge --server-url ws://myserver:7800/ws --api-key am_xxx
 **Commands**: Workflow JSON submission (queues a ComfyUI workflow, polls for results, collects output artifacts) and Python execution.
 
 **Context captured**: Available node categories and counts, system stats (VRAM, GPU), queue state.
+
+## Bridge Installer
+
+The desktop client includes a built-in bridge installer (accessible during first-time setup and from Settings):
+
+- **Auto-detection** of DCC install paths on the local machine
+- **One-click install** for supported bridges
+- **"Update All"** button when bridges have available updates
+- **In-app help guides** for ComfyUI and Ollama setup
+- Batch installation of multiple bridges at once
 
 ## How Bridges Interact with Workspace Modes
 

@@ -1,5 +1,18 @@
 # Arkestrator
 
+## Recent Update (2026-04-02)
+
+- **Skill locking**: Skills can now be locked to prevent agent edits. Locked skills are protected from modification by housekeeping and training agents. Toggle via admin panel or API.
+- **Skill edit mode, version history, and export**: Client skill detail view now supports inline editing, version history browser with version dropdown selector, and single-skill export. Delete individual versions.
+- **Skills export/import with checkbox multi-select**: Bulk select skills with checkboxes and export as JSON bundles. Import skill bundles from files. Uses Tauri native save dialog for all exports.
+- **Skill compact view and filters**: Client skills table supports compact view toggle and filtering by program, category, source, and enabled state.
+- **Reasoning mode for local LLM agents**: New plan-act-evaluate reasoning loop for local models. The agent plans its approach, executes tools, then evaluates results before proceeding. Improves task completion quality for complex multi-step jobs.
+- **Configurable per-turn timeout for local LLM agents**: Agent configs now accept a `turnTimeout` setting. Larger models (32B+) automatically get extended timeouts. Cancellation checks run after both LLM calls and tool execution.
+- **Auto-infer target bridge from prompt**: Local LLM jobs now analyze the prompt to auto-detect the target bridge program, eliminating the need for manual bridge selection on simple prompts.
+- **Installation help guides**: New in-app help guides for ComfyUI and Ollama setup. ComfyUI gets a popup config modal (path detection, connection test, custom nodes status, auto-start), Uninstall button, and auto-test after launch. Ollama guide simplified to remove manual steps the client handles automatically.
+- **Reset options on client login screen**: Troubleshoot cog moved to page corner with full reset confirmation dialog. Login screen now offers reset options for recovering from configuration issues.
+- **Native Ollama tool loop for all workspace modes**: Previously limited, now works across command, repo, and sync workspace modes.
+
 ## Recent Update (2026-03-27)
 
 - **Onboarding wizard enhancements**: Added "Skills & Training" wizard step (explains self-learning loop, configures training schedule), default agent selection in Agents step (radio picker when multiple agents selected, auto-picks Claude as default).
@@ -27,24 +40,26 @@
   - Bridge step auto-fetches registry from GitHub + auto-detects all DCC install paths, batch installs selected
   - Client REST API: added `agents.templates()` and `agents.cliAuthStatus()` methods
 
-## Planned: Agent Skills Open Standard Migration
+## Agent Skills Open Standard (Implemented)
 
-Migrate Arkestrator's skills system to the [Agent Skills](https://agentskills.io) open standard (`SKILL.md` format) used by Claude Code, Cursor, Gemini CLI, VS Code Copilot, OpenAI Codex, and 30+ other tools. This enables pulling community/open-source skills and publishing Arkestrator-generated skills back to the ecosystem.
+Arkestrator's skills system now uses the [Agent Skills](https://agentskills.io) open standard (`SKILL.md` format) used by Claude Code, Cursor, Gemini CLI, VS Code Copilot, OpenAI Codex, and 30+ other tools. This enables pulling community/open-source skills and publishing Arkestrator-generated skills back to the ecosystem.
 
-**Current state**: Skills stored as SQLite rows with markdown `content` field + JSON playbook vault references. Custom API-managed, not interoperable.
-
-**Target state**: Skills stored as `SKILL.md` files on disk (YAML frontmatter + markdown body) with co-located supporting files (JSON playbooks, scripts, examples). SQLite becomes a search/effectiveness index cache rebuilt from disk on startup.
-
-**Key changes:**
-- ⬜ Storage: `coordinator-playbooks/skills/<slug>/SKILL.md` as source of truth, SQLite as index/cache
-- ⬜ Frontmatter mapping: `name`→slug, `description`, `program` (custom extension), `category`, `keywords`, `disable-model-invocation`↔autoFetch
-- ⬜ Playbooks: move from vault path references to co-located files in skill directory
-- ⬜ Training pipeline: housekeeping/training agents write `SKILL.md` files instead of DB inserts
-- ⬜ Import: pull standard `SKILL.md` skills from public GitHub repos (e.g. github.com/anthropics/skills)
-- ⬜ Export: publish generated skills as standard format others can use in Claude Code, Cursor, etc.
+**Implementation:**
+- ✅ Storage: `coordinator-playbooks/skills/<slug>/SKILL.md` as source of truth, SQLite as index/cache
+- ✅ Frontmatter mapping: `name`→slug, `description`, `program` (custom extension), `category`, `keywords`, `disable-model-invocation`↔autoFetch
+- ✅ Playbooks: vault path references to co-located files in skill directory
+- ✅ Training pipeline: housekeeping/training agents write `SKILL.md` files via MCP tools incrementally
+- ✅ Import: pull standard `SKILL.md` skills from public GitHub repos via `POST /api/skills/import`
+- ✅ Export: skills export/import with checkbox multi-select (JSON bundles)
+- ✅ Backward compat: one-time DB-to-disk export migration, disk rebuild on startup, file watcher for external edits
 - ⬜ Bridge skill packs: community skill repos per DCC app (blender-skills, houdini-skills, etc.)
-- ⬜ Coordinator/bridge scripts: evaluate whether these become skills with `disable-model-invocation: true` or stay as separate CLAUDE.md-style instructions
-- ⬜ Backward compat: migration script to convert existing DB skills to SKILL.md files
+
+**Architecture:**
+- `skill-file.ts` — SKILL.md parser/serializer with YAML frontmatter + markdown body
+- `skill-store.ts` — SkillStore facade wrapping SkillsRepo + disk writes (dual-write to SQLite and SKILL.md)
+- `skill-export-migration.ts` — one-time DB-to-disk export of all skills
+- `skill-disk-loader.ts` — rebuild SQLite index from SKILL.md files on disk at startup
+- `skill-watcher.ts` — fs.watch for external SKILL.md edits with 500ms debounce
 
 **What stays the same:**
 - Effectiveness tracking (runtime overlay in SQLite, not part of skill files)
