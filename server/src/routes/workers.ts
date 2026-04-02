@@ -66,6 +66,11 @@ export function createWorkerRoutes(
       osUser: b.osUser as string | undefined,
     }));
     // Include virtual bridges (HTTP-based services like ComfyUI)
+    // Use the first connected client's identity so the bridge groups under the correct worker
+    const firstClient = clients[0];
+    const localWorkerName = firstClient?.workerName ?? firstClient?.machineId ?? "localhost";
+    const localMachineId = firstClient?.machineId;
+    const localIp = firstClient?.ip ?? "127.0.0.1";
     for (const vb of hub.getVirtualBridges()) {
       bridgeList.push({
         id: vb.id,
@@ -78,9 +83,9 @@ export function createWorkerRoutes(
         bridgeVersion: "http-standalone",
         projectPath: undefined,
         activeProjects: [],
-        machineId: undefined,
-        workerName: "localhost",
-        ip: "127.0.0.1",
+        machineId: localMachineId,
+        workerName: localWorkerName,
+        ip: localIp,
         connectedAt: vb.connectedAt,
         osUser: undefined,
       });

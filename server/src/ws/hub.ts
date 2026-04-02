@@ -528,6 +528,11 @@ export class WebSocketHub {
     }));
 
     // Merge virtual bridges (HTTP-based services)
+    // Use the first connected client's identity so the bridge shows up under the correct worker
+    const firstClient = this.getClients()[0];
+    const localWorkerName = firstClient?.workerName ?? firstClient?.machineId ?? "localhost";
+    const localMachineId = firstClient?.machineId;
+    const localIp = firstClient?.ip ?? "127.0.0.1";
     const virtual = Array.from(this.virtualBridges.values()).map((vb) => ({
       id: vb.id,
       name: vb.program,
@@ -539,9 +544,9 @@ export class WebSocketHub {
       bridgeVersion: "http-standalone",
       projectPath: undefined,
       activeProjects: [] as string[],
-      machineId: undefined,
-      workerName: "localhost",
-      ip: "127.0.0.1",
+      machineId: localMachineId,
+      workerName: localWorkerName,
+      ip: localIp,
       connectedAt: vb.connectedAt,
       osUser: undefined,
     }));
