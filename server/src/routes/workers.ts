@@ -39,16 +39,29 @@ export function createWorkerRoutes(
     ensureLiveWorkersPersisted(workersRepo, bridges, clients);
     const allWorkers = workersRepo.list();
 
-    const enriched = enrichWorkersWithLivePresence(allWorkers, bridges, clients).map((worker) => ({
-      ...worker,
-      rule: getWorkerRule(settingsRepo, worker.name),
-    }));
+    // Collect virtual bridge programs keyed by the worker they'll be assigned to
+    const virtualProgramsByWorker = new Map<string, string[]>();
+    const firstClient = clients[0];
+    const localWorkerName = (firstClient?.workerName ?? firstClient?.machineId ?? "localhost").toLowerCase();
+    for (const vb of hub.getVirtualBridges()) {
+      const existing = virtualProgramsByWorker.get(localWorkerName) ?? [];
+      existing.push(vb.program);
+      virtualProgramsByWorker.set(localWorkerName, existing);
+    }
+
+    const enriched = enrichWorkersWithLivePresence(allWorkers, bridges, clients).map((worker) => {
+      // Merge virtual bridge programs into knownPrograms for the matching worker
+      const virtualPrograms = virtualProgramsByWorker.get(worker.name.toLowerCase()) ?? [];
+      const mergedPrograms = [...new Set([...(worker.knownPrograms ?? []), ...virtualPrograms])];
+      return {
+        ...worker,
+        knownPrograms: mergedPrograms,
+        rule: getWorkerRule(settingsRepo, worker.name),
+      };
+    });
 
     // Include bridge list so clients can update both workers and bridges in one call.
     // getBridges() includes both real WebSocket bridges and virtual HTTP bridges (e.g. ComfyUI).
-    // Use the first connected client's identity for virtual bridges so they group under the correct worker.
-    const firstClient = clients[0];
-    const localWorkerName = firstClient?.workerName ?? firstClient?.machineId ?? "localhost";
     const localMachineId = firstClient?.machineId;
     const localIp = firstClient?.ip ?? "127.0.0.1";
     const bridgeList: any[] = bridges.map((b) => {

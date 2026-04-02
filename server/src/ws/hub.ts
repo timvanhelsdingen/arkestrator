@@ -604,7 +604,21 @@ export class WebSocketHub {
     const clients = this.getClients();
     ensureLiveWorkersPersisted(workersRepo, bridges, clients);
     const allWorkers = workersRepo.list(); // Already includes knownPrograms
-    return enrichWorkersWithLivePresence(allWorkers, bridges, clients);
+
+    // Collect virtual bridge programs and assign to the local worker
+    const firstClient = clients[0];
+    const localWorkerKey = String(firstClient?.workerName ?? firstClient?.machineId ?? "").trim().toLowerCase();
+    const virtualPrograms = this.getVirtualBridges().map((vb) => vb.program);
+
+    const enriched = enrichWorkersWithLivePresence(allWorkers, bridges, clients);
+    if (localWorkerKey && virtualPrograms.length > 0) {
+      for (const worker of enriched) {
+        if (worker.name.toLowerCase() === localWorkerKey) {
+          worker.knownPrograms = [...new Set([...(worker.knownPrograms ?? []), ...virtualPrograms])];
+        }
+      }
+    }
+    return enriched;
   }
 
   broadcastWorkerStatus(workersRepo: WorkersRepo) {
