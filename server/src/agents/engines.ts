@@ -98,6 +98,7 @@ export function buildCommand(
   headlessPrograms?: HeadlessProgramInfo[],
   orchestratorPromptOverride?: string,
   defaultProjectDir?: string,
+  resumeSessionId?: string,
 ): CommandSpec {
   const cwd = workspace?.cwd ?? job.editorContext?.projectRoot ?? process.cwd();
   const baseEnv: Record<string, string> = {};
@@ -115,6 +116,7 @@ export function buildCommand(
         headlessPrograms,
         orchestratorPromptOverride,
         defaultProjectDir,
+        resumeSessionId,
       );
     case "codex":
       return buildCodexCommand(
@@ -261,6 +263,7 @@ function buildClaudeCommand(
   headlessPrograms?: HeadlessProgramInfo[],
   orchestratorPromptOverride?: string,
   defaultProjectDir?: string,
+  resumeSessionId?: string,
 ): CommandSpec {
   // Run in agentic mode so Claude can actually edit files
   // --output-format stream-json forces per-line flushing (fixes pipe buffering)
@@ -277,6 +280,27 @@ function buildClaudeCommand(
   }
   if (config.maxTurns) {
     args.push("--max-turns", String(config.maxTurns));
+  }
+
+  // Resume mode: reconnect to existing conversation, skip prompt/system-prompt
+  if (resumeSessionId) {
+    args.push("--resume", resumeSessionId);
+    // MCP config, tool restrictions, and cwd are still needed
+    for (const arg of config.args ?? []) {
+      if (arg === "-p" || arg === "--print") continue;
+      args.push(arg);
+    }
+    if (toolRestrictions?.length) {
+      for (const tool of toolRestrictions) {
+        args.push("--allowedTools", tool);
+      }
+    }
+    return {
+      command: config.command || "claude",
+      args,
+      env,
+      cwd,
+    };
   }
 
   const instructionPrompt = buildInstructionPrompt(

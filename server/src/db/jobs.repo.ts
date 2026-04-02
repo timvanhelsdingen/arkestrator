@@ -57,6 +57,7 @@ interface JobRow {
   max_retries: number;
   retry_after: string | null;
   expires_at: string | null;
+  session_id: string | null;
   created_at: string;
   started_at: string | null;
   completed_at: string | null;
@@ -147,6 +148,7 @@ function rowToJob(row: JobRow): Job {
     maxRetries: row.max_retries ?? 0,
     retryAfter: row.retry_after ?? undefined,
     expiresAt: row.expires_at ?? undefined,
+    sessionId: row.session_id ?? undefined,
     createdAt: row.created_at,
     startedAt: row.started_at ?? undefined,
     completedAt: row.completed_at ?? undefined,
@@ -195,6 +197,8 @@ export class JobsRepo {
   private countCompletedSinceStmt;
   private countCompletedSinceForProgramStmt;
   private getChildJobsStmt;
+  private pauseStmt;
+  private setSessionIdStmt;
 
   constructor(private db: Database) {
     this.insertStmt = db.prepare(
@@ -279,6 +283,12 @@ export class JobsRepo {
     );
     this.resumeStmt = db.prepare(
       `UPDATE jobs SET status = 'queued' WHERE id = ? AND status = 'paused'`,
+    );
+    this.pauseStmt = db.prepare(
+      `UPDATE jobs SET status = 'paused' WHERE id = ? AND status = 'running'`,
+    );
+    this.setSessionIdStmt = db.prepare(
+      `UPDATE jobs SET session_id = ? WHERE id = ?`,
     );
     this.dashboardStatsStmt = db.prepare(
       `SELECT
@@ -546,10 +556,21 @@ export class JobsRepo {
     return result.changes > 0;
   }
 
+  /** Pause a running job (kills process externally, this just updates status). */
+  pause(jobId: string): boolean {
+    const result = this.pauseStmt.run(jobId);
+    return result.changes > 0;
+  }
+
   /** Move a paused job to queued so the worker can pick it up. */
   resume(jobId: string): boolean {
     const result = this.resumeStmt.run(jobId);
     return result.changes > 0;
+  }
+
+  /** Store/clear the Claude CLI session ID for pause/resume. */
+  setSessionId(jobId: string, sessionId: string | null): void {
+    this.setSessionIdStmt.run(sessionId, jobId);
   }
 
   /** Move a running job back to queued (e.g. orphaned after server restart). */

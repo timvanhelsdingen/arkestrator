@@ -148,6 +148,8 @@ export const Job = z.object({
   outcomeMarkedAt: z.string().datetime().optional(),
   /** User ID that marked outcome (if marked from a user session). */
   outcomeMarkedBy: z.string().uuid().optional(),
+  /** Claude CLI session ID for pause/resume support. */
+  sessionId: z.string().optional(),
 });
 export type Job = z.infer<typeof Job>;
 

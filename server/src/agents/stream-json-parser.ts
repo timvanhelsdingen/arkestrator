@@ -32,10 +32,12 @@ export interface StreamJsonState {
   durationMs: number;
   /** Set to true when the final `result` event is received — signals the agent is done */
   resultReceived: boolean;
+  /** Claude CLI session ID for --resume support */
+  sessionId: string;
 }
 
 export function createStreamJsonState(): StreamJsonState {
-  return { lineBuf: "", plainText: "", lastTool: "", inputTokens: 0, outputTokens: 0, costUsd: 0, durationMs: 0, resultReceived: false };
+  return { lineBuf: "", plainText: "", lastTool: "", inputTokens: 0, outputTokens: 0, costUsd: 0, durationMs: 0, resultReceived: false, sessionId: "" };
 }
 
 export interface ParsedLogLine {
@@ -84,6 +86,9 @@ export function processStreamJsonChunk(
 function parseEvent(state: StreamJsonState, event: any): ParsedLogLine | null {
   switch (event.type) {
     case "system":
+      if (event.session_id && typeof event.session_id === "string") {
+        state.sessionId = event.session_id.trim() || state.sessionId;
+      }
       if (event.subtype === "init") {
         return { display: `[init] model=${event.model} tools=${event.tools?.length ?? 0}` };
       }
@@ -152,6 +157,9 @@ function parseEvent(state: StreamJsonState, event: any): ParsedLogLine | null {
     case "result": {
       // Final result — extract text for parseCommandOutput
       state.resultReceived = true;
+      if (event.session_id && typeof event.session_id === "string") {
+        state.sessionId = event.session_id.trim() || state.sessionId;
+      }
       if (event.result && typeof event.result === "string") {
         state.plainText += event.result;
       }
