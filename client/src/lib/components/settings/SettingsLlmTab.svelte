@@ -297,6 +297,24 @@
     Use locally-running Ollama models for chat and jobs.
     Models are advertised to the server so other users can route work to this machine.
   </p>
+  <details class="install-help">
+    <summary>Don't have Ollama installed? Quick setup guide</summary>
+    <div class="install-help-content">
+      <p><strong>1. Install Ollama</strong></p>
+      <p>Download from <a href="https://ollama.com/download" target="_blank" rel="noopener">ollama.com/download</a> and run the installer.</p>
+      <p><strong>2. Pull a model</strong> (run in terminal after install)</p>
+      <pre>ollama pull qwen3:14b</pre>
+      <p class="desc">Recommended models for agentic tool calling:</p>
+      <ul>
+        <li><code>qwen3:14b</code> — best balance of speed and quality (9GB VRAM)</li>
+        <li><code>qwen3:32b</code> — higher quality, needs 20GB+ VRAM</li>
+        <li><code>qwen3:8b</code> — fastest, lower quality (5GB VRAM)</li>
+      </ul>
+      <p><strong>3. Verify it's running</strong></p>
+      <pre>curl http://localhost:11434/api/tags</pre>
+      <p class="desc">Ollama runs automatically after install. If you see a JSON response with models, you're good.</p>
+    </div>
+  </details>
   <div class="pref-toggles">
     <label class="toggle-label">
       <input
@@ -737,5 +755,57 @@
     .model-download-row {
       flex-direction: column;
     }
+  }
+  .install-help {
+    margin-bottom: 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+  }
+  .install-help summary {
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--text-secondary);
+    user-select: none;
+  }
+  .install-help summary:hover {
+    color: var(--text-primary);
+    background: var(--bg-hover);
+  }
+  .install-help-content {
+    padding: 8px 12px 12px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .install-help-content p {
+    margin: 8px 0 4px;
+  }
+  .install-help-content pre {
+    background: var(--bg-base);
+    padding: 6px 10px;
+    border-radius: var(--radius-sm);
+    font-size: 11px;
+    overflow-x: auto;
+    margin: 4px 0 8px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    user-select: all;
+  }
+  .install-help-content code {
+    background: var(--bg-base);
+    padding: 1px 4px;
+    border-radius: 2px;
+    font-size: 11px;
+  }
+  .install-help-content ul {
+    margin: 4px 0 8px 16px;
+    font-size: 12px;
+  }
+  .install-help-content li {
+    margin: 2px 0;
+  }
+  .install-help-content a {
+    color: var(--accent);
   }
 </style>
