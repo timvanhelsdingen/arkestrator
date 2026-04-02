@@ -2519,6 +2519,17 @@ export async function spawnAgent(
     return;
   }
 
+  // Append full assistant plainText to logBuffer so DB logs contain the complete
+  // output (display previews truncate text blocks to 500 chars, which loses
+  // structured JSON configs that training extraction depends on).
+  if (sjState?.plainText) {
+    const separator = "\n\n--- Full assistant output ---\n";
+    const fullText = sjState.plainText.trim();
+    if (fullText && !logBuffer.includes(fullText.slice(0, 200))) {
+      logBuffer += separator + fullText + "\n";
+    }
+  }
+
   // 8. Handle completion based on mode
   if (exitCode === 0) {
     // Guard: if this coordinator spawned sub-jobs (via MCP create_job) that haven't

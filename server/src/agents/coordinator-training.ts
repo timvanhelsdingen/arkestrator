@@ -1461,12 +1461,14 @@ export function queueCoordinatorTrainingJob(
             const projectName = String(project.projectName ?? "").trim();
             if (!projectName) continue;
             const slug = `project-${normalizedProgram}-${projectName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+$/, "")}`;
-            const normPath = (p: string) => p.replace(/\\/g, "/").toLowerCase();
-            const matchingSummary = result.summaries.find((s) =>
-              s.name === projectName
-              || s.name.startsWith(projectName)
-              || normPath(s.path) === normPath(project.projectPath),
-            );
+            const normPath = (p: string) => p.replace(/\\/g, "/").toLowerCase().replace(/\/+$/, "");
+            const projPathNorm = normPath(project.projectPath);
+            const matchingSummary = result.summaries.find((s) => {
+              if (s.name === projectName || s.name.startsWith(projectName)) return true;
+              const sPathNorm = normPath(s.path);
+              // Exact match, or summary path is a file inside the project dir
+              return sPathNorm === projPathNorm || sPathNorm.startsWith(projPathNorm + "/");
+            });
             const summaryText = matchingSummary?.summary || "";
             // Build short content — just enough for discovery, NOT the full analysis
             const contentParts: string[] = [];
