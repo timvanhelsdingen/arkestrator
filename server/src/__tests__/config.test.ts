@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { join } from "path";
 import { loadConfig } from "../config.js";
 
 const ORIGINAL_ENV = {
@@ -27,13 +28,14 @@ describe("loadConfig", () => {
     delete process.env.SNAPSHOTS_DIR;
     delete process.env.SKILLS_DIR;
 
+    const base = "/srv/ark-data";
     const config = loadConfig();
-    expect(config.dataDir).toBe("/srv/ark-data");
-    expect(config.dbPath).toBe("/srv/ark-data/db/arkestrator.db");
-    expect(config.coordinatorScriptsDir).toBe("/srv/ark-data/coordinator-scripts");
-    expect(config.coordinatorPlaybooksDir).toBe("/srv/ark-data/coordinator-playbooks");
-    expect(config.coordinatorImportsDir).toBe("/srv/ark-data/coordinator-imports");
-    expect(config.snapshotsDir).toBe("/srv/ark-data/snapshots");
-    expect(config.skillsDir).toBe("/srv/ark-data/skills");
+    expect(config.dataDir).toBe(base);
+    expect(config.dbPath).toBe(join(base, "db", "arkestrator.db"));
+    expect(config.coordinatorScriptsDir).toBe(join(base, "coordinator-scripts"));
+    expect(config.coordinatorPlaybooksDir).toBe(join(base, "coordinator-playbooks"));
+    expect(config.coordinatorImportsDir).toBe(join(base, "coordinator-imports"));
+    expect(config.snapshotsDir).toBe(join(base, "snapshots"));
+    expect(config.skillsDir).toBe(join(base, "skills"));
   });
 });

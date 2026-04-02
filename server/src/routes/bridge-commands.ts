@@ -11,6 +11,7 @@ import type { Config } from "../config.js";
 import type { WorkerResourceLeaseManager } from "../agents/resource-control.js";
 import { checkCommandScripts } from "../policies/enforcer.js";
 import { executeWorkerHeadlessCommands, runWorkerHeadlessCheck } from "../agents/worker-headless.js";
+import { executeComfyUiHeadless } from "../agents/comfyui-headless.js";
 import {
   formatHeavyResourceConflictError,
   inferBridgeCommandHeavyResources,
@@ -189,6 +190,20 @@ export async function executeBridgeCommand(
           return { error: workerResult.error || "Headless execution failed", result: workerResult.result, status: 409 };
         }
         return { result: workerResult.result, bridgesUsed: [target] };
+      }
+
+      // ComfyUI-specific fallback: talk directly to its HTTP REST API
+      if (!workerResult.handled && target.toLowerCase() === "comfyui" && config.comfyuiUrl) {
+        try {
+          const comfyResult = await executeComfyUiHeadless(commands as any, config.comfyuiUrl, { timeoutMs });
+          if (!comfyResult.success) {
+            return { error: comfyResult.errors.join("; ") || "ComfyUI execution failed", result: comfyResult, status: 409 };
+          }
+          return { result: comfyResult, bridgesUsed: ["comfyui"] };
+        } catch (err: any) {
+          logger.warn("bridge-commands", `ComfyUI HTTP fallback failed: ${err?.message ?? err}`);
+          // Fall through to the normal "no bridge found" error
+        }
       }
     }
 

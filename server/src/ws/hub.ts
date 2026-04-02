@@ -46,6 +46,14 @@ export interface BridgeContextState {
   files: Array<{ path: string; content: string }>;
 }
 
+export interface VirtualBridgeData {
+  id: string;
+  program: string;
+  programVersion?: string;
+  connectedAt: string;
+  url: string;
+}
+
 export class WebSocketHub {
   private connections = new Map<string, ServerWebSocket<WsData>>();
   private pendingCommands = new Map<string, { resolve: (result: any) => void; timer: ReturnType<typeof setTimeout>; settled: boolean }>();
@@ -56,6 +64,8 @@ export class WebSocketHub {
   private lastReplacementTime = new Map<string, number>();
   /** Per-worker headless capabilities reported by desktop clients. Keyed by normalized workerKey. */
   private workerHeadlessCapabilities = new Map<string, WorkerHeadlessCapability[]>();
+  /** Virtual bridges: HTTP-based services (e.g. ComfyUI) that appear in bridge status without WebSocket. */
+  private virtualBridges = new Map<string, VirtualBridgeData>();
 
   // --- Secondary indexes for O(1) lookups at scale ---
   /** program (lowercase) → Set of connection IDs. Updated on register/unregister. */
@@ -457,8 +467,43 @@ export class WebSocketHub {
     }
   }
 
+  // --- Virtual bridge management (HTTP-based services like ComfyUI) ---
+
+  registerVirtualBridge(data: VirtualBridgeData): boolean {
+    const existing = this.virtualBridges.get(data.id);
+    if (existing) {
+      // Update version but preserve original connectedAt
+      existing.programVersion = data.programVersion;
+      existing.url = data.url;
+      return false;
+    }
+    this.virtualBridges.set(data.id, data);
+    logger.info("ws-hub", `Virtual bridge registered: ${data.program} (${data.url})`);
+    return true;
+  }
+
+  removeVirtualBridge(id: string): boolean {
+    const removed = this.virtualBridges.delete(id);
+    if (removed) {
+      logger.info("ws-hub", `Virtual bridge removed: ${id}`);
+    }
+    return removed;
+  }
+
+  getVirtualBridge(id: string): VirtualBridgeData | undefined {
+    return this.virtualBridges.get(id);
+  }
+
+  hasVirtualBridgeForProgram(program: string): boolean {
+    const normalized = program.toLowerCase();
+    for (const vb of this.virtualBridges.values()) {
+      if (vb.program.toLowerCase() === normalized) return true;
+    }
+    return false;
+  }
+
   private buildBridgeList() {
-    return this.getBridges().map((b) => ({
+    const real = this.getBridges().map((b) => ({
       id: b.id,
       name: b.name ?? b.id,
       type: "bridge",
@@ -477,6 +522,27 @@ export class WebSocketHub {
       connectedAt: b.connectedAt,
       osUser: b.osUser,
     }));
+
+    // Merge virtual bridges (HTTP-based services)
+    const virtual = Array.from(this.virtualBridges.values()).map((vb) => ({
+      id: vb.id,
+      name: vb.program,
+      type: "bridge" as const,
+      connected: true,
+      lastSeen: new Date().toISOString(),
+      program: vb.program,
+      programVersion: vb.programVersion,
+      bridgeVersion: "http-standalone",
+      projectPath: undefined,
+      activeProjects: [] as string[],
+      machineId: undefined,
+      workerName: "localhost",
+      ip: "127.0.0.1",
+      connectedAt: vb.connectedAt,
+      osUser: undefined,
+    }));
+
+    return [...real, ...virtual];
   }
 
   broadcastBridgeStatus() {

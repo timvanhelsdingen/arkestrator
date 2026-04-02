@@ -48,6 +48,7 @@ import { seedDefaultTemplates } from "./routes/templates.js";
 import { pullAllBridgeSkills, pullBridgeSkills } from "./skills/skill-registry.js";
 import { runScheduledCoordinatorTrainingTick } from "./agents/coordinator-training.js";
 import { runHousekeepingScheduleTick } from "./agents/housekeeping.js";
+import { ComfyUiHealthChecker } from "./agents/comfyui-health.js";
 import { deriveWorkerIdentity } from "./utils/worker-identity.js";
 import {
   findStaleLoopbackWorkerIds,
@@ -1039,6 +1040,10 @@ async function main() {
     }
   }, 30_000);
 
+  // 12.5. ComfyUI health checker: poll ComfyUI HTTP endpoint to register as virtual bridge
+  const comfyUiHealth = new ComfyUiHealthChecker(hub, config);
+  comfyUiHealth.start();
+
   // 13. Coordinator training scheduler tick (every minute)
   const coordinatorTrainingInterval = setInterval(() => {
     try {
@@ -1133,11 +1138,11 @@ async function main() {
   // 12. Graceful shutdown
   process.on(
     "SIGINT",
-    () => shutdown(worker, processTracker, syncManager, sessionCleanupInterval, wsHeartbeatInterval, coordinatorTrainingInterval, housekeepingInterval, trashPurgeInterval, db),
+    () => shutdown(worker, processTracker, syncManager, sessionCleanupInterval, wsHeartbeatInterval, coordinatorTrainingInterval, housekeepingInterval, trashPurgeInterval, comfyUiHealth, db),
   );
   process.on(
     "SIGTERM",
-    () => shutdown(worker, processTracker, syncManager, sessionCleanupInterval, wsHeartbeatInterval, coordinatorTrainingInterval, housekeepingInterval, trashPurgeInterval, db),
+    () => shutdown(worker, processTracker, syncManager, sessionCleanupInterval, wsHeartbeatInterval, coordinatorTrainingInterval, housekeepingInterval, trashPurgeInterval, comfyUiHealth, db),
   );
 }
 
@@ -1150,12 +1155,14 @@ function shutdown(
   coordinatorTrainingInterval: ReturnType<typeof setInterval>,
   housekeepingInterval: ReturnType<typeof setInterval>,
   trashPurgeInterval: ReturnType<typeof setInterval>,
+  comfyUiHealth: ComfyUiHealthChecker,
   db: ReturnType<typeof openDatabase>,
 ) {
   logger.info("server", "Shutting down...");
   worker.stop();
   processTracker.stop();
   syncManager.stop();
+  comfyUiHealth.stop();
   clearInterval(sessionCleanupInterval);
   clearInterval(wsHeartbeatInterval);
   clearInterval(coordinatorTrainingInterval);
