@@ -1460,7 +1460,12 @@ export function queueCoordinatorTrainingJob(
             const projectName = String(project.projectName ?? "").trim();
             if (!projectName) continue;
             const slug = `project-${normalizedProgram}-${projectName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+$/, "")}`;
-            const matchingSummary = result.summaries.find((s) => s.name === projectName || s.path === project.projectPath);
+            const normPath = (p: string) => p.replace(/\\/g, "/").toLowerCase();
+            const matchingSummary = result.summaries.find((s) =>
+              s.name === projectName
+              || s.name.startsWith(projectName)
+              || normPath(s.path) === normPath(project.projectPath),
+            );
             const summaryText = matchingSummary?.summary || "";
             // Build short content — just enough for discovery, NOT the full analysis
             const contentParts: string[] = [];

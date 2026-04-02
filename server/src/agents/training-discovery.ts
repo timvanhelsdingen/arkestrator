@@ -44,6 +44,7 @@ export const SKIP_SCAN_DIRS = new Set([
   ".hg",
   ".idea",
   ".vscode",
+  "_arkestrator",
   "node_modules",
   "__pycache__",
   ".venv",
