@@ -46,7 +46,7 @@ export function createWorkerRoutes(
 
     // Include bridge list so clients can update both workers and bridges in one call.
     // Keep connected bridge sockets + persisted offline bridge history by worker/program.
-    const bridgeList = bridges.map((b) => ({
+    const bridgeList: any[] = bridges.map((b) => ({
       id: b.id,
       name: b.name ?? b.id,
       type: "bridge",
@@ -65,8 +65,28 @@ export function createWorkerRoutes(
       connectedAt: b.connectedAt as string | undefined,
       osUser: b.osUser as string | undefined,
     }));
+    // Include virtual bridges (HTTP-based services like ComfyUI)
+    for (const vb of hub.getVirtualBridges()) {
+      bridgeList.push({
+        id: vb.id,
+        name: vb.program,
+        type: "bridge",
+        connected: true,
+        lastSeen: new Date().toISOString(),
+        program: vb.program,
+        programVersion: vb.programVersion,
+        bridgeVersion: "http-standalone",
+        projectPath: undefined,
+        activeProjects: [],
+        machineId: undefined,
+        workerName: "localhost",
+        ip: "127.0.0.1",
+        connectedAt: vb.connectedAt,
+        osUser: undefined,
+      });
+    }
     const connectedKeys = new Set(
-      bridges.map((b) => `${String(b.machineId ?? b.workerName ?? "").toLowerCase()}:${String(b.program ?? "").toLowerCase()}`),
+      bridgeList.filter((b) => b.connected).map((b) => `${String(b.machineId ?? b.workerName ?? "").toLowerCase()}:${String(b.program ?? "").toLowerCase()}`),
     );
     for (const worker of allWorkers) {
       const history = workersRepo.getBridgesForWorker(worker.name, worker.machineId);

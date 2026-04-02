@@ -494,6 +494,10 @@ export class WebSocketHub {
     return this.virtualBridges.get(id);
   }
 
+  getVirtualBridges(): VirtualBridgeData[] {
+    return Array.from(this.virtualBridges.values());
+  }
+
   hasVirtualBridgeForProgram(program: string): boolean {
     const normalized = program.toLowerCase();
     for (const vb of this.virtualBridges.values()) {
