@@ -78,6 +78,14 @@ export function detectAgenticAnalysisBlocker(
       regex: /no\s+such\s+file\s+or\s+directory/i,
       reason: "Analysis source paths were not accessible in the analysis workspace.",
     },
+    {
+      regex: /authentication_error|OAuth token has expired|Failed to authenticate.*API Error.*401/i,
+      reason: "Claude API authentication failed (token expired or invalid). Re-authenticate before retrying.",
+    },
+    {
+      regex: /API Error:\s*4\d\d\b/i,
+      reason: "Claude API returned an error. Check API credentials and quota.",
+    },
   ];
   for (const check of checks) {
     if (check.regex.test(text)) return check.reason;
