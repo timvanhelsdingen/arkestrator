@@ -301,18 +301,14 @@
     <summary>Don't have Ollama installed? Quick setup guide</summary>
     <div class="install-help-content">
       <p><strong>1. Install Ollama</strong></p>
-      <p>Download from <a href="https://ollama.com/download" target="_blank" rel="noopener">ollama.com/download</a> and run the installer.</p>
-      <p><strong>2. Pull a model</strong> (run in terminal after install)</p>
-      <pre>ollama pull qwen3:14b</pre>
+      <p>Download from <a href="https://ollama.com/download" target="_blank" rel="noopener">ollama.com/download</a> and run the installer. Ollama starts automatically after install.</p>
+      <p><strong>2. Enable local LLM below</strong>, then use the model catalog to download models. Arkestrator handles model downloads for you.</p>
       <p class="desc">Recommended models for agentic tool calling:</p>
       <ul>
         <li><code>qwen3:14b</code> — best balance of speed and quality (9GB VRAM)</li>
         <li><code>qwen3:32b</code> — higher quality, needs 20GB+ VRAM</li>
         <li><code>qwen3:8b</code> — fastest, lower quality (5GB VRAM)</li>
       </ul>
-      <p><strong>3. Verify it's running</strong></p>
-      <pre>curl http://localhost:11434/api/tags</pre>
-      <p class="desc">Ollama runs automatically after install. If you see a JSON response with models, you're good.</p>
     </div>
   </details>
   <div class="pref-toggles">
