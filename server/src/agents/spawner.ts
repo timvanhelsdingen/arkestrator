@@ -209,14 +209,19 @@ export interface SpawnerDeps {
   commandFilterPolicies?: Policy[];
 }
 
-/** Resolve the effective job timeout: per-job override (capped by admin max) → DB override → env/config fallback. */
+/** Resolve the effective job timeout: per-job override → DB override → env/config fallback.
+ *  Per-job overrides are capped by an explicit admin setting (job_timeout_ms) but NOT by the config default,
+ *  so users can request longer timeouts without needing an env-var change. */
 function getEffectiveJobTimeoutMs(deps: SpawnerDeps, job?: { runtimeOptions?: { timeoutMinutes?: number } }): number {
-  const adminMax = deps.settingsRepo?.getNumber("job_timeout_ms") ?? deps.config.jobTimeoutMs;
+  const adminExplicit = deps.settingsRepo?.getNumber("job_timeout_ms");
+  const configDefault = deps.config.jobTimeoutMs;
   const perJob = job?.runtimeOptions?.timeoutMinutes;
   if (perJob != null && Number.isFinite(perJob) && perJob > 0) {
-    return Math.min(perJob * 60_000, adminMax);
+    const perJobMs = perJob * 60_000;
+    // Only cap against an explicit admin setting, not the config default
+    return adminExplicit != null ? Math.min(perJobMs, adminExplicit) : perJobMs;
   }
-  return adminMax;
+  return adminExplicit ?? configDefault;
 }
 
 type InjectedMcpConfig = {
@@ -2274,10 +2279,11 @@ export async function spawnAgent(
   }
 
   // Per-job timeout for training level: high=2x, low=0.5x
+  const effectiveTimeoutMs = getEffectiveJobTimeoutMs(deps, job);
   const procTrainingLevel = (job as any).editorContext?.metadata?.coordinator_training_level;
-  const procTimeoutMs = procTrainingLevel === "high" ? Math.round(getEffectiveJobTimeoutMs(deps, job) * 2)
-    : procTrainingLevel === "low" ? Math.round(getEffectiveJobTimeoutMs(deps, job) * 0.5)
-    : undefined;
+  const procTimeoutMs = procTrainingLevel === "high" ? Math.round(effectiveTimeoutMs * 2)
+    : procTrainingLevel === "low" ? Math.round(effectiveTimeoutMs * 0.5)
+    : effectiveTimeoutMs;
   deps.processTracker.register(job.id, proc, procTimeoutMs);
 
   if (deps.jobInterventionsRepo && !(config.engine === "local-oss" && workspace.mode === "command")) {

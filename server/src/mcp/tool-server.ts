@@ -1202,7 +1202,10 @@ export function createMcpServer(deps: McpDeps): McpServer {
       title: z.string().describe("Human-readable title (e.g. 'Procedural Rock Material in Blender')"),
       program: z.string().describe("Target program (e.g. 'blender', 'houdini', 'comfyui', 'global')"),
       content: z.string().describe("The skill content — step-by-step instructions, code snippets, key parameters, gotchas"),
-      keywords: z.array(z.string()).optional().describe("Search tags (e.g. ['procedural', 'material', 'shader-nodes', 'rock'])"),
+      keywords: z.preprocess(
+        (v) => (typeof v === "string" ? v.split(",").map((s: string) => s.trim()).filter(Boolean) : v),
+        z.array(z.string()).optional(),
+      ).describe("Search tags (e.g. ['procedural', 'material', 'shader-nodes', 'rock'])"),
       category: z.string().optional().default("custom").describe("Skill category"),
     },
     async ({ slug, title, program, content, keywords, category }) => {
@@ -1246,7 +1249,10 @@ export function createMcpServer(deps: McpDeps): McpServer {
       program: z.string().optional().describe("Program filter if slug exists for multiple programs"),
       content: z.string().optional().describe("New content (replaces existing)"),
       title: z.string().optional().describe("New title"),
-      keywords: z.array(z.string()).optional().describe("New keywords/tags (replaces existing)"),
+      keywords: z.preprocess(
+        (v) => (typeof v === "string" ? v.split(",").map((s: string) => s.trim()).filter(Boolean) : v),
+        z.array(z.string()).optional(),
+      ).describe("New keywords/tags (replaces existing)"),
     },
     async ({ slug, program, content, title, keywords }) => {
       if ((!deps.skillsRepo && !deps.skillStore) || !deps.skillIndex) {
