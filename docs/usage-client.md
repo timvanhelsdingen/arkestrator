@@ -53,11 +53,12 @@ A resizable right sidebar showing live bridge context:
 Resizable split panel with job list on the left and detail panel on the right.
 
 **Job List:**
-- Filterable by status (all/queued/paused/running/completed/failed/cancelled)
+- Toggle filters for status (queued/paused/running/completed/failed/cancelled)
 - Searchable by machine, bridge, user, text
-- Dependency tree with indented child jobs
+- Dependency tree with indented child jobs, sub-job cascade selection
 - Agent/model chips, program icons, token/cost display
-- Bulk selection with checkboxes for batch operations
+- Bulk selection with checkboxes for batch operations (archive, delete, cancel with child cascade)
+- Archived and Trash view tabs with restore/permanent-delete actions
 
 **Detail Panel:**
 - Full job metadata (agent, model, worker, duration, tokens, cost)
@@ -96,24 +97,30 @@ Project CRUD with:
 - GitHub repository links
 - Per-project system prompts injected into agent runs
 
-### Coordinator
+### Skills & Training
 
-Three scopes accessible from the left sidebar:
+Three tabs:
 
-**Server Config:**
-- Edit global and per-program coordinator scripts (injected into every agent prompt)
-- Bridge readiness status
-- Two-column workspace: script list + editor pane
+**Skills:**
+- Browse, search, and filter skills by program, category, source, and enabled state
+- Compact view toggle for dense skill tables
+- Skill detail overlay with metadata, playbooks, related skills, effectiveness stats
+- Inline edit mode with version history and version dropdown selector
+- Create skills with full fields (description, keywords, priority, auto-fetch, enabled, category)
+- Export/import skills with checkbox multi-select (JSON bundles via Tauri native save dialog)
+- Single-skill export from the detail view
+- Lock skills to prevent agent modification
 
 **Training:**
-- Queue training runs with source paths, file/zip uploads, training objectives
+- Queue training/maintenance runs with source paths, file/zip uploads, objectives
 - Select training agent/model and target compute worker
 - Admin-only schedule controls for automated training
 - Non-admin users can queue client-initiated runs when policy allows
 
-**Client Config:**
-- Client-local bridge prompt overrides (global + per-program)
-- Appended at job submit time without modifying server scripts
+**Maintenance** (admin-only):
+- Housekeeping schedule (enable/disable, interval, last run, Run Now)
+- Training schedule (enable/disable, interval, auto-apply toggle, per-program selection)
+- Run Housekeeping and Maintenance from the Jobs page toolbar as well
 
 ### Settings
 
@@ -131,11 +138,17 @@ The desktop app bundles the server as a compiled sidecar binary. No Bun or Node.
 
 You can also run the server externally (`pnpm server` or standalone binary) and the client will detect and connect to it.
 
+### Login Screen
+
+The login screen includes a troubleshoot menu (cog icon in the corner) with reset options for recovering from configuration issues — useful when the server URL or credentials are misconfigured.
+
 ### System Tray
 
 - Close-to-tray behavior (window hides instead of quitting)
-- Tray menu: Show/Hide/Quit
+- Tray menu: Show/Hide/Open Dashboard/Stop Server/Quit
 - Left-click restores the window
+- "Open Dashboard" opens the admin panel in your browser
+- "Stop Server" sends a shutdown command to the local server
 
 ### Auto-Updates
 
