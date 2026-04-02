@@ -15,10 +15,10 @@ export class ComfyUiHealthChecker {
     private config: Config,
   ) {}
 
-  start() {
+  async start() {
     if (this.timer) return;
-    // Run immediately, then on interval
-    this.check();
+    // Run first check synchronously so virtual bridge is registered before clients connect
+    await this.check();
     this.timer = setInterval(() => this.check(), POLL_INTERVAL_MS);
     logger.info("comfyui-health", `Health checker started (polling ${this.config.comfyuiUrl} every ${POLL_INTERVAL_MS / 1000}s)`);
   }
@@ -58,6 +58,7 @@ export class ComfyUiHealthChecker {
             url: baseUrl,
           });
           if (isNew) {
+            logger.info("comfyui-health", `ComfyUI detected at ${baseUrl} (v${version ?? "unknown"})`);
             this.hub.broadcastBridgeStatus();
           }
         } else {
@@ -74,6 +75,7 @@ export class ComfyUiHealthChecker {
 
   private markOffline() {
     if (this.hub.getVirtualBridge(VIRTUAL_BRIDGE_ID)) {
+      logger.info("comfyui-health", "ComfyUI went offline, removing virtual bridge");
       this.hub.removeVirtualBridge(VIRTUAL_BRIDGE_ID);
       this.hub.broadcastBridgeStatus();
     }

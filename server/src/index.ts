@@ -1042,7 +1042,7 @@ async function main() {
 
   // 12.5. ComfyUI health checker: poll ComfyUI HTTP endpoint to register as virtual bridge
   const comfyUiHealth = new ComfyUiHealthChecker(hub, config);
-  comfyUiHealth.start();
+  await comfyUiHealth.start();
 
   // 13. Coordinator training scheduler tick (every minute)
   const coordinatorTrainingInterval = setInterval(() => {
