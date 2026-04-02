@@ -593,6 +593,25 @@
       </div>
 
       <div class="comfy-modal-body">
+        <!-- Installation Help -->
+        <details class="install-help">
+          <summary>Don't have ComfyUI installed? Quick setup guide</summary>
+          <div class="install-help-content">
+            <p><strong>1. Clone ComfyUI</strong></p>
+            <pre>git clone https://github.com/comfyanonymous/ComfyUI.git
+cd ComfyUI</pre>
+            <p><strong>2. Install PyTorch with CUDA</strong> (NVIDIA GPU required)</p>
+            <pre>pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124</pre>
+            <p><strong>3. Install ComfyUI dependencies</strong></p>
+            <pre>pip install -r requirements.txt</pre>
+            <p><strong>4. Start ComfyUI</strong></p>
+            <pre>python main.py</pre>
+            <p class="desc">ComfyUI will start on <code>http://127.0.0.1:8188</code>. Once running, click Detect above to find it, then Save Configuration.</p>
+            <p class="desc"><strong>Tip:</strong> If you get "Torch not compiled with CUDA enabled", run:<br/>
+            <code>pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124 --force-reinstall</code></p>
+          </div>
+        </details>
+
         <!-- Location -->
         <div class="comfy-section">
           <div class="comfy-section-header">Location</div>
@@ -974,6 +993,50 @@
     display: flex;
     align-items: center;
     gap: 6px;
+  }
+
+  /* Installation Help */
+  .install-help {
+    margin-bottom: 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+  }
+  .install-help summary {
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--text-secondary);
+    user-select: none;
+  }
+  .install-help summary:hover {
+    color: var(--text-primary);
+    background: var(--bg-hover);
+  }
+  .install-help-content {
+    padding: 8px 12px 12px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .install-help-content p {
+    margin: 8px 0 4px;
+  }
+  .install-help-content pre {
+    background: var(--bg-base);
+    padding: 6px 10px;
+    border-radius: var(--radius-sm);
+    font-size: 11px;
+    overflow-x: auto;
+    margin: 4px 0 8px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    user-select: all;
+  }
+  .install-help-content code {
+    background: var(--bg-base);
+    padding: 1px 4px;
+    border-radius: 2px;
+    font-size: 11px;
   }
 
   /* ComfyUI Config Modal */
