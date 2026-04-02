@@ -506,6 +506,9 @@
             {#if comfyRunning}
               <span class="comfy-status online">Running</span>
             {/if}
+            {#if comfyNodesInstalled || comfySavedPath}
+              <button class="btn danger" onclick={() => doUninstall(bridge)}>Uninstall</button>
+            {/if}
           {:else if bridge.installType === "standalone"}
             <span class="desc">Run standalone — see documentation</span>
           {:else}
