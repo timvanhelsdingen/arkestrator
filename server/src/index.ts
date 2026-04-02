@@ -6,6 +6,7 @@ process.on("unhandledRejection", (reason) => {
   console.error("[FATAL] Unhandled rejection:", reason);
 });
 
+import { isTransientError, computeRetryDelay } from "./queue/retry-policy.js";
 import { loadConfig, type Config } from "./config.js";
 import { openDatabase } from "./db/database.js";
 import { JobsRepo } from "./db/jobs.repo.js";
@@ -606,8 +607,23 @@ async function main() {
   }
 
   // 6. Start timeout checker
-  processTracker.startTimeoutChecker((jobId) => {
-    jobsRepo.fail(jobId, "Job timed out", "");
+  processTracker.startTimeoutChecker((jobId, reason) => {
+    const msg = reason ?? "Job timed out";
+    const job = jobsRepo.getById(jobId);
+    // Try retry before permanently failing (stalled API connections are transient)
+    if (job) {
+      const retryCount = job.retryCount ?? 0;
+      const maxRetries = job.maxRetries ?? 2;
+      if (maxRetries > 0 && retryCount < maxRetries && isTransientError(msg)) {
+        const delayMs = computeRetryDelay(retryCount);
+        const requeued = jobsRepo.requeueForRetry(jobId, delayMs);
+        if (requeued) {
+          logger.info("process-tracker", `Job ${jobId} requeued for retry ${retryCount + 1}/${maxRetries}: ${msg}`);
+          return;
+        }
+      }
+    }
+    jobsRepo.fail(jobId, msg, "");
   });
 
   // 7. Start sync manager cleanup timer

@@ -1,12 +1,18 @@
 import type { Subprocess } from "bun";
 import { logger } from "../utils/logger.js";
 
+/** Default inactivity timeout: 5 minutes with no output = stalled API call. */
+const DEFAULT_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
+
 interface TrackedProcess {
   process: Subprocess;
   startTime: number;
+  lastActivityTime: number;
   jobId: string;
   /** Per-job timeout override (if set, takes precedence over the global default). */
   timeoutMs?: number;
+  /** Per-job idle timeout override. */
+  idleTimeoutMs?: number;
 }
 
 export class ProcessTracker {
@@ -20,14 +26,23 @@ export class ProcessTracker {
     return typeof this.getJobTimeoutMs === "function" ? this.getJobTimeoutMs() : this.getJobTimeoutMs;
   }
 
-  register(jobId: string, proc: Subprocess, timeoutMs?: number) {
+  register(jobId: string, proc: Subprocess, timeoutMs?: number, idleTimeoutMs?: number) {
+    const now = Date.now();
     this.processes.set(jobId, {
       process: proc,
-      startTime: Date.now(),
+      startTime: now,
+      lastActivityTime: now,
       jobId,
       timeoutMs,
+      idleTimeoutMs,
     });
     logger.debug("process-tracker", `Registered process for job ${jobId}`);
+  }
+
+  /** Mark a job as active (call whenever the process produces output). */
+  touch(jobId: string) {
+    const tracked = this.processes.get(jobId);
+    if (tracked) tracked.lastActivityTime = Date.now();
   }
 
   unregister(jobId: string) {
@@ -88,6 +103,7 @@ export class ProcessTracker {
     this.processes.set(jobId, {
       process: state.proc,
       startTime: state.startTime,
+      lastActivityTime: Date.now(),
       jobId,
       timeoutMs: state.timeoutMs,
     });
@@ -96,8 +112,8 @@ export class ProcessTracker {
     return true;
   }
 
-  /** Start periodic timeout checks */
-  startTimeoutChecker(onTimeout: (jobId: string) => void) {
+  /** Start periodic timeout checks (total elapsed + idle/stall detection) */
+  startTimeoutChecker(onTimeout: (jobId: string, reason?: string) => void) {
     this.timeoutChecker = setInterval(() => {
       const now = Date.now();
       for (const [jobId, tracked] of this.processes) {
@@ -109,7 +125,21 @@ export class ProcessTracker {
           );
           tracked.process.kill();
           this.processes.delete(jobId);
-          onTimeout(jobId);
+          onTimeout(jobId, "Job timed out");
+          continue;
+        }
+        // Idle/stall detection: no output for idleTimeoutMs → kill
+        const idleTimeout = tracked.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
+        const idleTime = now - tracked.lastActivityTime;
+        if (idleTime > idleTimeout) {
+          const idleSec = Math.floor(idleTime / 1000);
+          logger.warn(
+            "process-tracker",
+            `Job ${jobId} stalled — no output for ${idleSec}s (idle limit: ${Math.floor(idleTimeout / 1000)}s)`,
+          );
+          tracked.process.kill();
+          this.processes.delete(jobId);
+          onTimeout(jobId, `Job stalled — no output for ${idleSec}s. The API connection likely dropped.`);
         }
       }
     }, 30_000);

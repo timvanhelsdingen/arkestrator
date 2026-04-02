@@ -23,6 +23,8 @@ const TRANSIENT_PATTERNS: RegExp[] = [
   /\bservice unavailable\b/i,
   /\binternal server error\b/i, // 500 from upstream
   /\bgateway timeout\b/i,       // 504
+  /\bstalled\b/i,               // Process idle timeout (no output)
+  /\bno output for\b/i,         // Idle timeout message from process tracker
 ];
 
 /** Patterns that indicate a permanent/non-retriable error. */
