@@ -1133,11 +1133,12 @@ When using \`create_job\`, include \`handover_notes\` with:
 - Focus each skill on ONE specific technique (e.g. "blender-5-compositor-setup", not "blender-general-tips")
 - Include the exact code/parameters that work
 
-**When stuck or retrying (MANDATORY):**
+**When stuck, hitting limitations, or retrying (MANDATORY):**
 - If something fails, errors, or produces unexpected results: STOP and \`search_skills\` for that specific problem
-- Search with specific error-related keywords (e.g. "nuke shuffle2 blank output", "blender compositor node none", "houdini vex array")
+- If you hit a tool/software limitation (e.g. "Nuke NC 10-node limit", "Blender API changed", "Houdini apprentice restrictions"): STOP and \`search_skills\` for workarounds BEFORE simplifying or skipping work
+- Search with specific keywords (e.g. "nuke nc 10-node workaround", "nuke shuffle2 blank output", "blender compositor none")
 - If a technique isn't working after 2 attempts, you MUST search skills before trying a 3rd time
-- Do NOT keep trial-and-erroring — a skill may already document the exact fix
+- Do NOT simplify or drop requested work because of limitations — search for a workaround skill first
 - After finding and using a fix from a skill, \`rate_skill\` it
 
 **After completion:**
