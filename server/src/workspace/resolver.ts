@@ -12,7 +12,7 @@ export interface WorkspaceResolution {
   resolutionStep: number;
   /** Human-readable explanation of why this mode was selected. */
   resolutionReason: string;
-  /** Attached project for prompt injection (does NOT influence mode or cwd). */
+  /** Attached project — its first folder is used as projectRoot fallback. */
   project?: Project;
   syncDir?: string;
   needsSync: boolean;
@@ -24,7 +24,6 @@ export function resolveWorkspace(
   projectsRepo: ProjectsRepo,
   serverConfig: Config,
 ): WorkspaceResolution {
-  const projectRoot = job.editorContext?.projectRoot;
   const preferredMode = (job as any).preferredMode as WorkspaceMode | undefined;
   const metadata = (job.editorContext?.metadata ?? {}) as Record<string, unknown>;
   const targetBridges = Array.isArray(metadata.target_bridges)
@@ -32,7 +31,7 @@ export function resolveWorkspace(
     : [];
   const hasBridgeProgram = !!job.bridgeProgram;
 
-  // Look up attached project for prompt injection (does not affect workspace mode/cwd)
+  // Look up attached project — its rootPath is used as a fallback for cwd
   let attachedProject: Project | undefined;
   if ((job as any).projectId) {
     attachedProject = projectsRepo.getById((job as any).projectId) ?? undefined;
@@ -40,6 +39,11 @@ export function resolveWorkspace(
       logger.info("resolver", `Job ${job.id}: attached project '${attachedProject.name}' for prompt injection`);
     }
   }
+
+  // Resolve projectRoot: prefer editorContext, fall back to attached project's first folder
+  const editorProjectRoot = job.editorContext?.projectRoot;
+  const projectFolderPath = (attachedProject?.folders as any)?.[0]?.path as string | undefined;
+  const projectRoot = editorProjectRoot || projectFolderPath || "";
 
   // 1. If preferred mode is explicitly set, honor it
   if (preferredMode === "command") {
@@ -95,8 +99,9 @@ export function resolveWorkspace(
 
   // 4. Bridge-submitted jobs should execute through bridge commands by default,
   // not local repo mode. This keeps DCC execution client-side unless the user
-  // explicitly sets a preferred mode override.
-  if (!preferredMode && hasBridgeProgram) {
+  // explicitly sets a preferred mode override. Skip if a valid project root
+  // exists — the project folder should be used as the working directory.
+  if (!preferredMode && hasBridgeProgram && !projectRoot) {
     const shouldDefaultForTargeted =
       targetBridges.length > 0 && targetBridges.includes(job.bridgeProgram!);
     const reason = shouldDefaultForTargeted
