@@ -70,11 +70,10 @@ export class ComfyUiHealthChecker {
         if (!ip || ip === "127.0.0.1" || ip === "::1") continue; // skip loopback (that's us)
         endpoints.push({
           workerName: w.name,
-            url: `http://${ip}:${COMFYUI_DEFAULT_PORT}`,
-            machineId: w.machineId,
-            ip,
-          });
-        }
+          url: `http://${ip}:${COMFYUI_DEFAULT_PORT}`,
+          machineId: w.machineId,
+          ip,
+        });
       }
 
       // Poll all endpoints concurrently
