@@ -617,6 +617,7 @@ pub fn save_bridge_installation(
     bridge_id: String,
     version: String,
     install_path: String,
+    install_type: Option<String>,
 ) -> Result<(), String> {
     let path = bridges_state_path()?;
     let mut state: InstalledBridgesFile = fs::read_to_string(&path)
@@ -626,14 +627,22 @@ pub fn save_bridge_installation(
             installed: Vec::new(),
         });
 
-    // Remove existing entry for this bridge
-    state.installed.retain(|b| b.id != bridge_id);
+    let expanded = expand_path(&install_path);
+
+    // For project-based bridges, keep multiple installations (one per project).
+    // Remove only the entry with the same id AND path (re-install / update).
+    // For other types, remove any existing entry for this bridge id.
+    if install_type.as_deref() == Some("project") {
+        state.installed.retain(|b| !(b.id == bridge_id && b.install_path == expanded));
+    } else {
+        state.installed.retain(|b| b.id != bridge_id);
+    }
 
     // Add new entry
     state.installed.push(InstalledBridge {
         id: bridge_id,
         version,
-        install_path: expand_path(&install_path),
+        install_path: expanded,
         installed_at: now_iso(),
     });
 

@@ -192,6 +192,7 @@
         bridgeId: bridge.id,
         version: bridge.version,
         installPath: targetPath,
+        installType: bridge.installType,
       });
       await loadInstalled();
       installSuccess = { ...installSuccess, [bridge.id]: `Installed to ${targetPath}` };
@@ -259,6 +260,7 @@
           bridgeId: bridge.id,
           version: bridge.version,
           installPath: targetPath,
+          installType: bridge.installType,
         });
         installSuccess = { ...installSuccess, [bridge.id]: `Updated to v${bridge.version}` };
       } catch (e: any) {
@@ -492,6 +494,12 @@
         <div class="bridge-actions">
           {#if isInstalling}
             <button class="btn" disabled>Installing...</button>
+          {:else if isInstalled && bridge.installType === "project"}
+            <span class="installed-label">v{installed[bridge.id].version} installed</span>
+            {#if updateAvailable}
+              <button class="btn" onclick={() => openInstallDialog(bridge)}>Update to v{bridge.version}</button>
+            {/if}
+            <button class="btn" onclick={() => openInstallDialog(bridge)}>Install to Project</button>
           {:else if isInstalled && updateAvailable}
             <span class="installed-label">v{installed[bridge.id].version} installed</span>
             <button class="btn" onclick={() => openInstallDialog(bridge)}>Update to v{bridge.version}</button>
