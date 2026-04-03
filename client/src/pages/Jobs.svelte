@@ -392,6 +392,15 @@
     }
   }
 
+  async function pauseJob(jobId: string) {
+    try {
+      await api.jobs.pause(jobId);
+      refreshJobs();
+    } catch (err: any) {
+      toast.error(`Failed to pause job: ${err.message}`);
+    }
+  }
+
   async function cancelJob(jobId: string) {
     const delegation = delegationSummaryByJobId.get(jobId) ?? EMPTY_DELEGATION_SUMMARY;
     if (delegation.activeCount > 0) {
@@ -1343,6 +1352,9 @@
                 <option value="low">Low</option>
               </select>
             {/if}
+            {#if job.status === "running" && job.sessionId}
+              <button class="btn-pause" onclick={() => pauseJob(job.id)}>Pause</button>
+            {/if}
             {#if job.status === "queued" || job.status === "running" || job.status === "paused"}
               <button class="btn-cancel" onclick={() => cancelJob(job.id)}>Cancel</button>
             {/if}
@@ -2074,6 +2086,13 @@
     font-weight: 600;
   }
   .btn-start:hover { opacity: 0.85; }
+  .btn-pause {
+    padding: 4px 12px;
+    background: var(--text-muted);
+    color: white;
+    border-radius: var(--radius-sm);
+  }
+  .btn-pause:hover { opacity: 0.85; }
   .btn-cancel {
     padding: 4px 12px;
     background: var(--status-failed);

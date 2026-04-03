@@ -295,6 +295,8 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ targetWorkerName }),
       }),
+    pause: (id: string) =>
+      request(`/api/jobs/${id}/pause`, { method: "POST" }),
     resume: (id: string) =>
       request(`/api/jobs/${id}/resume`, { method: "POST" }),
     dispatch: (id: string) =>
