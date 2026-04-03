@@ -774,16 +774,29 @@ export function createMcpServer(deps: McpDeps): McpServer {
       const fullPrompt = handover_notes
         ? `## Context from Coordinator\n\n${handover_notes}\n\n---\n\n## Your Task\n\n${prompt}`
         : prompt;
-      // Build runtime options if coordination overrides were provided
-      const runtimeOptions = coordination_scripts
-        ? {
-            coordinationScripts: {
-              coordinator: coordination_scripts.coordinator ?? "enabled" as const,
-              bridge: coordination_scripts.bridge ?? "enabled" as const,
-              training: coordination_scripts.training ?? "enabled" as const,
-            },
-          }
-        : undefined;
+      // Build runtime options: inherit verification settings from parent,
+      // merge coordination script overrides if provided
+      const callerJob = deps.callerJobId ? deps.jobsRepo.getById(deps.callerJobId) : null;
+      const parentRuntimeOpts = callerJob?.runtimeOptions as Record<string, unknown> | undefined;
+      const runtimeOptions: Record<string, unknown> = {};
+      // Inherit verification settings from parent job
+      if (parentRuntimeOpts?.verificationMode) {
+        runtimeOptions.verificationMode = parentRuntimeOpts.verificationMode;
+      }
+      if (parentRuntimeOpts?.verificationWeight !== undefined) {
+        runtimeOptions.verificationWeight = parentRuntimeOpts.verificationWeight;
+      }
+      if (parentRuntimeOpts?.bridgeExecutionMode) {
+        runtimeOptions.bridgeExecutionMode = parentRuntimeOpts.bridgeExecutionMode;
+      }
+      // Apply coordination script overrides
+      if (coordination_scripts) {
+        runtimeOptions.coordinationScripts = {
+          coordinator: coordination_scripts.coordinator ?? "enabled" as const,
+          bridge: coordination_scripts.bridge ?? "enabled" as const,
+          training: coordination_scripts.training ?? "enabled" as const,
+        };
+      }
 
       const job = deps.jobsRepo.create(
         {
@@ -795,7 +808,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
           files: [],
           contextItems: [],
           startPaused: false,
-          runtimeOptions,
+          runtimeOptions: Object.keys(runtimeOptions).length > 0 ? runtimeOptions : undefined,
         },
         bridgeId,
         bridgeProgram,
