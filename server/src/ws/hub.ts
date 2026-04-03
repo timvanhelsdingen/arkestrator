@@ -520,12 +520,19 @@ export class WebSocketHub {
   }
 
   private buildBridgeList() {
-    // Use the first connected client's identity for virtual bridges
-    // so they group under the correct worker in the UI
-    const firstClient = this.getClients()[0];
-    const localWorkerName = firstClient?.workerName ?? firstClient?.machineId ?? "localhost";
-    const localMachineId = firstClient?.machineId;
-    const localIp = firstClient?.ip ?? "127.0.0.1";
+    // For virtual bridges (e.g. ComfyUI), find the worker that matches the
+    // server's own machine by looking for a local bridge connection (127.0.0.1/::1).
+    // Falls back to hostname matching or first client.
+    const allBridges = this.getBridges();
+    const localBridge = allBridges.find((b) =>
+      !b.id.startsWith("virtual:") && (b.ip === "127.0.0.1" || b.ip === "::1" || b.ip === "[::1]"),
+    );
+    const localClient = this.getClients().find((c) =>
+      c.ip === "127.0.0.1" || c.ip === "::1" || c.ip === "[::1]",
+    ) ?? this.getClients()[0];
+    const localWorkerName = localBridge?.workerName ?? localClient?.workerName ?? localClient?.machineId ?? "localhost";
+    const localMachineId = localBridge?.machineId ?? localClient?.machineId;
+    const localIp = localBridge?.ip ?? localClient?.ip ?? "127.0.0.1";
 
     return this.getBridges().map((b) => {
       const isVirtual = b.id.startsWith("virtual:");
@@ -605,9 +612,14 @@ export class WebSocketHub {
     ensureLiveWorkersPersisted(workersRepo, bridges, clients);
     const allWorkers = workersRepo.list(); // Already includes knownPrograms
 
-    // Collect virtual bridge programs and assign to the local worker
-    const firstClient = clients[0];
-    const localWorkerKey = String(firstClient?.workerName ?? firstClient?.machineId ?? "").trim().toLowerCase();
+    // Collect virtual bridge programs and assign to the local (server-side) worker
+    const localBridge = bridges.find((b) =>
+      !b.id.startsWith("virtual:") && (b.ip === "127.0.0.1" || b.ip === "::1" || b.ip === "[::1]"),
+    );
+    const localClient = clients.find((c) =>
+      c.ip === "127.0.0.1" || c.ip === "::1" || c.ip === "[::1]",
+    ) ?? clients[0];
+    const localWorkerKey = String(localBridge?.workerName ?? localClient?.workerName ?? localClient?.machineId ?? "").trim().toLowerCase();
     const virtualPrograms = this.getVirtualBridges().map((vb) => vb.program);
 
     const enriched = enrichWorkersWithLivePresence(allWorkers, bridges, clients);
