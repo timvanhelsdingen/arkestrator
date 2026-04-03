@@ -1213,6 +1213,7 @@ When all required direct work and sub-jobs are complete or intentionally dispatc
 - Do not claim success without evidence.
 - Do not perform unrelated refactors or scene-wide rewrites for narrow requests.
 - Do not rely on assumptions when context/tool output can verify state.
+- Do NOT simplify or skip requested work because of tool limitations. If the user asked for a beauty rebuild from AOV passes, you must do it — not just pass through the Combined pass. If you loaded skills that document workarounds for limitations (e.g. Nuke NC 10-node limit), USE those workarounds instead of dropping the work.
 
 ---
 
