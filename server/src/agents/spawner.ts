@@ -1725,7 +1725,9 @@ export async function spawnAgent(
           "  - `am skills get <slug>` — load a skill's full content\n" +
           "  - `am skills create --slug <slug> --title '<title>' --program <program> --content '<content>'` — save a new skill\n" +
           "  - `am skills rate <slug> <useful|not_useful|partial>` — rate a skill after using it\n" +
-          "Search once for your task type (e.g., 'blender rendering', 'houdini procedural'), then proceed with work. " +
+          "Search for your task type before starting (e.g., 'blender rendering', 'nuke compositing'). " +
+          "Search AGAIN whenever you hit errors, unexpected results, or need to retry — use the specific problem as the query. " +
+          "Do not keep guessing when a skill might already have the answer. " +
           "When you learn something non-trivial, create a skill so future tasks benefit.",
         );
       }

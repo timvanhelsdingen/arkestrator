@@ -1124,6 +1124,13 @@ When using \`create_job\`, include \`handover_notes\` with:
 - Focus each skill on ONE specific technique (e.g. "blender-5-compositor-setup", not "blender-general-tips")
 - Include the exact code/parameters that work
 
+**When stuck or retrying (MANDATORY):**
+- If something fails, errors, or produces unexpected results: STOP and \`search_skills\` for that specific problem
+- Search with specific error-related keywords (e.g. "nuke shuffle2 blank output", "blender compositor node none", "houdini vex array")
+- If a technique isn't working after 2 attempts, you MUST search skills before trying a 3rd time
+- Do NOT keep trial-and-erroring — a skill may already document the exact fix
+- After finding and using a fix from a skill, \`rate_skill\` it
+
 **After completion:**
 - Ask: "What would save the next agent time on a similar task?"
 - If the answer is non-trivial, create or update a skill
