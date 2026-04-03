@@ -337,7 +337,7 @@ export class WebSocketHub {
         bridges.push(ws.data);
       }
     }
-    // Include virtual bridges as synthetic WsData entries
+    // Include virtual bridges as synthetic WsData entries with full identity
     for (const vb of this.virtualBridges.values()) {
       bridges.push({
         id: vb.id,
@@ -348,6 +348,9 @@ export class WebSocketHub {
         program: vb.program,
         programVersion: vb.programVersion,
         bridgeVersion: "http-standalone",
+        workerName: vb.workerName,
+        machineId: vb.machineId,
+        ip: vb.ip,
       });
     }
     return bridges;
@@ -526,25 +529,7 @@ export class WebSocketHub {
   }
 
   private buildBridgeList() {
-    // For virtual bridges, find the worker whose name matches the server hostname.
-    // This is stable regardless of connection order.
-    const allBridges = this.getBridges();
-    const allClients = this.getClients();
-    const localConn = [...allBridges, ...allClients].find((c) =>
-      c.workerName?.toLowerCase() === this.serverHostname,
-    ) ?? allBridges.find((b) =>
-      !b.id.startsWith("virtual:") && (b.ip === "127.0.0.1" || b.ip === "::1"),
-    ) ?? allClients.find((c) =>
-      c.ip === "127.0.0.1" || c.ip === "::1",
-    );
-    const localWorkerName = localConn?.workerName ?? this.serverHostname;
-    const localMachineId = localConn?.machineId;
-    const localIp = localConn?.ip ?? "127.0.0.1";
-
     return this.getBridges().map((b) => {
-      const isVirtual = b.id.startsWith("virtual:");
-      // Virtual bridges carry their own identity from the health checker
-      const vb = isVirtual ? this.virtualBridges.get(b.id) : undefined;
       return {
         id: b.id,
         name: b.name ?? b.id,
@@ -558,9 +543,9 @@ export class WebSocketHub {
         activeProjects: Array.isArray(b.activeProjects)
           ? b.activeProjects
           : (b.projectPath ? [b.projectPath] : []),
-        machineId: vb?.machineId ?? (isVirtual ? localMachineId : b.machineId),
-        workerName: vb?.workerName ?? (isVirtual ? localWorkerName : b.workerName),
-        ip: vb?.ip ?? (isVirtual ? localIp : b.ip),
+        machineId: b.machineId,
+        workerName: b.workerName,
+        ip: b.ip,
         connectedAt: b.connectedAt,
         osUser: b.osUser,
       };
