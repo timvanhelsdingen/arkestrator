@@ -56,20 +56,20 @@ export class ComfyUiHealthChecker {
       // Build list of endpoints to poll: local + every online worker with a known IP
       const endpoints: Array<{ workerName: string; url: string; machineId?: string; ip: string }> = [];
 
-      // Local server endpoint
+      // Local server endpoint — resolve machineId from workers repo so dedup works
       const localUrl = String(this.config.comfyuiUrl || `http://127.0.0.1:${COMFYUI_DEFAULT_PORT}`).replace(/\/+$/, "");
-      endpoints.push({ workerName: this.serverHostname, url: localUrl, ip: "127.0.0.1" });
+      const workers = this.workersRepo?.list() ?? [];
+      const localWorker = workers.find((w) => w.name.toLowerCase() === this.serverHostname);
+      endpoints.push({ workerName: this.serverHostname, url: localUrl, ip: "127.0.0.1", machineId: localWorker?.machineId });
 
       // Remote workers — poll their IP on the default ComfyUI port
-      if (this.workersRepo) {
-        const workers = this.workersRepo.list();
-        for (const w of workers) {
-          if (w.status !== "online") continue;
-          if (w.name.toLowerCase() === this.serverHostname) continue; // already covered by local
-          const ip = w.lastIp;
-          if (!ip || ip === "127.0.0.1" || ip === "::1") continue; // skip loopback (that's us)
-          endpoints.push({
-            workerName: w.name,
+      for (const w of workers) {
+        if (w.status !== "online") continue;
+        if (w.name.toLowerCase() === this.serverHostname) continue; // already covered by local
+        const ip = w.lastIp;
+        if (!ip || ip === "127.0.0.1" || ip === "::1") continue; // skip loopback (that's us)
+        endpoints.push({
+          workerName: w.name,
             url: `http://${ip}:${COMFYUI_DEFAULT_PORT}`,
             machineId: w.machineId,
             ip,

@@ -587,9 +587,15 @@
       }
       headlessStatusByProgram = nextHeadless;
 
-      // Build programs dropdown from live bridges only (not stale headless configs)
+      // Build programs dropdown from bridges, headless configs, AND existing skills
       const knownKeys = new Set<string>();
       for (const key of Object.keys(bridgeCounts)) if (key) knownKeys.add(key);
+      for (const key of Object.keys(nextHeadless)) if (key) knownKeys.add(key);
+      // Include programs from skills so you can manage skills even without a live bridge
+      for (const skill of serverSkills) {
+        const sp = String(skill.program ?? "").trim().toLowerCase();
+        if (sp && sp !== "global") knownKeys.add(sp);
+      }
       knownKeys.add("global");
       const derived = [...knownKeys]
         .sort()

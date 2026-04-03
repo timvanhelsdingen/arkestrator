@@ -222,10 +222,10 @@ export class JobsRepo {
       `UPDATE jobs SET status = 'completed', commands = ?, logs = CASE WHEN ? = '' THEN logs ELSE ? END, completed_at = ? WHERE id = ?`,
     );
     this.updateFailedStmt = db.prepare(
-      `UPDATE jobs SET status = 'failed', error = ?, logs = CASE WHEN ? = '' THEN logs ELSE ? END, completed_at = ? WHERE id = ?`,
+      `UPDATE jobs SET status = 'failed', error = ?, logs = CASE WHEN ? = '' THEN logs ELSE ? END, completed_at = ?, session_id = NULL WHERE id = ?`,
     );
     this.cancelStmt = db.prepare(
-      `UPDATE jobs SET status = 'cancelled', completed_at = ? WHERE id = ? AND status IN ('queued', 'paused', 'running')`,
+      `UPDATE jobs SET status = 'cancelled', completed_at = ?, session_id = NULL WHERE id = ? AND status IN ('queued', 'paused', 'running')`,
     );
     this.reprioritizeStmt = db.prepare(
       `UPDATE jobs SET priority = ? WHERE id = ? AND status IN ('queued', 'paused')`,
@@ -756,7 +756,7 @@ export class JobsRepo {
     const retryAfter = new Date(Date.now() + retryDelayMs).toISOString();
     const result = this.db.prepare(
       `UPDATE jobs SET status = 'queued', started_at = NULL, error = NULL,
-       retry_count = retry_count + 1, retry_after = ?
+       retry_count = retry_count + 1, retry_after = ?, session_id = NULL
        WHERE id = ? AND status = 'failed'`,
     ).run(retryAfter, jobId);
     return result.changes > 0;
