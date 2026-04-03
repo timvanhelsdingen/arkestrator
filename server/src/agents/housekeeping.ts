@@ -131,8 +131,7 @@ export function queueHousekeepingJob(
     options?.parentJobId,
   );
 
-  // Update last run timestamp
-  const schedule = getHousekeepingSchedule(deps.settingsRepo);
+  // Update last run timestamp (reuse schedule from above)
   schedule.lastRunAt = new Date().toISOString();
   setHousekeepingSchedule(deps.settingsRepo, schedule);
 
