@@ -268,14 +268,33 @@
 
   async function loadRegistry() {
     try {
-      const res = await fetch(
-        "https://raw.githubusercontent.com/timvanhelsdingen/arkestrator-bridges/main/registry.json"
-      );
+      const baseUrl = "https://raw.githubusercontent.com/timvanhelsdingen/arkestrator-bridges/main";
+      const res = await fetch(`${baseUrl}/registry.json`);
       if (!res.ok) return;
       const data = await res.json();
+
+      // V2 registry: fetch individual bridge.json files for metadata
+      let bridgeEntries: Array<{ program?: string; stability?: string }>;
+      if (data.registryVersion >= 2) {
+        const entries: Array<{ id: string; dir?: string }> = data.bridges ?? [];
+        const results = await Promise.allSettled(
+          entries.map(async (entry) => {
+            const dir = entry.dir ?? entry.id;
+            const r = await fetch(`${baseUrl}/${dir}/bridge.json`);
+            if (!r.ok) throw new Error(`${r.status}`);
+            return r.json();
+          }),
+        );
+        bridgeEntries = results
+          .filter((r): r is PromiseFulfilledResult<any> => r.status === "fulfilled")
+          .map((r) => r.value);
+      } else {
+        bridgeEntries = data.bridges ?? [];
+      }
+
       const map: Record<string, Stability> = {};
-      for (const b of data.bridges ?? []) {
-        if (b.program && b.stability) map[b.program] = b.stability;
+      for (const b of bridgeEntries) {
+        if (b.program && b.stability) map[b.program] = b.stability as Stability;
       }
       stabilityMap = map;
     } catch {

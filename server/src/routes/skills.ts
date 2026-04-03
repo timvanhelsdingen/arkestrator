@@ -54,11 +54,30 @@ async function fetchRegistry(): Promise<RegistryData> {
       logger.warn("skills-registry", `GitHub fetch failed: ${res.status} ${res.statusText}`);
       return { version: 1, skills: [] };
     }
-    const raw = (await res.json()) as { version?: number; bridges?: BridgeRegistryEntry[] };
+    const raw = (await res.json()) as any;
+
+    // Resolve bridge entries — v2 registries need individual bridge.json fetches
+    let bridgeEntries: BridgeRegistryEntry[];
+    if (raw.registryVersion >= 2) {
+      const entries: Array<{ id: string; dir?: string }> = raw.bridges ?? [];
+      const results = await Promise.allSettled(
+        entries.map(async (entry) => {
+          const dir = entry.dir ?? entry.id;
+          const r = await fetch(`${BRIDGE_RAW_BASE}/${dir}/bridge.json`);
+          if (!r.ok) throw new Error(`${r.status}`);
+          return (await r.json()) as BridgeRegistryEntry;
+        }),
+      );
+      bridgeEntries = results
+        .filter((r): r is PromiseFulfilledResult<BridgeRegistryEntry> => r.status === "fulfilled")
+        .map((r) => r.value);
+    } else {
+      bridgeEntries = raw.bridges ?? [];
+    }
 
     // Transform bridge registry format → flat skill list
     const skills: RegistrySkillEntry[] = [];
-    for (const bridge of raw.bridges ?? []) {
+    for (const bridge of bridgeEntries) {
       const program = bridge.program ?? bridge.id;
       // Each bridge has a coordinator.md (always available)
       skills.push({

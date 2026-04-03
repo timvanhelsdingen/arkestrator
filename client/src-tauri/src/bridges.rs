@@ -1,3 +1,4 @@
+use futures::future::join_all;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fs;
@@ -90,6 +91,49 @@ fn now_iso() -> String {
 
 // ─── Registry ───────────────────────────────────────────────────────────
 
+/// Detect whether the registry uses the v2 format (per-bridge bridge.json manifests).
+/// V2 registries have a `registryVersion` field >= 2, or their bridge entries lack
+/// a `name` field (they are index-only pointers with just `id` and `dir`).
+fn is_v2_registry(registry: &Value) -> bool {
+    if let Some(v) = registry.get("registryVersion").and_then(|v| v.as_u64()) {
+        return v >= 2;
+    }
+    // Heuristic: if first bridge entry lacks "name", it's a v2 index entry
+    registry
+        .get("bridges")
+        .and_then(|b| b.as_array())
+        .and_then(|a| a.first())
+        .map(|first| first.get("name").is_none())
+        .unwrap_or(false)
+}
+
+/// Fetch a single bridge's manifest (bridge.json) from the repo.
+async fn fetch_bridge_manifest(
+    client: &reqwest::Client,
+    repo: &str,
+    dir: &str,
+) -> Result<Value, String> {
+    let url = format!(
+        "https://raw.githubusercontent.com/{}/main/{}/bridge.json",
+        repo, dir
+    );
+    let resp = client
+        .get(&url)
+        .header("User-Agent", "Arkestrator-Client")
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch {}/bridge.json: {e}", dir))?;
+    if !resp.status().is_success() {
+        return Err(format!("{}/bridge.json returned {}", dir, resp.status()));
+    }
+    let text = resp
+        .text()
+        .await
+        .map_err(|e| format!("Failed to read {}/bridge.json: {e}", dir))?;
+    serde_json::from_str(&text)
+        .map_err(|e| format!("Failed to parse {}/bridge.json: {e}", dir))
+}
+
 #[tauri::command]
 pub async fn fetch_bridge_registry(repo: String, force_refresh: Option<bool>) -> Result<Value, String> {
     // Check cache first (skip if force refresh)
@@ -132,6 +176,50 @@ pub async fn fetch_bridge_registry(repo: String, force_refresh: Option<bool>) ->
 
     let registry: Value = serde_json::from_str(&registry_text)
         .map_err(|e| format!("Failed to parse registry JSON: {e}"))?;
+
+    // Detect registry format: v2 has a registryVersion field and bridge entries
+    // are just index pointers ({ id, dir }) — full metadata lives in per-bridge
+    // bridge.json files that we fetch in parallel.
+    let registry = if is_v2_registry(&registry) {
+        let entries: Vec<(String, String)> = registry
+            .get("bridges")
+            .and_then(|b| b.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|e| {
+                        let id = e.get("id")?.as_str()?.to_string();
+                        let dir = e
+                            .get("dir")
+                            .and_then(|d| d.as_str())
+                            .unwrap_or(e.get("id")?.as_str()?)
+                            .to_string();
+                        Some((id, dir))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        // Fetch all bridge.json files in parallel
+        let futs: Vec<_> = entries
+            .iter()
+            .map(|(_, dir)| fetch_bridge_manifest(&client, repo_trimmed, dir))
+            .collect();
+        let results = join_all(futs).await;
+
+        let mut bridges_array = Vec::new();
+        for (i, result) in results.into_iter().enumerate() {
+            match result {
+                Ok(manifest) => bridges_array.push(manifest),
+                Err(e) => eprintln!(
+                    "[bridges] Warning: skipping bridge {}: {}",
+                    entries[i].0, e
+                ),
+            }
+        }
+        json!({ "registryVersion": 2, "bridges": bridges_array })
+    } else {
+        registry
+    };
 
     // Fetch releases to find download URLs for each bridge's asset zip
     let releases_url = format!(

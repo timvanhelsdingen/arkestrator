@@ -63,10 +63,35 @@ export async function fetchBridgeRegistry(): Promise<BridgeRegistryData> {
       logger.warn("skill-registry", `Bridge registry fetch failed: ${res.status} ${res.statusText}`);
       return { bridges: [] };
     }
-    const data = (await res.json()) as BridgeRegistryData;
-    if (!data || !Array.isArray(data.bridges)) {
-      return { bridges: [] };
+    const raw = (await res.json()) as any;
+
+    let bridges: BridgeRegistryEntry[];
+
+    // V2 registry: entries are index pointers, fetch individual bridge.json files
+    if (raw.registryVersion >= 2) {
+      const entries: Array<{ id: string; dir?: string }> = raw.bridges ?? [];
+      const results = await Promise.allSettled(
+        entries.map(async (entry) => {
+          const dir = entry.dir ?? entry.id;
+          const r = await fetch(`${BRIDGE_RAW_BASE_URL}/${dir}/bridge.json`);
+          if (!r.ok) throw new Error(`${r.status}`);
+          return (await r.json()) as BridgeRegistryEntry;
+        }),
+      );
+      bridges = results
+        .filter((r): r is PromiseFulfilledResult<BridgeRegistryEntry> => r.status === "fulfilled")
+        .map((r) => r.value);
+      for (const r of results) {
+        if (r.status === "rejected") {
+          logger.warn("skill-registry", `Failed to fetch bridge manifest: ${r.reason}`);
+        }
+      }
+    } else {
+      // V1 registry: bridge entries are inline
+      bridges = Array.isArray(raw.bridges) ? raw.bridges : [];
     }
+
+    const data: BridgeRegistryData = { bridges };
     bridgeRegistryCache = { data, fetchedAt: Date.now() };
     return data;
   } catch (err: any) {
