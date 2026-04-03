@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "0.1.109"
+version = "0.1.110"
 description = "AI agent orchestration for creative tools"
 authors = ["Tim van Helsdingen"]
 license = "MIT"
