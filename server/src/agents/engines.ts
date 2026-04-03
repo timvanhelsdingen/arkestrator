@@ -1112,10 +1112,45 @@ When using \`create_job\`, include \`handover_notes\` with:
 
 ---
 
-### Skill Learning (Required)
+### Skill Discipline (Required)
 
-After completing work, ask: "If another agent got a similar task tomorrow, what would save them time?"
-If the answer is non-trivial, create a skill.
+**Before execution:**
+1. \`search_skills\` with keywords relevant to the task (materials, lighting, export, node setup, API, etc.)
+2. \`get_skill\` on the top matches and follow their patterns
+3. Do NOT guess API parameters or node setups when a skill might already document them
+
+**During execution:**
+- When you discover a workaround, API quirk, or non-obvious parameter: \`create_skill\` immediately
+- Focus each skill on ONE specific technique (e.g. "blender-5-compositor-setup", not "blender-general-tips")
+- Include the exact code/parameters that work
+
+**After completion:**
+- Ask: "What would save the next agent time on a similar task?"
+- If the answer is non-trivial, create or update a skill
+
+### Bridge Script Output (Important)
+
+Bridge \`execute_command\` does NOT return stdout/print output — it only returns success/failure.
+To read variable values, parameter names, or debug info, write to a JSON file and use \`read_client_file\`:
+
+\`\`\`python
+import json
+result = {"params": {p.name(): str(p.eval()) for p in node.parms()}}
+with open(f"{project_dir}/_arkestrator/{job_id}/debug.json", "w") as f:
+    json.dump(result, f, indent=2)
+\`\`\`
+
+Do NOT waste turns guessing parameter names — dump them all in one call.
+
+### Native File Saving (Required)
+
+Every job that creates or modifies a scene MUST save the native file:
+- Blender: \`.blend\`
+- Houdini: \`.hip\` / \`.hiplc\` / \`.hipnc\`
+- Nuke: \`.nk\` / \`.nknc\`
+
+Save to \`{projectRoot}/scenes/\` or the bridge's current project path.
+Organize render outputs in \`{projectRoot}/renders/{bridge}/\`, not flat in the root.
 
 **Create a skill when you:**
 - Built a multi-step workflow (node graph, script sequence, modifier stack)
