@@ -621,12 +621,15 @@ function buildRuntimeVerificationDirective(job: Job): string {
     lines.push("Include explicit PASS/FAIL evidence in the final report.");
     lines.push("");
     lines.push("CRITICAL VERIFICATION RULES:");
-    lines.push("1. NEVER claim success based on your own visual assessment alone.");
+    lines.push("1. For visual/render tasks: use read_client_file to load the output image, then Read to visually inspect it. You are a vision model — use your visual understanding to verify:");
+    lines.push("   - Content matches what was requested (correct subject, composition, style)");
+    lines.push("   - Quality is acceptable (no artifacts, noise, banding, generation failures)");
+    lines.push("   - If a reference image was provided, compare against it visually");
+    lines.push("   - If textures should be seamless/tileable, check for visible seams or blend artifacts");
     lines.push("2. If you loaded verification skills earlier, follow their patterns. Otherwise use the bridge's built-in verification tools.");
-    lines.push("3. For visual/render tasks: run a programmatic comparison script via execute_command (histogram correlation, pixel diff). Report NUMERIC scores in your output.");
-    lines.push("4. If any comparison score < 0.7, list SPECIFIC differences (color, geometry, missing elements) and fix them before continuing. Do not proceed until scores improve.");
-    lines.push("5. For non-visual tasks (game dev, compositing, procedural): run the bridge's deterministic validation checks (syntax check, runtime check, scene tree validation, node graph validation).");
-    lines.push("6. Include explicit VERIFY PASS/FAIL lines with evidence in your final report.");
+    lines.push("3. For non-visual tasks (game dev, compositing, procedural): run the bridge's deterministic validation checks (syntax check, runtime check, scene tree validation, node graph validation).");
+    lines.push("4. Do NOT mark clearly wrong output as successful. If the output doesn't match the request, fix it before reporting success.");
+    lines.push("5. Include explicit VERIFY PASS/FAIL lines with evidence in your final report.");
   } else if (effectiveMode === "optional") {
     lines.push("Attempt deterministic verification when practical for changed scope.");
     lines.push("If verification is skipped or unavailable, clearly list what remains unverified.");
