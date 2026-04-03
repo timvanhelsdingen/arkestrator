@@ -3657,6 +3657,7 @@ export function createSettingsSnapshotsRoutes(deps: SettingsRouteDeps) {
     logLevel:            { dbKey: "log_level",             type: "string" as const },
     workerPollMs:        { dbKey: "worker_poll_ms",        type: "number" as const },
     defaultWorkspaceMode:{ dbKey: "default_workspace_mode",type: "string" as const },
+    wsMaxPayloadMb:      { dbKey: "ws_max_payload_mb",    type: "number" as const },
   } as const;
 
   const VALID_LOG_LEVELS = ["debug", "info", "warn", "error"];

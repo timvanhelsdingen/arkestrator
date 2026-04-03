@@ -1398,6 +1398,7 @@ export const api = {
         logLevel: string;
         workerPollMs: number;
         defaultWorkspaceMode: string;
+        wsMaxPayloadMb: number;
       }>,
     updateConfig: (updates: Record<string, string | number>) =>
       request("/api/settings/system-config", {

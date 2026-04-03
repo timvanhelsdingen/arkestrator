@@ -14,6 +14,7 @@ export interface Config {
   syncTtlMs: number;
   syncCleanupIntervalMs: number;
   syncMaxSizeMb: number;
+  wsMaxPayloadMb: number;
   defaultWorkspaceMode: WorkspaceModeConfig;
   headlessTempDir: string;
   comfyuiUrl: string;
@@ -98,6 +99,7 @@ export function loadConfig(): Config {
       10,
     ),
     syncMaxSizeMb: parseInt(process.env.SYNC_MAX_SIZE_MB ?? "500", 10),
+    wsMaxPayloadMb: parseInt(process.env.WS_MAX_PAYLOAD_MB ?? "256", 10),
     defaultWorkspaceMode:
       (process.env.DEFAULT_WORKSPACE_MODE as WorkspaceModeConfig) ?? "auto",
     headlessTempDir: process.env.HEADLESS_TEMP_DIR ?? join(dataDir, "headless-tmp"),

@@ -881,6 +881,8 @@ async function main() {
       }
     },
     websocket: {
+      // Allow large file transfers (EXR, PSD, etc.) — Bun defaults to 16 MB
+      maxPayloadLength: (settingsRepo.getNumber("ws_max_payload_mb") ?? config.wsMaxPayloadMb) * 1024 * 1024,
       // Disable Bun's built-in idle timeout; we send manual pings instead
       idleTimeout: 0,
       open(rawWs) {

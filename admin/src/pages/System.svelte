@@ -14,6 +14,7 @@
   let logLevel = $state("info");
   let workerPollMs = $state(500);
   let defaultWorkspaceMode = $state("auto");
+  let wsMaxPayloadMb = $state(256);
 
   // ── Coordination Policy ──
   let allowClientCoordination = $state(false);
@@ -29,6 +30,7 @@
       logLevel = cfg.logLevel;
       workerPollMs = cfg.workerPollMs;
       defaultWorkspaceMode = cfg.defaultWorkspaceMode;
+      wsMaxPayloadMb = cfg.wsMaxPayloadMb;
     } catch (err: any) {
       toast.error(err?.message ?? "Failed to load system config");
     } finally {
@@ -69,6 +71,7 @@
         logLevel,
         workerPollMs,
         defaultWorkspaceMode,
+        wsMaxPayloadMb,
       });
       toast.success(`Settings saved (${res.updated.length} updated)`);
     } catch (err: any) {
@@ -168,6 +171,12 @@
               <label for="pollMs">Worker Poll Interval (ms)</label>
               <p class="hint">How often workers check for queued jobs. Lower = more responsive, higher = less CPU. Default: 500.</p>
               <input id="pollMs" type="number" min="100" max="10000" step="100" bind:value={workerPollMs} />
+            </div>
+
+            <div class="setting">
+              <label for="wsPayload">WebSocket Max Payload (MB)</label>
+              <p class="hint">Maximum size of a single WebSocket message. Applies to file transfers (EXR, PSD, etc.). Requires server restart. Default: 256 MB.</p>
+              <input id="wsPayload" type="number" min="1" bind:value={wsMaxPayloadMb} />
             </div>
 
             <div class="setting">
