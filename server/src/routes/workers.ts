@@ -1,3 +1,4 @@
+import { hostname } from "node:os";
 import { Hono } from "hono";
 import type { WorkersRepo } from "../db/workers.repo.js";
 import type { UsersRepo } from "../db/users.repo.js";
@@ -39,14 +40,13 @@ export function createWorkerRoutes(
     ensureLiveWorkersPersisted(workersRepo, bridges, clients);
     const allWorkers = workersRepo.list();
 
-    // Collect virtual bridge programs keyed by the worker they'll be assigned to
+    // Collect virtual bridge programs keyed by the worker they belong to
     const virtualProgramsByWorker = new Map<string, string[]>();
-    const firstClient = clients[0];
-    const localWorkerName = (firstClient?.workerName ?? firstClient?.machineId ?? "localhost").toLowerCase();
     for (const vb of hub.getVirtualBridges()) {
-      const existing = virtualProgramsByWorker.get(localWorkerName) ?? [];
+      const workerKey = (vb.workerName ?? hostname()).toLowerCase();
+      const existing = virtualProgramsByWorker.get(workerKey) ?? [];
       existing.push(vb.program);
-      virtualProgramsByWorker.set(localWorkerName, existing);
+      virtualProgramsByWorker.set(workerKey, existing);
     }
 
     const enriched = enrichWorkersWithLivePresence(allWorkers, bridges, clients).map((worker) => {
@@ -62,30 +62,25 @@ export function createWorkerRoutes(
 
     // Include bridge list so clients can update both workers and bridges in one call.
     // getBridges() includes both real WebSocket bridges and virtual HTTP bridges (e.g. ComfyUI).
-    const localMachineId = firstClient?.machineId;
-    const localIp = firstClient?.ip ?? "127.0.0.1";
-    const bridgeList: any[] = bridges.map((b) => {
-      const isVirtual = b.id.startsWith("virtual:");
-      return {
-        id: b.id,
-        name: b.name ?? b.id,
-        type: "bridge",
-        connected: true,
-        lastSeen: new Date().toISOString(),
-        program: b.program,
-        programVersion: b.programVersion,
-        bridgeVersion: b.bridgeVersion,
-        projectPath: b.projectPath,
-        activeProjects: Array.isArray(b.activeProjects)
-          ? b.activeProjects
-          : (b.projectPath ? [b.projectPath] : []),
-        machineId: isVirtual ? localMachineId : b.machineId,
-        workerName: isVirtual ? localWorkerName : b.workerName,
-        ip: isVirtual ? localIp : b.ip,
-        connectedAt: b.connectedAt as string | undefined,
-        osUser: b.osUser as string | undefined,
-      };
-    });
+    const bridgeList: any[] = bridges.map((b) => ({
+      id: b.id,
+      name: b.name ?? b.id,
+      type: "bridge",
+      connected: true,
+      lastSeen: new Date().toISOString(),
+      program: b.program,
+      programVersion: b.programVersion,
+      bridgeVersion: b.bridgeVersion,
+      projectPath: b.projectPath,
+      activeProjects: Array.isArray(b.activeProjects)
+        ? b.activeProjects
+        : (b.projectPath ? [b.projectPath] : []),
+      machineId: b.machineId,
+      workerName: b.workerName,
+      ip: b.ip,
+      connectedAt: b.connectedAt as string | undefined,
+      osUser: b.osUser as string | undefined,
+    }));
     const connectedKeys = new Set(
       bridgeList.filter((b) => b.connected).map((b) => `${String(b.machineId ?? b.workerName ?? "").toLowerCase()}:${String(b.program ?? "").toLowerCase()}`),
     );
