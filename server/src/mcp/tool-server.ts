@@ -677,8 +677,10 @@ export function createMcpServer(deps: McpDeps): McpServer {
     {
       prompt: z.string().describe("Task instructions for the sub-agent"),
       handover_notes: z.string().optional().describe(
-        "Context from the parent job. Include: what was already done, what files exist, " +
-        "project structure, decisions made. Gets prepended to the sub-job's prompt so it has full context.",
+        "Context from the parent job. Include: what was already done, what files/renders exist and their paths, " +
+        "project structure, decisions made. For pipeline jobs (render → composite → export), " +
+        "include paths to upstream outputs so the sub-job can verify its results against them. " +
+        "Gets prepended to the sub-job's prompt so it has full context.",
       ),
       agent_config_id: z.string().optional().describe(
         "Which agent config to use (ID from list_agent_configs). Defaults to the first claude-code config.",

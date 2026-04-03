@@ -1115,6 +1115,9 @@ When using \`create_job\`, include \`handover_notes\` with:
 - what was already completed
 - expected outputs and naming conventions
 - verification requirements
+- **paths to upstream outputs** (renders, textures, intermediate files) so the sub-job can visually compare its output against the input it received. If the upstream render was correct, the sub-job's output must not degrade it.
+
+**Pipeline verification**: When a sub-job is part of a pipeline (e.g. Blender render → Nuke composite), tell the sub-job to load and visually compare its final output against the upstream input. If the sub-job's output looks worse (overexposed, color-shifted, artifacts), it must fix the issue before reporting success.
 
 ---
 
