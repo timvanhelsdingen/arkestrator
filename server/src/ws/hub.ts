@@ -53,6 +53,9 @@ export interface VirtualBridgeData {
   programVersion?: string;
   connectedAt: string;
   url: string;
+  workerName?: string;
+  machineId?: string;
+  ip?: string;
 }
 
 export class WebSocketHub {
@@ -540,6 +543,8 @@ export class WebSocketHub {
 
     return this.getBridges().map((b) => {
       const isVirtual = b.id.startsWith("virtual:");
+      // Virtual bridges carry their own identity from the health checker
+      const vb = isVirtual ? this.virtualBridges.get(b.id) : undefined;
       return {
         id: b.id,
         name: b.name ?? b.id,
@@ -553,9 +558,9 @@ export class WebSocketHub {
         activeProjects: Array.isArray(b.activeProjects)
           ? b.activeProjects
           : (b.projectPath ? [b.projectPath] : []),
-        machineId: isVirtual ? localMachineId : b.machineId,
-        workerName: isVirtual ? localWorkerName : b.workerName,
-        ip: isVirtual ? localIp : b.ip,
+        machineId: vb?.machineId ?? (isVirtual ? localMachineId : b.machineId),
+        workerName: vb?.workerName ?? (isVirtual ? localWorkerName : b.workerName),
+        ip: vb?.ip ?? (isVirtual ? localIp : b.ip),
         connectedAt: b.connectedAt,
         osUser: b.osUser,
       };
@@ -616,18 +621,13 @@ export class WebSocketHub {
     ensureLiveWorkersPersisted(workersRepo, bridges, clients);
     const allWorkers = workersRepo.list(); // Already includes knownPrograms
 
-    // Collect virtual bridge programs and assign to the server's own worker
-    const localConn = [...bridges, ...clients].find((c) =>
-      c.workerName?.toLowerCase() === this.serverHostname,
-    );
-    const localWorkerKey = localConn?.workerName?.trim().toLowerCase() ?? this.serverHostname;
-    const virtualPrograms = this.getVirtualBridges().map((vb) => vb.program);
-
+    // Assign each virtual bridge's program to its specific worker
     const enriched = enrichWorkersWithLivePresence(allWorkers, bridges, clients);
-    if (localWorkerKey && virtualPrograms.length > 0) {
+    for (const vb of this.getVirtualBridges()) {
+      const targetWorker = vb.workerName?.toLowerCase() ?? this.serverHostname;
       for (const worker of enriched) {
-        if (worker.name.toLowerCase() === localWorkerKey) {
-          worker.knownPrograms = [...new Set([...(worker.knownPrograms ?? []), ...virtualPrograms])];
+        if (worker.name.toLowerCase() === targetWorker) {
+          worker.knownPrograms = [...new Set([...(worker.knownPrograms ?? []), vb.program])];
         }
       }
     }
