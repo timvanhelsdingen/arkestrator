@@ -6,6 +6,7 @@ import { logger } from "../utils/logger.js";
 import { newId } from "../utils/id.js";
 import { enrichWorkersWithLivePresence } from "../utils/worker-status.js";
 import { ensureLiveWorkersPersisted } from "../utils/live-workers.js";
+import { hostname } from "node:os";
 
 export interface WsData {
   id: string;
@@ -66,6 +67,8 @@ export class WebSocketHub {
   private workerHeadlessCapabilities = new Map<string, WorkerHeadlessCapability[]>();
   /** Virtual bridges: HTTP-based services (e.g. ComfyUI) that appear in bridge status without WebSocket. */
   private virtualBridges = new Map<string, VirtualBridgeData>();
+  /** Server's own hostname, resolved once at startup for stable virtual bridge identity. */
+  private readonly serverHostname = hostname().toLowerCase();
 
   // --- Secondary indexes for O(1) lookups at scale ---
   /** program (lowercase) → Set of connection IDs. Updated on register/unregister. */
@@ -520,19 +523,20 @@ export class WebSocketHub {
   }
 
   private buildBridgeList() {
-    // For virtual bridges (e.g. ComfyUI), find the worker that matches the
-    // server's own machine by looking for a local bridge connection (127.0.0.1/::1).
-    // Falls back to hostname matching or first client.
+    // For virtual bridges, find the worker whose name matches the server hostname.
+    // This is stable regardless of connection order.
     const allBridges = this.getBridges();
-    const localBridge = allBridges.find((b) =>
-      !b.id.startsWith("virtual:") && (b.ip === "127.0.0.1" || b.ip === "::1" || b.ip === "[::1]"),
+    const allClients = this.getClients();
+    const localConn = [...allBridges, ...allClients].find((c) =>
+      c.workerName?.toLowerCase() === this.serverHostname,
+    ) ?? allBridges.find((b) =>
+      !b.id.startsWith("virtual:") && (b.ip === "127.0.0.1" || b.ip === "::1"),
+    ) ?? allClients.find((c) =>
+      c.ip === "127.0.0.1" || c.ip === "::1",
     );
-    const localClient = this.getClients().find((c) =>
-      c.ip === "127.0.0.1" || c.ip === "::1" || c.ip === "[::1]",
-    ) ?? this.getClients()[0];
-    const localWorkerName = localBridge?.workerName ?? localClient?.workerName ?? localClient?.machineId ?? "localhost";
-    const localMachineId = localBridge?.machineId ?? localClient?.machineId;
-    const localIp = localBridge?.ip ?? localClient?.ip ?? "127.0.0.1";
+    const localWorkerName = localConn?.workerName ?? this.serverHostname;
+    const localMachineId = localConn?.machineId;
+    const localIp = localConn?.ip ?? "127.0.0.1";
 
     return this.getBridges().map((b) => {
       const isVirtual = b.id.startsWith("virtual:");
@@ -612,14 +616,11 @@ export class WebSocketHub {
     ensureLiveWorkersPersisted(workersRepo, bridges, clients);
     const allWorkers = workersRepo.list(); // Already includes knownPrograms
 
-    // Collect virtual bridge programs and assign to the local (server-side) worker
-    const localBridge = bridges.find((b) =>
-      !b.id.startsWith("virtual:") && (b.ip === "127.0.0.1" || b.ip === "::1" || b.ip === "[::1]"),
+    // Collect virtual bridge programs and assign to the server's own worker
+    const localConn = [...bridges, ...clients].find((c) =>
+      c.workerName?.toLowerCase() === this.serverHostname,
     );
-    const localClient = clients.find((c) =>
-      c.ip === "127.0.0.1" || c.ip === "::1" || c.ip === "[::1]",
-    ) ?? clients[0];
-    const localWorkerKey = String(localBridge?.workerName ?? localClient?.workerName ?? localClient?.machineId ?? "").trim().toLowerCase();
+    const localWorkerKey = localConn?.workerName?.trim().toLowerCase() ?? this.serverHostname;
     const virtualPrograms = this.getVirtualBridges().map((vb) => vb.program);
 
     const enriched = enrichWorkersWithLivePresence(allWorkers, bridges, clients);
