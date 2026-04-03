@@ -774,22 +774,14 @@ export function createMcpServer(deps: McpDeps): McpServer {
       const fullPrompt = handover_notes
         ? `## Context from Coordinator\n\n${handover_notes}\n\n---\n\n## Your Task\n\n${prompt}`
         : prompt;
-      // Build runtime options: inherit verification settings from parent,
-      // merge coordination script overrides if provided
+      // Build runtime options: inherit everything from parent, then apply
+      // sub-job-specific overrides (coordination scripts from create_job args)
       const callerJob = deps.callerJobId ? deps.jobsRepo.getById(deps.callerJobId) : null;
       const parentRuntimeOpts = callerJob?.runtimeOptions as Record<string, unknown> | undefined;
-      const runtimeOptions: Record<string, unknown> = {};
-      // Inherit verification settings from parent job
-      if (parentRuntimeOpts?.verificationMode) {
-        runtimeOptions.verificationMode = parentRuntimeOpts.verificationMode;
-      }
-      if (parentRuntimeOpts?.verificationWeight !== undefined) {
-        runtimeOptions.verificationWeight = parentRuntimeOpts.verificationWeight;
-      }
-      if (parentRuntimeOpts?.bridgeExecutionMode) {
-        runtimeOptions.bridgeExecutionMode = parentRuntimeOpts.bridgeExecutionMode;
-      }
-      // Apply coordination script overrides
+      const runtimeOptions: Record<string, unknown> = {
+        ...parentRuntimeOpts,
+      };
+      // Apply coordination script overrides from create_job args
       if (coordination_scripts) {
         runtimeOptions.coordinationScripts = {
           coordinator: coordination_scripts.coordinator ?? "enabled" as const,
