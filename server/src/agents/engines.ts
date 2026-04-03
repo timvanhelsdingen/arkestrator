@@ -626,7 +626,8 @@ function buildRuntimeVerificationDirective(job: Job): string {
     lines.push("   - Quality is acceptable (no artifacts, noise, banding, generation failures)");
     lines.push("   - Exposure and colors look correct — NOT overexposed/blown out, NOT too dark, NOT color-shifted or washed out");
     lines.push("   - If compositing (Nuke/Fusion/Blender compositor): check that color management is correct. Linear EXR data written to JPEG/PNG without a proper view transform will look overexposed and washed out — this is WRONG, not acceptable");
-    lines.push("   - If a reference image was provided, compare against it visually — the output should look similar in tone, contrast, and color");
+    lines.push("   - If a reference image was provided, load BOTH your final output AND the reference side by side and compare — tone, contrast, color, and content must be similar");
+    lines.push("   - For multi-stage pipelines (render → composite → export): compare the FINAL output against the EARLIER stage input. If your Blender render looked correct but the Nuke/compositor output looks different (overexposed, color-shifted, etc.), the compositing step broke it — fix it");
     lines.push("   - If textures should be seamless/tileable, check for visible seams or blend artifacts");
     lines.push("2. If you loaded verification skills earlier, follow their patterns. Otherwise use the bridge's built-in verification tools.");
     lines.push("3. For non-visual tasks (game dev, compositing, procedural): run the bridge's deterministic validation checks (syntax check, runtime check, scene tree validation, node graph validation).");
