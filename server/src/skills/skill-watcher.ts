@@ -16,6 +16,8 @@ import { readSkillFromDisk, skillFileToSkillFields } from "./skill-file.js";
 export class SkillWatcher {
   private watcher: FSWatcher | null = null;
   private pending = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Ignore events during startup cooldown to avoid re-upserting everything on boot. */
+  private ready = false;
 
   constructor(
     private skillsDir: string,
@@ -28,8 +30,11 @@ export class SkillWatcher {
     if (this.watcher) return;
 
     try {
+      // Delay readiness so boot-time fs.watch events (from disk loader reads) are ignored
+      setTimeout(() => { this.ready = true; }, 3000);
+
       this.watcher = watch(this.skillsDir, { recursive: true }, (eventType, filename) => {
-        if (!filename) return;
+        if (!this.ready || !filename) return;
 
         // Normalise path separators to forward slash for consistent matching
         const normalized = filename.replace(/\\/g, "/");
