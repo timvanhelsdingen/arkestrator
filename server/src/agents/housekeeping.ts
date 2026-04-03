@@ -65,9 +65,21 @@ export function queueHousekeepingJob(
     return null;
   }
 
-  // Gather job history summary — include trashed jobs so the learning loop
-  // doesn't miss completed/failed jobs that were deleted before analysis.
-  const recentJobs = deps.jobsRepo.listIncludingTrashed(["completed", "failed", "cancelled"], 100);
+  // Gather job history summary — only jobs completed since last housekeeping run.
+  // Include trashed jobs so the learning loop doesn't miss deleted ones.
+  const schedule = getHousekeepingSchedule(deps.settingsRepo);
+  const sinceIso = schedule.lastRunAt || "2000-01-01T00:00:00Z";
+  const allRecent = deps.jobsRepo.listIncludingTrashed(["completed", "failed", "cancelled"], 200);
+  const recentJobs = allRecent.filter((j) => {
+    const completedAt = j.completedAt ?? j.createdAt;
+    if (completedAt <= sinceIso) return false;
+    // Skip meta-jobs (housekeeping, training, coordinator) — only analyze user work
+    const meta = j.editorContext?.metadata as Record<string, unknown> | undefined;
+    if (meta?.housekeeping || meta?.training) return false;
+    const name = j.name ?? "";
+    if (name.startsWith("[Coordinator]") || name.startsWith("[Training]") || name.startsWith("[Housekeeping]")) return false;
+    return true;
+  });
   const agentLookup = buildAgentLookup(deps.agentsRepo);
   const jobSummary = buildJobSummary(recentJobs, agentLookup);
 
