@@ -448,16 +448,13 @@ export async function runAgenticLoop(
             error: `Local model stuck in error loop (${consecutiveErrorCount}x): ${errMsg}`,
           });
         }
-        // Inject skill-search hint when the same error repeats
-        if (consecutiveErrorCount >= 2 && !toolResult.ok) {
-          (historyResult as Record<string, unknown>).skill_hint =
-            "You have hit this error multiple times. STOP retrying the same approach. " +
-            "Call search_skills with keywords from this error to find a documented fix before trying again.";
-        }
       } else {
         consecutiveErrorCount = 1;
         lastErrorMessage = errMsg;
       }
+      // Always suggest skill search on errors — a skill may document the fix
+      (historyResult as Record<string, unknown>).skill_hint =
+        "Before retrying, call search_skills with keywords from this error to check if a documented fix exists.";
     } else {
       consecutiveErrorCount = 0;
       lastErrorMessage = "";
@@ -695,18 +692,15 @@ export async function runChatAgenticLoop(
           if (consecutiveErrorCount >= LOCAL_AGENTIC_DEFAULTS.MAX_CONSECUTIVE_ERRORS) {
             return mkResult({ success: false, error: `Stuck in error loop (${consecutiveErrorCount}x): ${errMsg}` });
           }
-          // Inject skill-search hint when the same error repeats
-          if (consecutiveErrorCount >= 2) {
-            const skillHint = "\n\nYou have hit this error multiple times. STOP retrying the same approach. " +
-              "Call search_skills with keywords from this error to find a documented fix before trying again.";
-            const lastMsg = messages[messages.length - 1];
-            if (lastMsg && typeof lastMsg.content === "string") {
-              lastMsg.content += skillHint;
-            }
-          }
         } else {
           consecutiveErrorCount = 1;
           lastErrorMessage = errMsg;
+        }
+        // Always suggest skill search on errors
+        const skillHint = "\n\nBefore retrying, call search_skills with keywords from this error to check if a documented fix exists.";
+        const lastMsg = messages[messages.length - 1];
+        if (lastMsg && typeof lastMsg.content === "string") {
+          lastMsg.content += skillHint;
         }
       } else {
         consecutiveErrorCount = 0;
