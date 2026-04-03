@@ -624,7 +624,9 @@ function buildRuntimeVerificationDirective(job: Job): string {
     lines.push("1. For visual/render tasks: use read_client_file to load the output image, then Read to visually inspect it. You are a vision model — use your visual understanding to verify:");
     lines.push("   - Content matches what was requested (correct subject, composition, style)");
     lines.push("   - Quality is acceptable (no artifacts, noise, banding, generation failures)");
-    lines.push("   - If a reference image was provided, compare against it visually");
+    lines.push("   - Exposure and colors look correct — NOT overexposed/blown out, NOT too dark, NOT color-shifted or washed out");
+    lines.push("   - If compositing (Nuke/Fusion/Blender compositor): check that color management is correct. Linear EXR data written to JPEG/PNG without a proper view transform will look overexposed and washed out — this is WRONG, not acceptable");
+    lines.push("   - If a reference image was provided, compare against it visually — the output should look similar in tone, contrast, and color");
     lines.push("   - If textures should be seamless/tileable, check for visible seams or blend artifacts");
     lines.push("2. If you loaded verification skills earlier, follow their patterns. Otherwise use the bridge's built-in verification tools.");
     lines.push("3. For non-visual tasks (game dev, compositing, procedural): run the bridge's deterministic validation checks (syntax check, runtime check, scene tree validation, node graph validation).");
