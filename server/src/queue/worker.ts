@@ -41,6 +41,7 @@ export interface WorkerDeps {
   skillStore?: import("../skills/skill-store.js").SkillStore;
   skillEffectivenessRepo?: import("../db/skill-effectiveness.repo.js").SkillEffectivenessRepo;
   skillIndex?: import("../skills/skill-index.js").SkillIndex;
+  routingOutcomesRepo?: import("../db/routing-outcomes.repo.js").RoutingOutcomesRepo;
   resourceLeaseManager: WorkerResourceLeaseManager;
   localLlmGate: LocalLlmGate;
   hub: WebSocketHub;
@@ -253,6 +254,7 @@ export class WorkerLoop {
       skillStore: this.deps.skillStore,
       skillEffectivenessRepo: this.deps.skillEffectivenessRepo,
       skillIndex: this.deps.skillIndex,
+      routingOutcomesRepo: this.deps.routingOutcomesRepo,
       workersRepo: this.deps.workersRepo,
       resourceLeaseManager: this.deps.resourceLeaseManager,
       localLlmGate: this.deps.localLlmGate,

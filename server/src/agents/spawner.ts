@@ -204,6 +204,7 @@ export interface SpawnerDeps {
   resourceLeaseManager?: WorkerResourceLeaseManager;
   localLlmGate?: LocalLlmGate;
   policiesRepo?: import("../db/policies.repo.js").PoliciesRepo;
+  routingOutcomesRepo?: import("../db/routing-outcomes.repo.js").RoutingOutcomesRepo;
   toolRestrictions?: string[];
   filePathPolicies?: Policy[];
   commandFilterPolicies?: Policy[];
@@ -1621,6 +1622,9 @@ export async function spawnAgent(
     }
   }
   const recordCoordinatorOutcome = (success: boolean, outcome?: string) => {
+    // Always record routing outcome for learning (even for non-bridge jobs)
+    recordRoutingOutcome(success);
+
     if (!job.bridgeProgram || matchedCoordinatorContext.length === 0) return;
     recordCoordinatorContextOutcome({
       dir: deps.config.coordinatorPlaybooksDir,
@@ -1638,6 +1642,29 @@ export async function spawnAgent(
       skillsRepo: deps.skillsRepo,
     });
   };
+  // Record routing outcome for learning which configs succeed for which task patterns
+  const recordRoutingOutcome = (success: boolean) => {
+    if (!deps.routingOutcomesRepo) return;
+    try {
+      const { classifyTaskPattern, promptComplexityScore } = require("./task-classifier.js") as typeof import("./task-classifier.js");
+      const pattern = classifyTaskPattern(job.prompt, job.bridgeProgram ?? undefined);
+      const durationMs = Date.now() - startTime;
+      const costUsd = sjState?.costUsd ?? 0;
+      deps.routingOutcomesRepo.record(
+        pattern,
+        job.agentConfigId,
+        config.engine,
+        config.model ?? null,
+        success ? "success" : "failure",
+        costUsd,
+        durationMs,
+        promptComplexityScore(job.prompt),
+      );
+    } catch (err) {
+      logger.warn("spawner", `Failed to record routing outcome for job ${job.id}: ${err}`);
+    }
+  };
+
   const knownBridgePrograms = [
     ...new Set(
       getCoordinatorScriptPrograms({

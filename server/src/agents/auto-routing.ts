@@ -1,8 +1,10 @@
 import type { AgentConfig, JobRuntimeOptions } from "@arkestrator/protocol";
 import type { AgentsRepo } from "../db/agents.repo.js";
 import type { SettingsRepo } from "../db/settings.repo.js";
+import type { RoutingOutcomesRepo } from "../db/routing-outcomes.repo.js";
 import { resolveModelForRun } from "./runtime-options.js";
 import { isModelAllowedByStoredAllowlist } from "../local-models/catalog.js";
+import { classifyTaskPattern } from "./task-classifier.js";
 
 export type RoutingReason = "local" | "cloud";
 
@@ -104,6 +106,8 @@ export function resolveAutoAgentByPriority(
   runtimeOptions: JobRuntimeOptions | undefined,
   agentsRepo: AgentsRepo,
   settingsRepo: SettingsRepo,
+  routingOutcomesRepo?: RoutingOutcomesRepo,
+  bridgeProgram?: string,
 ): RoutedAgentSelection {
   const configs = sortedByPriority(agentsRepo.list());
   if (configs.length === 0) {
@@ -150,6 +154,35 @@ export function resolveAutoAgentByPriority(
     if (firstUsableFallback) {
       chosen = firstUsableFallback;
       note = `complex prompt (score=${complexity}); escalated to fallback candidate (${firstUsableFallback.name})`;
+    }
+  }
+
+  // Learned routing: check if we have outcome data suggesting a better config
+  // within the SAME engine family as the currently chosen config.
+  if (routingOutcomesRepo) {
+    try {
+      const pattern = classifyTaskPattern(prompt, bridgeProgram);
+      const best = routingOutcomesRepo.getBestConfigForEngine(pattern, chosen.engine, 5);
+      if (
+        best &&
+        best.configId !== chosen.id &&
+        best.successRate > 0.7 &&
+        best.totalJobs >= 5
+      ) {
+        // Only switch if the learned config is available and allowed
+        const learnedConfig = configs.find((c) => c.id === best.configId);
+        if (learnedConfig && isLocalAllowed(learnedConfig, runtimeOptions, settingsRepo)) {
+          const chosenStats = routingOutcomesRepo.getBestConfigForEngine(pattern, chosen.engine, 1);
+          const chosenRate = chosenStats?.configId === chosen.id ? chosenStats.successRate : -1;
+          // Only override if the learned config is meaningfully better
+          if (chosenRate < 0 || best.successRate > chosenRate + 0.1) {
+            chosen = learnedConfig;
+            note = `learned: ${(best.successRate * 100).toFixed(0)}% success for ${pattern} over ${best.totalJobs} jobs (${learnedConfig.name})`;
+          }
+        }
+      }
+    } catch {
+      // Routing outcomes unavailable — fall through to heuristic result
     }
   }
 

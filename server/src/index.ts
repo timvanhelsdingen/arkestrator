@@ -393,6 +393,8 @@ async function main() {
   const skillsRepo = new SkillsRepo(db);
   const { SkillEffectivenessRepo } = await import("./db/skill-effectiveness.repo.js");
   const skillEffectivenessRepo = new SkillEffectivenessRepo(db);
+  const { RoutingOutcomesRepo } = await import("./db/routing-outcomes.repo.js");
+  const routingOutcomesRepo = new RoutingOutcomesRepo(db);
   const jobInterventionsRepo = new JobInterventionsRepo(db);
   const syncManager = new SyncManager(config);
 
@@ -697,6 +699,7 @@ async function main() {
     skillStore,
     skillEffectivenessRepo,
     skillIndex,
+    routingOutcomesRepo,
     syncManager,
     config,
     hub,

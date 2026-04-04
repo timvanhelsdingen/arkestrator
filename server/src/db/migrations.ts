@@ -264,6 +264,22 @@ const MIGRATIONS = [
   )`,
 
   `CREATE INDEX IF NOT EXISTS idx_prompt_templates_type ON prompt_templates(type, enabled, category, sort_order)`,
+
+  // Routing outcome learning — tracks which agent configs succeed for which task patterns
+  `CREATE TABLE IF NOT EXISTS routing_outcomes (
+    id               TEXT PRIMARY KEY,
+    task_pattern     TEXT NOT NULL,
+    agent_config_id  TEXT NOT NULL,
+    engine           TEXT NOT NULL DEFAULT '',
+    model            TEXT NOT NULL DEFAULT '',
+    outcome          TEXT NOT NULL CHECK(outcome IN ('success','failure')),
+    cost_usd         REAL NOT NULL DEFAULT 0,
+    duration_ms      INTEGER NOT NULL DEFAULT 0,
+    complexity_score INTEGER NOT NULL DEFAULT 0,
+    created_at       TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_routing_pattern_config ON routing_outcomes(task_pattern, agent_config_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_routing_config_outcome ON routing_outcomes(agent_config_id, outcome)`,
 ];
 
 // Column additions for existing tables (safe to fail if column already exists)

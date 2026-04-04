@@ -46,6 +46,7 @@ function createConfig(tempDir: string): Config {
     coordinatorPlaybookSourcePaths: [],
     corsOrigins: [],
     trustProxyHeaders: false,
+    wsMaxPayloadMb: 256,
   };
 }
 
