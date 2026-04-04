@@ -343,6 +343,43 @@ export const WorkerHeadlessResultMessage = makeMessage(
 );
 export type WorkerHeadlessResultMessage = z.infer<typeof WorkerHeadlessResultMessage>;
 
+// --- Worker Local Execution (server -> client -> server) ---
+
+/** Execute a shell command or Python script directly on the worker machine (no bridge needed). */
+export const WorkerLocalCommandMessage = makeMessage(
+  "worker_local_command",
+  z.object({
+    /** Who requested the execution (for correlation/routing). */
+    senderId: z.string(),
+    /** Correlation ID resolved by the server when the client reports back. */
+    correlationId: z.string(),
+    /** Execution mode: "shell" runs via system shell, "python" runs a Python script. */
+    mode: z.enum(["shell", "python"]),
+    /** Shell command string or Python script code. */
+    command: z.string(),
+    /** Optional working directory. */
+    cwd: z.string().optional(),
+    /** Maximum runtime before the client kills the process (ms, default 60000). */
+    timeoutMs: z.number().int().positive().optional(),
+  }),
+);
+export type WorkerLocalCommandMessage = z.infer<typeof WorkerLocalCommandMessage>;
+
+export const WorkerLocalResultMessage = makeMessage(
+  "worker_local_result",
+  z.object({
+    correlationId: z.string(),
+    success: z.boolean(),
+    stdout: z.string().nullable().optional(),
+    stderr: z.string().nullable().optional(),
+    exitCode: z.number().int().nullable().optional(),
+    errors: z.array(z.string()).default([]),
+    timedOut: z.boolean().default(false),
+    senderId: z.string().optional(),
+  }),
+);
+export type WorkerLocalResultMessage = z.infer<typeof WorkerLocalResultMessage>;
+
 // --- Bridge Context (bridge -> server -> client) ---
 
 /** Bridge pushes a single context item (user right-clicked "Add to Agent Context") */
@@ -645,6 +682,8 @@ export const Message = z.discriminatedUnion("type", [
   BridgeCommandResultMessage,
   WorkerHeadlessCommandMessage,
   WorkerHeadlessResultMessage,
+  WorkerLocalCommandMessage,
+  WorkerLocalResultMessage,
   BridgeContextItemAddMessage,
   BridgeContextClearMessage,
   BridgeEditorContextMessage,

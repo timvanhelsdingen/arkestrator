@@ -5,8 +5,6 @@
   import { sendMessage } from "../../api/ws";
   import { truncate } from "../../utils/format";
 
-  const CONTEXT_DRAG_MIME = "application/x-arkestrator-context-item+json";
-  const CONTEXT_DRAG_REF_MIME = "text/x-arkestrator-context-ref";
   let expandedMachine = $state<string | null>(null);
   let expandedBridge = $state<string | null>(null);
   let editingItemKey = $state<string | null>(null);
@@ -87,10 +85,6 @@
     bridgeContextStore.clearItems(bridgeId);
   }
 
-  function formatDragReference(item: ContextItem): string {
-    return `@${item.index}`;
-  }
-
   function formatClickReference(bridgeId: string, program: string, item: ContextItem): string {
     const name = bridgeContextStore.getItemName(bridgeId, item).trim();
     const index = item.index;
@@ -105,28 +99,10 @@
     window.dispatchEvent(new CustomEvent("arkestrator:insert-context-ref", { detail: { reference } }));
   }
 
-  function onContextItemDragStart(
-    e: DragEvent,
-    bridgeId: string,
-    program: string,
-    item: ContextItem,
-  ) {
-    const name = bridgeContextStore.getItemName(bridgeId, item).trim();
-    const payload = {
-      bridgeId,
-      program,
-      index: item.index,
-      name,
-      path: item.path,
-      type: item.type,
-    };
-    const text = formatDragReference(item);
-    e.dataTransfer?.setData(CONTEXT_DRAG_MIME, JSON.stringify(payload));
-    e.dataTransfer?.setData(CONTEXT_DRAG_REF_MIME, text);
-    e.dataTransfer?.setData("text/plain", text);
-    if (e.dataTransfer) {
-      e.dataTransfer.effectAllowed = "copy";
-    }
+  /** Reactive helper — each call reads bridgeContextStore.bridges (tracks version), so
+   *  template expressions that invoke this will re-render when the store mutates. */
+  function getCtx(bridgeId: string) {
+    return bridgeContextStore.bridges.get(bridgeId);
   }
 </script>
 
@@ -155,7 +131,6 @@
           {#if isMachineExpanded(machineName)}
             <div class="machine-bridges">
               {#each bridges as bridge (bridge.id)}
-                {@const ctx = bridgeContextStore.bridges.get(bridge.id)}
                 <div class="bridge-section">
                   <button
                     class="bridge-header"
@@ -169,30 +144,30 @@
 
                   {#if expandedBridge === bridge.id}
                     <div class="bridge-details">
-                      {#if ctx?.editorContext}
+                      {#if getCtx(bridge.id)?.editorContext}
                         <div class="context-section">
                           <div class="section-label">Editor State</div>
-                          {#if ctx.editorContext.projectRoot}
+                          {#if getCtx(bridge.id)?.editorContext?.projectRoot}
                             <div class="ctx-row">
                               <span class="ctx-key">Project:</span>
-                              <code class="ctx-val">{truncate(ctx.editorContext.projectRoot, 40)}</code>
+                              <code class="ctx-val">{truncate(getCtx(bridge.id)!.editorContext!.projectRoot!, 40)}</code>
                             </div>
                           {/if}
-                          {#if ctx.editorContext.activeFile}
+                          {#if getCtx(bridge.id)?.editorContext?.activeFile}
                             <div class="ctx-row">
                               <span class="ctx-key">Active:</span>
-                              <code class="ctx-val">{truncate(ctx.editorContext.activeFile, 40)}</code>
+                              <code class="ctx-val">{truncate(getCtx(bridge.id)!.editorContext!.activeFile!, 40)}</code>
                             </div>
                           {/if}
-                          {#if ctx.editorContext.metadata}
-                            {#if ctx.editorContext.metadata.active_scene}
+                          {#if getCtx(bridge.id)?.editorContext?.metadata}
+                            {#if getCtx(bridge.id)?.editorContext?.metadata?.active_scene}
                               <div class="ctx-row">
                                 <span class="ctx-key">Scene:</span>
-                                <code class="ctx-val">{ctx.editorContext.metadata.active_scene}</code>
+                                <code class="ctx-val">{getCtx(bridge.id)!.editorContext!.metadata!.active_scene}</code>
                               </div>
                             {/if}
-                            {#if ctx.editorContext.metadata.selected_nodes}
-                              {@const nodes = ctx.editorContext.metadata.selected_nodes as any[]}
+                            {#if getCtx(bridge.id)?.editorContext?.metadata?.selected_nodes}
+                              {@const nodes = getCtx(bridge.id)!.editorContext!.metadata!.selected_nodes as any[]}
                               {#if nodes.length > 0}
                                 <div class="ctx-row">
                                   <span class="ctx-key">Selected:</span>
@@ -200,8 +175,8 @@
                                 </div>
                               {/if}
                             {/if}
-                            {#if ctx.editorContext.metadata.selected_objects}
-                              {@const objs = ctx.editorContext.metadata.selected_objects as any[]}
+                            {#if getCtx(bridge.id)?.editorContext?.metadata?.selected_objects}
+                              {@const objs = getCtx(bridge.id)!.editorContext!.metadata!.selected_objects as any[]}
                               {#if objs.length > 0}
                                 <div class="ctx-row">
                                   <span class="ctx-key">Selected:</span>
@@ -213,10 +188,10 @@
                         </div>
                       {/if}
 
-                      {#if ctx?.files && ctx.files.length > 0}
+                      {#if getCtx(bridge.id)?.files && getCtx(bridge.id)!.files.length > 0}
                         <div class="context-section">
-                          <div class="section-label">Open Files ({ctx.files.length})</div>
-                          {#each ctx.files as file}
+                          <div class="section-label">Open Files ({getCtx(bridge.id)!.files.length})</div>
+                          {#each getCtx(bridge.id)!.files as file}
                             <div class="file-row">
                               <code>{truncate(file.path, 45)}</code>
                             </div>
@@ -224,26 +199,22 @@
                         </div>
                       {/if}
 
-                      {#if ctx?.items && ctx.items.length > 0}
+                      {#if getCtx(bridge.id)?.items && getCtx(bridge.id)!.items.length > 0}
                         <div class="context-section">
                           <div class="section-label-row">
-                            <span class="section-label">Context Items ({ctx.items.length})</span>
+                            <span class="section-label">Context Items ({getCtx(bridge.id)!.items.length})</span>
                             <button class="clear-btn" type="button" onclick={() => clearContextItems(bridge.id)} title="Clear all items">Clear</button>
                           </div>
-                          {#each ctx.items as item}
+                          {#each getCtx(bridge.id)!.items as item}
                             {@const rowKey = itemKey(bridge.id, item.index)}
                             <div class="item-row">
-                              <!-- svelte-ignore a11y_no_static_element_interactions -->
-                              <div
-                                class="item-drag-target"
-                                draggable={editingItemKey !== rowKey ? "true" : "false"}
-                                role="button"
-                                tabindex="-1"
-                                title="Click to insert into prompt, or drag"
-                                ondragstart={(e) => onContextItemDragStart(e, bridge.id, bridge.program ?? "", item)}
+                              <button
+                                class="item-insert-target"
+                                type="button"
+                                title="Click to insert into prompt"
                                 onclick={() => onContextItemClick(bridge.id, bridge.program ?? "", item)}
                               >
-                                <span class="drag-item-btn">+</span>
+                                <span class="insert-item-btn">+</span>
                                 <span class="item-index">@{item.index}</span>
                                 <span class="item-type">{item.type}</span>
                                 {#if editingItemKey === rowKey}
@@ -253,12 +224,13 @@
                                     bind:value={editItemName}
                                     onblur={() => commitRenameItem(bridge.id, item.index)}
                                     onkeydown={(e: KeyboardEvent) => onRenameKeydown(e, bridge.id, item.index)}
+                                    onclick={(e: MouseEvent) => e.stopPropagation()}
                                     autofocus
                                   />
                                 {:else}
                                   <span class="item-name">{truncate(bridgeContextStore.getItemName(bridge.id, item), 30)}</span>
                                 {/if}
-                              </div>
+                              </button>
                               {#if editingItemKey !== rowKey}
                                 <button class="rename-item-btn" type="button" onclick={() => startRenameItem(bridge.id, item)} title="Rename item">rename</button>
                               {/if}
@@ -268,7 +240,7 @@
                         </div>
                       {/if}
 
-                      {#if !ctx || (!ctx.editorContext && (!ctx.items || ctx.items.length === 0))}
+                      {#if !getCtx(bridge.id) || (!getCtx(bridge.id)?.editorContext && (!getCtx(bridge.id)?.items || getCtx(bridge.id)!.items.length === 0))}
                         <div class="no-context">No context available</div>
                       {/if}
                     </div>
@@ -459,33 +431,32 @@
     font-size: 11px;
     padding: 2px 0;
   }
-  .item-drag-target {
+  .item-insert-target {
     display: flex;
     align-items: center;
     gap: 4px;
     flex: 1;
     min-width: 0;
-    cursor: grab;
+    cursor: pointer;
+    text-align: left;
   }
-  .item-drag-target:active {
-    cursor: grabbing;
+  .item-insert-target:hover {
+    background: var(--bg-hover);
+    border-radius: 3px;
   }
-  .drag-item-btn {
+  .insert-item-btn {
     font-size: 9px;
     line-height: 1;
     border-radius: 2px;
     color: var(--text-muted);
-    border: 1px dashed var(--border);
+    border: 1px solid var(--border);
     padding: 1px 3px;
     flex-shrink: 0;
     user-select: none;
     opacity: 0.55;
   }
-  .item-row:hover .drag-item-btn,
-  .item-row:hover .item-drag-target {
+  .item-row:hover .insert-item-btn {
     opacity: 1;
-  }
-  .item-row:hover .drag-item-btn {
     border-color: var(--accent);
     color: var(--accent);
   }

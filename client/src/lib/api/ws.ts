@@ -535,6 +535,38 @@ async function handleWorkerHeadlessCommand(payload: any) {
   }
 }
 
+async function handleWorkerLocalCommand(payload: any) {
+  const correlationId = String(payload?.correlationId ?? "").trim();
+  if (!correlationId) return;
+
+  try {
+    const result = await invoke("run_local_command", {
+      input: {
+        mode: payload.mode,
+        command: payload.command,
+        cwd: payload.cwd,
+        timeoutMs: payload.timeoutMs,
+      },
+    });
+    sendMessage({
+      type: "worker_local_result",
+      id: crypto.randomUUID(),
+      payload: { ...(result as Record<string, unknown>), correlationId },
+    });
+  } catch (err: any) {
+    sendMessage({
+      type: "worker_local_result",
+      id: crypto.randomUUID(),
+      payload: {
+        correlationId,
+        success: false,
+        errors: [String(err?.message ?? err ?? "Local execution failed")],
+        timedOut: false,
+      },
+    });
+  }
+}
+
 /** Top-level dispatch: routes high-frequency messages to the batch buffer,
  *  everything else dispatches immediately. */
 function dispatch(msg: any) {
@@ -688,6 +720,10 @@ function dispatchImmediate(msg: any) {
     case "worker_headless_command":
       handleWorkerHeadlessCommand(msg.payload).catch((err) =>
         console.error("[ws] worker_headless_command handler error:", err));
+      break;
+    case "worker_local_command":
+      handleWorkerLocalCommand(msg.payload).catch((err) =>
+        console.error("[ws] worker_local_command handler error:", err));
       break;
     case "client_job_dispatch":
       handleJobDispatch(msg.payload);

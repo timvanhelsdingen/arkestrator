@@ -18,6 +18,7 @@ import { join, relative } from "path";
 import { tmpdir } from "os";
 import { principalHasPermission, type AuthPrincipal } from "../middleware/auth.js";
 import type { UserPermissionKey } from "../utils/user-permissions.js";
+import { checkCommandScripts } from "../policies/enforcer.js";
 
 export interface McpDeps {
   hub: WebSocketHub;
@@ -424,6 +425,131 @@ export function createMcpServer(deps: McpDeps): McpServer {
       return {
         content: [{ type: "text" as const, text: parts.join("\n\n") }],
       };
+    },
+  );
+
+  // Tool: execute_local — run shell commands or Python scripts directly on a worker machine
+  server.tool(
+    "execute_local",
+    "Execute a shell command or Python script directly on a connected worker machine (Tauri desktop client). " +
+      "Does NOT require any DCC bridge — use this for filesystem operations, running CLI tools, " +
+      "checking paths, or executing Python scripts on the worker's local environment. " +
+      'Use mode "shell" for bash/cmd commands, or "python" for Python scripts. ' +
+      "Blocks until execution completes (up to timeout).",
+    {
+      mode: z.enum(["shell", "python"]).describe('Execution mode: "shell" for bash/cmd, "python" for Python scripts'),
+      command: z.string().describe("Shell command string or Python script code"),
+      cwd: z.string().optional().describe("Working directory for execution"),
+      timeout: z.number().optional().describe("Timeout in ms (default 60000, max 300000)"),
+    },
+    async ({ mode, command, cwd, timeout }) => {
+      const denied = checkPermission("executeLocal");
+      if (denied) return denied;
+
+      // Apply command_filter policies
+      const policies = deps.policiesRepo.getEffectiveForUser(null);
+      const violations = checkCommandScripts([{ language: mode, script: command }], policies);
+      const blockers = violations.filter((v) => v.action === "block");
+      if (blockers.length > 0) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Command blocked by policy: ${blockers.map((b) => b.message).join("; ")}`,
+          }],
+          isError: true,
+        };
+      }
+
+      // Resolve target client
+      const callerJob = deps.callerJobId ? deps.jobsRepo.getById(deps.callerJobId) : null;
+      const targetWorkerName = callerJob?.targetWorkerName;
+
+      let clientId: string | undefined;
+      if (targetWorkerName) {
+        const clients = deps.hub.getClientConnectionsByWorker(targetWorkerName);
+        if (clients.length === 1) {
+          clientId = clients[0].data.id;
+        } else if (clients.length > 1) {
+          return {
+            content: [{ type: "text" as const, text: `Multiple desktop clients connected for worker "${targetWorkerName}"` }],
+            isError: true,
+          };
+        } else {
+          return {
+            content: [{ type: "text" as const, text: `No connected desktop client for worker "${targetWorkerName}"` }],
+            isError: true,
+          };
+        }
+      } else {
+        // No explicit worker — use any single connected client
+        const allClients = deps.hub.getClients();
+        if (allClients.length === 1) {
+          clientId = allClients[0].id;
+        } else if (allClients.length === 0) {
+          return {
+            content: [{ type: "text" as const, text: "No desktop client connected. Cannot execute local commands without a connected Arkestrator client." }],
+            isError: true,
+          };
+        } else {
+          return {
+            content: [{ type: "text" as const, text: `Multiple desktop clients connected (${allClients.length}). Specify a targetWorkerName on the job to disambiguate.` }],
+            isError: true,
+          };
+        }
+      }
+
+      const timeoutMs = Math.min(Math.max(typeof timeout === "number" ? timeout : 60_000, 1_000), 300_000);
+      const correlationId = newId();
+      const resultPromise = deps.hub.registerPendingCommand(correlationId, timeoutMs);
+
+      deps.hub.send(clientId, {
+        type: "worker_local_command",
+        id: newId(),
+        payload: {
+          senderId: "mcp-tool",
+          correlationId,
+          mode,
+          command,
+          cwd,
+          timeoutMs,
+        },
+      });
+
+      try {
+        const result = await resultPromise as {
+          success: boolean;
+          stdout?: string;
+          stderr?: string;
+          exitCode?: number;
+          errors?: string[];
+          timedOut?: boolean;
+        };
+
+        if (!result.success) {
+          const parts: string[] = [];
+          if (result.errors?.length) parts.push(...result.errors);
+          if (result.stderr?.trim()) parts.push(`stderr: ${result.stderr.trim()}`);
+          if (result.timedOut) parts.push(`Timed out after ${timeoutMs}ms`);
+          return {
+            content: [{ type: "text" as const, text: `Error: ${parts.join("\n") || "Local execution failed"}` }],
+            isError: true,
+          };
+        }
+
+        const parts: string[] = [];
+        if (result.stdout?.trim()) parts.push(`stdout:\n${result.stdout}`);
+        if (result.stderr?.trim()) parts.push(`stderr:\n${result.stderr}`);
+        if (result.exitCode !== undefined && result.exitCode !== null) parts.push(`exit code: ${result.exitCode}`);
+        if (parts.length === 0) parts.push("(no output)");
+        return {
+          content: [{ type: "text" as const, text: parts.join("\n\n") }],
+        };
+      } catch (err: any) {
+        const msg = err?.message?.includes("timed out")
+          ? `Timed out after ${timeoutMs}ms — the command may still be running on the worker.`
+          : `Error: ${err?.message ?? err}`;
+        return { content: [{ type: "text" as const, text: msg }], isError: true };
+      }
     },
   );
 

@@ -16,6 +16,7 @@ export interface UserPermissions {
   useMcp: boolean;
   interveneJobs: boolean;
   executeCommands: boolean;
+  executeLocal: boolean;
   deliverFiles: boolean;
   submitJobs: boolean;
 }
@@ -35,6 +36,7 @@ export const USER_PERMISSION_KEYS = [
   "useMcp",
   "interveneJobs",
   "executeCommands",
+  "executeLocal",
   "deliverFiles",
   "submitJobs",
 ] as const;
@@ -57,6 +59,7 @@ const ROLE_DEFAULTS: Record<UserRole, UserPermissions> = {
     useMcp: true,
     interveneJobs: true,
     executeCommands: true,
+    executeLocal: true,
     deliverFiles: true,
     submitJobs: true,
   },
@@ -75,6 +78,7 @@ const ROLE_DEFAULTS: Record<UserRole, UserPermissions> = {
     useMcp: true,
     interveneJobs: true,
     executeCommands: true,
+    executeLocal: false,
     deliverFiles: true,
     submitJobs: true,
   },
@@ -93,6 +97,7 @@ const ROLE_DEFAULTS: Record<UserRole, UserPermissions> = {
     useMcp: false,
     interveneJobs: false,
     executeCommands: false,
+    executeLocal: false,
     deliverFiles: false,
     submitJobs: false,
   },
@@ -116,6 +121,7 @@ const API_KEY_ROLE_DEFAULTS: Record<ApiKeyRole, UserPermissions> = {
     useMcp: true,
     interveneJobs: true,
     executeCommands: true,
+    executeLocal: false,
     deliverFiles: true,
     submitJobs: true,
   },
@@ -134,6 +140,7 @@ const API_KEY_ROLE_DEFAULTS: Record<ApiKeyRole, UserPermissions> = {
     useMcp: false,
     interveneJobs: false,
     executeCommands: true,
+    executeLocal: false,
     deliverFiles: false,
     submitJobs: false,
   },
@@ -152,6 +159,7 @@ const API_KEY_ROLE_DEFAULTS: Record<ApiKeyRole, UserPermissions> = {
     useMcp: true,
     interveneJobs: true,
     executeCommands: true,
+    executeLocal: false,
     deliverFiles: true,
     submitJobs: true,
   },

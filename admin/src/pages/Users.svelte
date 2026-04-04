@@ -19,6 +19,7 @@
     useMcp: boolean;
     interveneJobs: boolean;
     executeCommands: boolean;
+    executeLocal: boolean;
     deliverFiles: boolean;
     submitJobs: boolean;
   }
@@ -52,6 +53,7 @@
     { key: "useMcp", label: "Use MCP server", short: "MCP" },
     { key: "interveneJobs", label: "Guide running jobs", short: "Guide" },
     { key: "executeCommands", label: "Execute bridge commands", short: "Commands" },
+    { key: "executeLocal", label: "Execute local commands", short: "EL" },
     { key: "deliverFiles", label: "Deliver files to bridges/clients", short: "Deliver" },
     { key: "submitJobs", label: "Submit jobs", short: "Submit" },
   ];
@@ -71,6 +73,7 @@
     useMcp: "Use MCP server",
     interveneJobs: "Guide running jobs",
     executeCommands: "Execute bridge commands",
+    executeLocal: "Execute local commands",
     deliverFiles: "Deliver files to bridges/clients",
     submitJobs: "Submit jobs",
   };
@@ -88,7 +91,7 @@
     {
       title: "Operations",
       hint: "Agents, projects, workers, live connections, and bridge operations.",
-      keys: ["manageAgents", "manageProjects", "manageWorkers", "manageConnections", "executeCommands", "deliverFiles", "submitJobs"],
+      keys: ["manageAgents", "manageProjects", "manageWorkers", "manageConnections", "executeCommands", "executeLocal", "deliverFiles", "submitJobs"],
     },
     {
       title: "Observability & Coordinator",
@@ -112,6 +115,7 @@
     useMcp: false,
     interveneJobs: false,
     executeCommands: false,
+    executeLocal: false,
     deliverFiles: false,
     submitJobs: false,
   };

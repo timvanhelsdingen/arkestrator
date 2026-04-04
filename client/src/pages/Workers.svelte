@@ -114,6 +114,15 @@
     });
   }
 
+  /** Programs that currently have at least one connected bridge on this worker */
+  function connectedProgramsForWorker(worker: { id: string; machineId?: string | null; name: string }): string[] {
+    const programs = new Set<string>();
+    for (const b of bridgesForWorker(worker)) {
+      if (b.connected && b.program) programs.add(b.program.toLowerCase());
+    }
+    return [...programs].sort();
+  }
+
   function osUserForWorker(worker: { id: string; machineId?: string | null; name: string }): string | undefined {
     const bridges = bridgesForWorker(worker);
     for (const b of bridges) {
@@ -158,6 +167,7 @@
       {#each workersStore.workers as worker (worker.id)}
         {@const workerBridges = displayBridgesForWorker(worker)}
         {@const isMonitored = monitoredWorkerIds.has(workerKey(worker))}
+        {@const onlinePrograms = connectedProgramsForWorker(worker)}
         <div
           class="worker-card"
           class:monitored={isMonitored}
@@ -184,9 +194,9 @@
               <span class="info-item mono">{worker.lastIp}</span>
             {/if}
           </div>
-          {#if worker.knownPrograms && worker.knownPrograms.length > 0}
+          {#if onlinePrograms.length > 0}
             <div class="card-programs">
-              {#each worker.knownPrograms as prog}
+              {#each onlinePrograms as prog}
                 <Badge text={prog} variant={prog} />
               {/each}
             </div>
@@ -217,6 +227,7 @@
           {#each monitoredWorkers as worker (worker.id)}
             {@const workerBridges = displayBridgesForWorker(worker)}
             {@const osUser = osUserForWorker(worker)}
+            {@const sidebarOnlinePrograms = connectedProgramsForWorker(worker)}
             <div class="monitor-card">
               <div class="monitor-card-header">
                 <Badge
@@ -249,11 +260,11 @@
                   <span class="detail-label">Seen</span>
                   <span>{timeAgo(worker.lastSeenAt)}</span>
                 </div>
-                {#if worker.knownPrograms && worker.knownPrograms.length > 0}
+                {#if sidebarOnlinePrograms.length > 0}
                   <div class="detail-row">
                     <span class="detail-label">Programs</span>
                     <span class="program-tags">
-                      {#each worker.knownPrograms as prog}
+                      {#each sidebarOnlinePrograms as prog}
                         <Badge text={prog} variant={prog} />
                       {/each}
                     </span>

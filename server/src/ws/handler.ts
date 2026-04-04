@@ -218,6 +218,9 @@ export function handleMessage(
       case "worker_headless_result":
         handleWorkerHeadlessResult(ws, msg as any, deps);
         break;
+      case "worker_local_result":
+        handleWorkerLocalResult(ws, msg as any, deps);
+        break;
       case "bridge_context_item_add":
         handleBridgeContextItemAdd(ws, msg, deps);
         break;
@@ -794,6 +797,57 @@ function handleWorkerHeadlessResult(
   if (msg.payload.senderId) {
     deps.hub.send(msg.payload.senderId, {
       type: "worker_headless_result",
+      id: newId(),
+      payload: resultPayload,
+    });
+  }
+}
+
+function handleWorkerLocalResult(
+  ws: ServerWebSocket<WsData>,
+  msg: {
+    id: string;
+    payload: {
+      correlationId: string;
+      success: boolean;
+      stdout?: string;
+      stderr?: string;
+      exitCode?: number;
+      errors: string[];
+      timedOut?: boolean;
+      senderId?: string;
+    };
+  },
+  deps: HandlerDeps,
+) {
+  if (ws.data.type !== "client") {
+    errorReply(ws, "NOT_CLIENT", "Only desktop clients can report local execution results", msg.id);
+    return;
+  }
+
+  const resultPayload = {
+    correlationId: msg.payload.correlationId,
+    success: msg.payload.success,
+    stdout: msg.payload.stdout,
+    stderr: msg.payload.stderr,
+    exitCode: msg.payload.exitCode,
+    errors: msg.payload.errors,
+    timedOut: msg.payload.timedOut ?? false,
+    workerName: ws.data.workerName,
+    machineId: ws.data.machineId,
+  };
+
+  if (msg.payload.correlationId) {
+    const resolved = deps.hub.resolvePendingCommand(msg.payload.correlationId, resultPayload);
+    if (resolved) {
+      logger.info("handler", `Worker local result from ${ws.data.id} resolved pending command ${msg.payload.correlationId}`);
+      return;
+    }
+  }
+
+  if (msg.payload.senderId) {
+    deps.hub.send(msg.payload.senderId, {
+      type: "worker_local_result",
       id: newId(),
       payload: resultPayload,
     });

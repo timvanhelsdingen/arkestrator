@@ -17,7 +17,6 @@
   } from "../../api/rest";
   import TemplatePicker from "./TemplatePicker.svelte";
 
-  const CONTEXT_DRAG_MIME = "application/x-arkestrator-context-item+json";
 
   let {
     draftPrompt,
@@ -204,7 +203,6 @@
   let bridgeDropdownOpen = $state(false);
   let inputHeight = $state(loadInputHeight());
   let vDragging = $state(false);
-  let promptDropActive = $state(false);
   let presetsOpen = $state(false);
 
 
@@ -653,23 +651,6 @@
     window.removeEventListener("arkestrator:insert-context-ref", onInsertContextRef);
   });
 
-  function hasContextDragData(dataTransfer: DataTransfer | null): boolean {
-    if (!dataTransfer) return false;
-    const types = Array.from(dataTransfer.types);
-    return types.includes(CONTEXT_DRAG_MIME) || types.includes("text/x-arkestrator-context-ref");
-  }
-
-  function formatDroppedContextRef(payload: unknown): string {
-    if (!payload || typeof payload !== "object") return "";
-    const index = Number((payload as any).index);
-    if (!Number.isFinite(index) || index < 1) return "";
-    const program = typeof (payload as any).program === "string" ? (payload as any).program.trim() : "";
-    const name = typeof (payload as any).name === "string" ? (payload as any).name.trim() : "";
-    if (program && name) return `@${index} [${program}:${name}]`;
-    if (name) return `@${index} [${name}]`;
-    return `@${index}`;
-  }
-
   async function insertAtCursor(text: string) {
     const snippet = text.trim();
     if (!snippet) return;
@@ -696,67 +677,13 @@
     textarea.setSelectionRange(cursorPos, cursorPos);
   }
 
-  function onPromptDragEnter(e: DragEvent) {
-    if (!hasContextDragData(e.dataTransfer)) return;
-    e.preventDefault();
-    promptDropActive = true;
-  }
-
-  function onPromptDragOver(e: DragEvent) {
-    if (!hasContextDragData(e.dataTransfer)) return;
-    e.preventDefault();
-    promptDropActive = true;
-    if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
-  }
-
-  function onPromptDragLeave(e: DragEvent) {
-    if (!promptDropActive) return;
-    const related = e.relatedTarget as Node | null;
-    const container = (e.currentTarget as HTMLElement);
-    if (related && container.contains(related)) return;
-    promptDropActive = false;
-  }
-
-  async function onPromptDrop(e: DragEvent) {
-    if (!hasContextDragData(e.dataTransfer)) return;
-    e.preventDefault();
-    promptDropActive = false;
-
-    let reference = "";
-    const raw = e.dataTransfer?.getData(CONTEXT_DRAG_MIME) ?? "";
-    if (raw) {
-      try {
-        reference = formatDroppedContextRef(JSON.parse(raw));
-      } catch {}
-    }
-
-    if (!reference) {
-      reference = (e.dataTransfer?.getData("text/x-arkestrator-context-ref") ?? "").trim();
-    }
-
-    if (!reference) {
-      const fallback = (e.dataTransfer?.getData("text/plain") ?? "").trim();
-      if (fallback.startsWith("@")) {
-        reference = fallback.split(/\s+/)[0];
-      }
-    }
-
-    if (reference) {
-      await insertAtCursor(reference);
-    }
-  }
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <svelte:document onclick={handleClickOutside} />
 <div
   class="chat-input"
-  class:drop-active={promptDropActive}
   style="height: {inputHeight}px;"
-  ondragenter={onPromptDragEnter}
-  ondragover={onPromptDragOver}
-  ondragleave={onPromptDragLeave}
-  ondrop={onPromptDrop}
 >
   <button
     type="button"
@@ -1169,11 +1096,6 @@
     line-height: 1.4;
     min-height: 0;
   }
-  .chat-input.drop-active .input-row textarea {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 1px var(--accent);
-  }
-
   /* Action bar below textarea */
   .action-bar {
     display: flex;

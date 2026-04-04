@@ -6,6 +6,7 @@ export const KNOWN_LOCAL_AGENTIC_TOOLS = [
   "get_bridge_context",
   "execute_command",
   "execute_multiple_commands",
+  "execute_local",
   "run_headless_check",
   "search_skills",
   "get_skill",

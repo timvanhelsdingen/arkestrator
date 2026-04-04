@@ -1052,6 +1052,187 @@ fn run_worker_headless(input: WorkerHeadlessRunInput) -> Result<WorkerHeadlessRu
     }
 }
 
+// --- Local Command Execution ---
+// Runs shell commands or Python scripts directly on the machine without a DCC bridge.
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LocalCommandInput {
+    mode: String,
+    command: String,
+    cwd: Option<String>,
+    timeout_ms: Option<u64>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LocalCommandResult {
+    success: bool,
+    stdout: Option<String>,
+    stderr: Option<String>,
+    exit_code: Option<i32>,
+    errors: Vec<String>,
+    timed_out: bool,
+}
+
+#[tauri::command]
+fn run_local_command(input: LocalCommandInput) -> Result<LocalCommandResult, String> {
+    let mode = input.mode.trim().to_lowercase();
+    let command = input.command.clone();
+    let timeout_ms = input.timeout_ms.unwrap_or(60_000).clamp(1_000, 300_000);
+    let cwd = input
+        .cwd
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+
+    match mode.as_str() {
+        "shell" => {
+            let (executable, args) = if cfg!(target_os = "windows") {
+                ("cmd.exe".to_string(), vec!["/C".to_string(), command])
+            } else {
+                ("sh".to_string(), vec!["-c".to_string(), command])
+            };
+
+            match run_local_process_with_timeout(&executable, &args, cwd, timeout_ms) {
+                Ok((output, timed_out)) => {
+                    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                    let success = !timed_out && output.status.success();
+                    let mut errors = Vec::new();
+                    if timed_out {
+                        errors.push(format!("Process timed out after {timeout_ms}ms"));
+                    }
+                    Ok(LocalCommandResult {
+                        success,
+                        stdout: if stdout.is_empty() { None } else { Some(stdout) },
+                        stderr: if stderr.is_empty() { None } else { Some(stderr) },
+                        exit_code: output.status.code(),
+                        errors,
+                        timed_out,
+                    })
+                }
+                Err(err) => Ok(LocalCommandResult {
+                    success: false,
+                    stdout: None,
+                    stderr: None,
+                    exit_code: None,
+                    errors: vec![err],
+                    timed_out: false,
+                }),
+            }
+        }
+        "python" => {
+            // Write script to temp file and execute
+            let temp_dir = std::env::temp_dir().join("arkestrator-local");
+            let _ = std::fs::create_dir_all(&temp_dir);
+            let script_path = temp_dir.join(format!("local-{}.py", uuid::Uuid::new_v4()));
+
+            if let Err(err) = std::fs::write(&script_path, &command) {
+                return Ok(LocalCommandResult {
+                    success: false,
+                    stdout: None,
+                    stderr: None,
+                    exit_code: None,
+                    errors: vec![format!("Failed to write temp script: {err}")],
+                    timed_out: false,
+                });
+            }
+
+            // Try python3 first (Unix), then python
+            let python_exe = if cfg!(target_os = "windows") {
+                "python"
+            } else {
+                "python3"
+            };
+
+            let args = vec![script_path.to_string_lossy().to_string()];
+            let result =
+                match run_local_process_with_timeout(python_exe, &args, cwd, timeout_ms) {
+                    Ok((output, timed_out)) => {
+                        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                        let success = !timed_out && output.status.success();
+                        let mut errors = Vec::new();
+                        if timed_out {
+                            errors.push(format!("Process timed out after {timeout_ms}ms"));
+                        }
+                        Ok(LocalCommandResult {
+                            success,
+                            stdout: if stdout.is_empty() { None } else { Some(stdout) },
+                            stderr: if stderr.is_empty() { None } else { Some(stderr) },
+                            exit_code: output.status.code(),
+                            errors,
+                            timed_out,
+                        })
+                    }
+                    Err(err) => {
+                        // If python3 not found on non-Windows, try python
+                        if !cfg!(target_os = "windows") && err.contains("Failed to spawn") {
+                            match run_local_process_with_timeout("python", &args, cwd, timeout_ms)
+                            {
+                                Ok((output, timed_out)) => {
+                                    let stdout =
+                                        String::from_utf8_lossy(&output.stdout).to_string();
+                                    let stderr =
+                                        String::from_utf8_lossy(&output.stderr).to_string();
+                                    let success = !timed_out && output.status.success();
+                                    let mut errors = Vec::new();
+                                    if timed_out {
+                                        errors.push(format!(
+                                            "Process timed out after {timeout_ms}ms"
+                                        ));
+                                    }
+                                    Ok(LocalCommandResult {
+                                        success,
+                                        stdout: if stdout.is_empty() {
+                                            None
+                                        } else {
+                                            Some(stdout)
+                                        },
+                                        stderr: if stderr.is_empty() {
+                                            None
+                                        } else {
+                                            Some(stderr)
+                                        },
+                                        exit_code: output.status.code(),
+                                        errors,
+                                        timed_out,
+                                    })
+                                }
+                                Err(err2) => Ok(LocalCommandResult {
+                                    success: false,
+                                    stdout: None,
+                                    stderr: None,
+                                    exit_code: None,
+                                    errors: vec![format!(
+                                        "Python not found. Tried python3: {err}, python: {err2}"
+                                    )],
+                                    timed_out: false,
+                                }),
+                            }
+                        } else {
+                            Ok(LocalCommandResult {
+                                success: false,
+                                stdout: None,
+                                stderr: None,
+                                exit_code: None,
+                                errors: vec![err],
+                                timed_out: false,
+                            })
+                        }
+                    }
+                };
+
+            let _ = std::fs::remove_file(&script_path);
+            result
+        }
+        _ => Err(format!(
+            "Unknown mode: {mode}. Expected 'shell' or 'python'"
+        )),
+    }
+}
+
 #[tauri::command]
 fn restart_app(app: tauri::AppHandle) {
     app.request_restart();
@@ -1357,6 +1538,7 @@ pub fn run() {
             list_local_ollama_models,
             pull_local_ollama_model,
             run_worker_headless,
+            run_local_command,
             restart_app,
             wipe_app_data_dir,
             fs_apply_file_changes,
