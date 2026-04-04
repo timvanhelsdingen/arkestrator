@@ -2906,6 +2906,33 @@ export async function spawnAgent(
       resumePausedDependents(deps, job.id);
     } else {
       const errorMsg = `Process exited with code ${exitCode}`;
+
+      // Detect stale session resume failure — clear sessionId and retry fresh.
+      // This happens when a job had a sessionId from a previous run but the
+      // Claude CLI session expired or was invalidated. Instead of failing
+      // permanently, clear the session and let it run fresh with the original prompt.
+      const isStaleResume = logBuffer.includes("No deferred tool marker found")
+        || logBuffer.includes("session was not deferred")
+        || logBuffer.includes("marker is stale");
+      if (isStaleResume && resumeSessionId) {
+        logger.warn("spawner", `Job ${job.id}: stale session resume detected, clearing sessionId and retrying fresh`);
+        // Fail first (sets status to 'failed'), then requeue for retry
+        deps.jobsRepo.fail(job.id, "Stale session — retrying fresh", logBuffer);
+        deps.jobsRepo.setSessionId(job.id, null);
+        const retryCount = job.retryCount ?? 0;
+        const maxRetries = job.maxRetries ?? 0;
+        if (retryCount < Math.max(maxRetries, 1)) {
+          deps.jobsRepo.requeueForRetry(job.id, 2000); // Short delay — just need a fresh launch
+          applyUsedBridgeAttribution(errorMsg);
+          sendLog(deps, job, `[retry] Stale session — retrying with fresh prompt (attempt ${retryCount + 1})\n`);
+          broadcastJobUpdated(deps, job.id);
+          recordTokens();
+          cleanupSync(deps, workspace, job.id);
+          cleanupAgentTools(cliWrapper, mcpConfigPath, mcpConfigBackup);
+          return;
+        }
+      }
+
       // Check if this is a transient error eligible for retry
       const retryError = logBuffer
         ? logBuffer.slice(-2000) + "\n" + errorMsg

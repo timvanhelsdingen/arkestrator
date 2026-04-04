@@ -25,6 +25,8 @@ const TRANSIENT_PATTERNS: RegExp[] = [
   /\bgateway timeout\b/i,       // 504
   /\bstalled\b/i,               // Process idle timeout (no output)
   /\bno output for\b/i,         // Idle timeout message from process tracker
+  /\bdeferred tool marker\b/i,  // Stale Claude CLI session resume
+  /\bsession was not deferred\b/i, // Stale session variant
 ];
 
 /** Patterns that indicate a permanent/non-retriable error. */
