@@ -3405,6 +3405,109 @@ export function createSettingsSnapshotsRoutes(deps: SettingsRouteDeps) {
   }
 
 
+  // Selective export — admin picks which categories to include
+  const SELECTIVE_EXPORT_CATEGORIES: Record<string, { tables: string[]; label: string }> = {
+    agentConfigs:   { tables: ["agent_configs"], label: "Agent Configs" },
+    users:          { tables: ["users"], label: "Users" },
+    policies:       { tables: ["policies"], label: "Policies" },
+    projects:       { tables: ["projects"], label: "Projects" },
+    skills:         { tables: ["skills", "skill_effectiveness"], label: "Skills" },
+    templates:      { tables: ["prompt_templates"], label: "Prompt Templates" },
+    serverSettings: { tables: ["server_settings"], label: "Server Settings" },
+    apiKeys:        { tables: ["api_keys"], label: "API Keys" },
+  };
+
+  router.post("/selective-export", async (c) => {
+    const user = requireAdmin(c, usersRepo);
+    if (!user) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+    if (!db) return errorResponse(c, 503, "Export unavailable", "UNAVAILABLE");
+
+    let body: any = {};
+    try { body = await c.req.json(); } catch { body = {}; }
+    const include = (body?.include ?? {}) as Record<string, boolean>;
+    const includeTraining = parseExportImportBoolean(include.training);
+
+    // Build tables object with only selected categories
+    const tables = {} as Record<string, Record<string, unknown>[]>;
+    const summary: Record<string, number> = {};
+    for (const [key, { tables: tableNames }] of Object.entries(SELECTIVE_EXPORT_CATEGORIES)) {
+      if (!parseExportImportBoolean(include[key])) continue;
+      for (const table of tableNames) {
+        try {
+          const rows = db.query(`SELECT * FROM ${table}`).all() as Record<string, unknown>[];
+          // Strip password hashes from users export
+          if (table === "users") {
+            for (const row of rows) { delete row.password_hash; delete row.totp_secret; }
+          }
+          // Strip secret from API keys export
+          if (table === "api_keys") {
+            for (const row of rows) { delete row.key_hash; }
+          }
+          tables[table] = rows;
+          summary[table] = rows.length;
+        } catch {
+          tables[table] = [];
+          summary[table] = 0;
+        }
+      }
+    }
+
+    // Training files (optional)
+    let trainingFiles: SnapshotTrainingFile[] = [];
+    let trainingMetadata: SnapshotTrainingMetadata[] = [];
+    if (includeTraining) {
+      for (const root of getCoordinatorFileRoots()) {
+        if (!existsSync(root.baseDir)) continue;
+        const collected = collectSnapshotFilesFromPath(root.baseDir);
+        for (const file of collected.files) {
+          const relPath = normalizeRelativePath(file.path).replace(/^\/+|\/+$/g, "");
+          if (!relPath) continue;
+          trainingFiles.push({ ...file, root: root.key, relPath, path: `${root.key}/${relPath}` });
+        }
+      }
+      trainingFiles.sort((a, b) => a.path.localeCompare(b.path));
+      trainingMetadata = Object.values(getTrainingVaultMetadataMap()).sort((a, b) => a.path.localeCompare(b.path));
+    }
+
+    const snapshot: ConfigSnapshot = {
+      format: "arkestrator-config-snapshot",
+      schemaVersion: 2,
+      generatedAt: new Date().toISOString(),
+      generatedBy: { id: user.id, username: user.username },
+      includes: { training: includeTraining as true, serverFiles: false },
+      tables: tables as any,
+      training: { files: trainingFiles, skipped: [], metadata: trainingMetadata },
+      serverFiles: { files: [], roots: [], skipped: [] },
+    };
+
+    const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const suggestedFileName = `arkestrator-export-${ts}.json`;
+
+    auditRepo.log({
+      userId: user.id,
+      username: user.username,
+      action: "selective_export",
+      resource: "settings",
+      details: JSON.stringify({ categories: Object.keys(include).filter((k) => include[k]), summary }),
+      ipAddress: getClientIp(c),
+    });
+
+    return c.json({ ok: true, suggestedFileName, snapshot, summary });
+  });
+
+  // List available export categories for the admin UI
+  router.get("/export-categories", (c) => {
+    const user = requireAdmin(c, usersRepo);
+    if (!user) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+    const categories = Object.entries(SELECTIVE_EXPORT_CATEGORIES).map(([key, { label }]) => ({
+      key,
+      label,
+      defaultEnabled: key !== "users" && key !== "apiKeys",
+    }));
+    categories.push({ key: "training", label: "Training Data", defaultEnabled: false });
+    return c.json({ categories });
+  });
+
   router.post("/config-snapshot/export", async (c) => {
     const user = requireAdmin(c, usersRepo);
     if (!user) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");

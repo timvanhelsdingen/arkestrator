@@ -1405,5 +1405,14 @@ export const api = {
         method: "PUT",
         body: JSON.stringify(updates),
       }) as Promise<{ ok: boolean; updated: string[]; config: Record<string, string | number> }>,
+    getExportCategories: () =>
+      request("/api/settings/export-categories") as Promise<{
+        categories: Array<{ key: string; label: string; defaultEnabled: boolean }>;
+      }>,
+    selectiveExport: (include: Record<string, boolean>) =>
+      request("/api/settings/selective-export", {
+        method: "POST",
+        body: JSON.stringify({ include }),
+      }) as Promise<{ ok: boolean; suggestedFileName: string; snapshot: any; summary: Record<string, number> }>,
   },
 };

@@ -3,7 +3,7 @@
   import { auth } from "../lib/stores/auth.svelte";
   import { toast } from "../lib/stores/toast.svelte";
 
-  type Tab = "settings" | "danger";
+  type Tab = "settings" | "backup" | "danger";
   let activeTab = $state<Tab>("settings");
 
   // ── System Settings state ──
@@ -122,12 +122,119 @@
     resetError = "";
     clearTrainingData = false;
   }
+
+  // ── Backup & Restore state ──
+  interface ExportCategory { key: string; label: string; defaultEnabled: boolean; }
+  let exportCategories = $state<ExportCategory[]>([]);
+  let exportSelection = $state<Record<string, boolean>>({});
+  let exportLoading = $state(false);
+  let exportBusy = $state(false);
+  let importBusy = $state(false);
+  let importPreview = $state<{ fileName: string; categories: string[]; counts: Record<string, number> } | null>(null);
+  let pendingImportSnapshot = $state<any>(null);
+
+  async function loadExportCategories() {
+    exportLoading = true;
+    try {
+      const res = await api.system.getExportCategories();
+      exportCategories = res.categories;
+      exportSelection = {};
+      for (const cat of res.categories) {
+        exportSelection[cat.key] = cat.defaultEnabled;
+      }
+    } catch (err: any) {
+      toast.error(err?.message ?? "Failed to load export categories");
+    } finally {
+      exportLoading = false;
+    }
+  }
+
+  async function doExport() {
+    exportBusy = true;
+    try {
+      const res = await api.system.selectiveExport(exportSelection);
+      const blob = new Blob([JSON.stringify(res.snapshot, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = res.suggestedFileName;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Export downloaded");
+    } catch (err: any) {
+      toast.error(err?.message ?? "Export failed");
+    } finally {
+      exportBusy = false;
+    }
+  }
+
+  function handleImportFile(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const snapshot = JSON.parse(reader.result as string);
+        if (snapshot.format !== "arkestrator-config-snapshot") {
+          toast.error("Invalid file: not an Arkestrator export");
+          return;
+        }
+        const tables = snapshot.tables ?? {};
+        const counts: Record<string, number> = {};
+        const categories: string[] = [];
+        for (const [table, rows] of Object.entries(tables)) {
+          if (Array.isArray(rows) && rows.length > 0) {
+            counts[table] = rows.length;
+            categories.push(table);
+          }
+        }
+        if (snapshot.training?.files?.length > 0) {
+          counts["training_files"] = snapshot.training.files.length;
+          categories.push("training_files");
+        }
+        importPreview = { fileName: file.name, categories, counts };
+        pendingImportSnapshot = snapshot;
+      } catch {
+        toast.error("Failed to parse import file");
+      }
+    };
+    reader.readAsText(file);
+    input.value = "";
+  }
+
+  async function doImport() {
+    if (!pendingImportSnapshot) return;
+    importBusy = true;
+    try {
+      const res = await api.coordinatorTraining.importSnapshot(pendingImportSnapshot, false);
+      toast.success(`Import complete: ${JSON.stringify(res)}`);
+      importPreview = null;
+      pendingImportSnapshot = null;
+    } catch (err: any) {
+      toast.error(err?.message ?? "Import failed");
+    } finally {
+      importBusy = false;
+    }
+  }
+
+  function cancelImport() {
+    importPreview = null;
+    pendingImportSnapshot = null;
+  }
+
+  $effect(() => {
+    if (activeTab === "backup") loadExportCategories();
+  });
 </script>
 
 <div class="system-page">
   <div class="tab-bar">
     <button class="tab" class:active={activeTab === "settings"} onclick={() => (activeTab = "settings")}>
       System Settings
+    </button>
+    <button class="tab" class:active={activeTab === "backup"} onclick={() => (activeTab = "backup")}>
+      Backup & Restore
     </button>
     <button class="tab" class:active={activeTab === "danger"} onclick={() => (activeTab = "danger")}>
       Danger Zone
@@ -218,6 +325,64 @@
             </div>
           {/if}
         {/if}
+      </div>
+
+    {:else if activeTab === "backup"}
+      <div class="page">
+        <h2>Backup & Restore</h2>
+        <p class="subtitle">Export server data for backup or transfer to another instance. Import a previous export to restore.</p>
+
+        <div class="backup-section">
+          <h3>Export</h3>
+          <p class="hint">Select what to include in the export. Sensitive data (users, API keys) is excluded by default.</p>
+
+          {#if exportLoading}
+            <p class="muted">Loading categories...</p>
+          {:else}
+            <div class="checkbox-grid">
+              {#each exportCategories as cat}
+                <label class="export-checkbox">
+                  <input type="checkbox" bind:checked={exportSelection[cat.key]} />
+                  <span>{cat.label}</span>
+                </label>
+              {/each}
+            </div>
+
+            <div class="actions-row">
+              <button class="btn-primary" onclick={doExport} disabled={exportBusy || !Object.values(exportSelection).some(Boolean)}>
+                {exportBusy ? "Exporting..." : "Export Selected"}
+              </button>
+            </div>
+          {/if}
+        </div>
+
+        <div class="backup-section">
+          <h3>Import</h3>
+          <p class="hint">Upload a previously exported JSON file. Data will be merged with existing server state.</p>
+
+          <label class="file-input-label">
+            <input type="file" accept=".json" onchange={handleImportFile} class="file-input" />
+            Choose File
+          </label>
+
+          {#if importPreview}
+            <div class="import-preview">
+              <p><strong>File:</strong> {importPreview.fileName}</p>
+              <p><strong>Contains:</strong></p>
+              <ul>
+                {#each Object.entries(importPreview.counts) as [table, count]}
+                  <li>{table}: {count} records</li>
+                {/each}
+              </ul>
+              <div class="actions-row">
+                <button class="btn-primary" onclick={doImport} disabled={importBusy}>
+                  {importBusy ? "Importing..." : "Import"}
+                </button>
+                <button class="btn-cancel" onclick={cancelImport}>Cancel</button>
+              </div>
+            </div>
+          {/if}
+        </div>
       </div>
 
     {:else}
@@ -531,5 +696,67 @@
   .btn-cancel:hover {
     background: var(--bg-hover);
     color: var(--text-primary);
+  }
+
+  /* ── Backup & Restore ── */
+  .backup-section {
+    max-width: 480px;
+    margin-bottom: 32px;
+  }
+  .backup-section h3 {
+    font-size: var(--font-size-base);
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .backup-section .hint {
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+    margin-bottom: 12px;
+    line-height: 1.4;
+  }
+  .checkbox-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 16px;
+    margin-bottom: 16px;
+  }
+  .export-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--font-size-sm);
+    color: var(--text-primary);
+    cursor: pointer;
+  }
+  .export-checkbox input[type="checkbox"] { flex-shrink: 0; }
+  .file-input-label {
+    display: inline-block;
+    padding: 8px 16px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+    border: 1px solid var(--border);
+  }
+  .file-input-label:hover { background: var(--bg-hover); }
+  .file-input { display: none; }
+  .import-preview {
+    margin-top: 16px;
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg-surface);
+  }
+  .import-preview p { font-size: var(--font-size-sm); margin-bottom: 8px; }
+  .import-preview ul {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 16px 0;
+  }
+  .import-preview li {
+    font-size: var(--font-size-xs);
+    color: var(--text-secondary);
+    padding: 2px 0;
   }
 </style>
