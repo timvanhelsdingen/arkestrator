@@ -516,6 +516,26 @@
     }
   }
 
+  async function guideJob(jobId: string) {
+    const text = prompt("Enter guidance for this job:");
+    if (!text?.trim()) return;
+    try {
+      const res = await fetch(`/api/jobs/${jobId}/guide`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: text.trim() }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+      toast.success("Job re-queued with guidance");
+      refreshJobs();
+    } catch (err: any) {
+      toast.error(`Failed to guide job: ${err.message}`);
+    }
+  }
+
   function confirmDeleteJob(job: Job) {
     const message = isActiveJobStatus(job.status)
       ? "This job is still active. It will be cancelled first, then deleted. This action cannot be undone."
@@ -1361,6 +1381,9 @@
             {#if job.status === "failed" || job.status === "cancelled"}
               <button class="btn-requeue" onclick={() => requeueJob(job.id)}>Requeue</button>
             {/if}
+            {#if job.status === "completed" || job.status === "failed"}
+              <button class="btn-guide" onclick={() => guideJob(job.id)}>Guide</button>
+            {/if}
             {#if job.status === "completed" || job.status === "failed" || job.status === "cancelled"}
               <button class="btn-archive" onclick={() => archiveJob(job.id)}>Archive</button>
             {/if}
@@ -2105,6 +2128,13 @@
     color: white;
     border-radius: var(--radius-sm);
   }
+  .btn-guide {
+    padding: 4px 12px;
+    background: var(--accent-secondary, #7c5cbf);
+    color: white;
+    border-radius: var(--radius-sm);
+  }
+  .btn-guide:hover { opacity: 0.85; }
   .btn-delete {
     padding: 4px 12px;
     background: var(--status-failed);

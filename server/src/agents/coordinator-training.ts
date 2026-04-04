@@ -857,16 +857,18 @@ export function queueTrainingOrchestrator(
           }
         }
 
-        // Wait for all training children
+        // Wait for all training children in parallel
         if (children.length > 0) {
           // Signal must be present BEFORE children finish so the spawner's exit
           // handler doesn't race and fail us for having pending children.
           appendJobLog(deps.hub, deps.jobsRepo, created.id, `All sub-jobs dispatched (${children.length}).`);
-          appendJobLog(deps.hub, deps.jobsRepo, created.id, `Waiting for ${children.length} training job(s)...`);
-          for (const child of children) {
-            const terminal = await waitForCoordinatorTrainingJobTerminalState(deps.jobsRepo, child.jobId, 60 * 60_000);
-            appendJobLog(deps.hub, deps.jobsRepo, created.id, `Training ${child.program}: ${terminal.status}`);
-          }
+          appendJobLog(deps.hub, deps.jobsRepo, created.id, `Waiting for ${children.length} training job(s) in parallel...`);
+          await Promise.all(
+            children.map(async (child) => {
+              const terminal = await waitForCoordinatorTrainingJobTerminalState(deps.jobsRepo, child.jobId, 60 * 60_000);
+              appendJobLog(deps.hub, deps.jobsRepo, created.id, `Training ${child.program}: ${terminal.status}`);
+            }),
+          );
         }
 
         // Chain housekeeping

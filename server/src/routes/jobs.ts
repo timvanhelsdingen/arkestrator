@@ -1475,6 +1475,50 @@ export function createJobRoutes(
     return c.json({ ok: true });
   });
 
+  // Guide a completed/failed job — add feedback and re-queue for another run
+  router.post("/:id/guide", async (c) => {
+    const principal = await getAuthPrincipal(c, usersRepo, apiKeysRepo);
+    if (!principal) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+
+    const id = c.req.param("id");
+    const job = jobsRepo.getById(id);
+    if (!job) return errorResponse(c, 404, "Not found", "NOT_FOUND");
+    if (!canMutateJob(principal, job)) {
+      return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+    }
+    if (job.status !== "completed" && job.status !== "failed") {
+      return errorResponse(c, 400, `Cannot guide a ${job.status} job — only completed or failed`, "INVALID_INPUT");
+    }
+
+    let body: { text: string };
+    try {
+      const raw = await c.req.json();
+      if (!raw?.text || typeof raw.text !== "string" || !raw.text.trim()) {
+        return errorResponse(c, 400, "Guidance text is required", "INVALID_INPUT");
+      }
+      body = { text: raw.text.trim() };
+    } catch {
+      return errorResponse(c, 400, "Invalid JSON body", "INVALID_JSON");
+    }
+
+    // Create an intervention with the guidance (will be injected into prompt on next run)
+    let intervention;
+    if (jobInterventionsRepo) {
+      const actor = principal.kind === "user"
+        ? { userId: principal.user.id, username: principal.user.username }
+        : { username: `apikey:${principal.apiKey.id.slice(0, 8)}` };
+      intervention = jobInterventionsRepo.create(id, { text: body.text, source: "jobs" as const }, actor);
+    }
+
+    // Move job back to queued (preserves sessionId for Claude session resumption)
+    const guided = jobsRepo.guide(id);
+    if (!guided) {
+      return errorResponse(c, 400, "Failed to re-queue job", "INTERNAL_ERROR");
+    }
+    broadcastJob(id);
+    return c.json({ ok: true, job_id: id, intervention_id: intervention?.id ?? null });
+  });
+
   // Manually dispatch a queued job (bypasses worker poll cycle)
   router.post("/:id/dispatch", async (c) => {
     const principal = await getAuthPrincipal(c, usersRepo, apiKeysRepo);

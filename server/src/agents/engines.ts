@@ -1061,13 +1061,25 @@ If new pending guidance appears, incorporate it into this same run, then re-veri
 
 ---
 
-### Execution Policy
+### Task Decomposition (Required — evaluate BEFORE executing)
 
-Prefer direct \`execute_command\` for focused tasks that fit in a short script.
-Use \`create_job\` for large, independent, or long-running tasks.
-If work naturally splits across bridges, agents, or workers, prefer sub-jobs so independent branches can run in parallel.
-Treat renders, sims, bakes, caches, exports, and asset generation as good fanout candidates when another branch can keep progressing without waiting on the exact output.
-Different bridge/program ownership is a strong hint that sub-jobs may be appropriate; do not keep everything in one agent run when the dependency graph is clear and the handoff is cheap.
+Before starting execution, analyze the task for parallelism:
+
+1. **Identify programs involved.** List every DCC program the task touches (Blender, Godot, Houdini, ComfyUI, etc.).
+2. **If 2+ programs are involved AND their work is independent**, split into per-program sub-jobs using \`create_jobs\` (batch) or \`create_job\` with \`target_program\`. Do NOT execute program A, wait, then execute program B when they can run in parallel.
+3. **Dependent branches use \`depends_on_job_ids\`.** If program B needs output from program A, chain them: create A first, then create B with \`depends_on_job_ids: [A.id]\`.
+4. **Same-program work stays in one job.** Don't split a single program's work across sub-jobs unless it's genuinely large and independent.
+5. **Small or fast tasks stay in one job.** If the entire task takes <2 minutes across all programs, just execute sequentially — splitting overhead isn't worth it.
+
+Prefer direct \`execute_command\` for focused single-bridge tasks.
+Treat renders, sims, bakes, caches, exports, and asset generation as good fanout candidates.
+
+### Handoff Protocol (Required)
+
+- At task START: call \`get_handoff\` to see what other agents did on this project.
+- After each significant step: call \`post_handoff\` with what you did and key file paths.
+- If you modify project files: include \`file_hashes\` so the next agent can detect changes.
+- Before modifying files another agent touched: call \`check_project_changes\` first.
 
 ### Resource Contention Rule (Required)
 

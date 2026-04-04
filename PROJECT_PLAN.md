@@ -11,6 +11,14 @@
 - **Routing outcome learning**: New `routing_outcomes` table tracks which agent configs succeed for which task patterns. AUTO routing prefers proven configs within the same engine family.
 - **Backup & Restore**: New admin System tab with selective export (checkboxes per category) and import. Compatible with existing config-snapshot format.
 
+## Done: Smarter Task Splitting + Inter-Agent Communication (2026-04-04) ✅
+
+- **Parallel training**: Orchestrator waits for child programs via `Promise.all()` instead of sequential loop
+- **Task decomposition prompt**: Concrete rules for when to split tasks across programs (only when it helps)
+- **Batch MCP tools**: `create_jobs` (up to 20 parallel sub-jobs), `poll_jobs` (batch status check)
+- **Handoff system**: New `handoff_notes` table + `HandoffRepo` + MCP tools (`post_handoff`, `get_handoff`, `check_project_changes` with SHA-256 file hashing)
+- **Guide completed jobs**: `POST /api/jobs/:id/guide` re-queues completed/failed jobs with feedback, preserves Claude session for resumption. Client "Guide" button.
+
 ## Done: Training Pipeline → Skills Alignment (2026-04-04) ✅
 
 Fixed training pipeline to produce content-rich skills instead of empty stubs:

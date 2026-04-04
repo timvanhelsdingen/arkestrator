@@ -197,6 +197,7 @@ export interface SpawnerDeps {
   settingsRepo?: SettingsRepo;
   skillsRepo?: SkillsRepo;
   skillStore?: SkillStore;
+  handoffRepo?: import("../db/handoff.repo.js").HandoffRepo;
   skillEffectivenessRepo?: import("../db/skill-effectiveness.repo.js").SkillEffectivenessRepo;
   skillIndex?: import("../skills/skill-index.js").SkillIndex;
   workersRepo?: WorkersRepo;
@@ -1310,6 +1311,7 @@ async function runLocalAgenticLoop(
     skillEffectivenessRepo: deps.skillEffectivenessRepo,
     skillsRepo: deps.skillsRepo,
     skillStore: deps.skillStore,
+    handoffRepo: deps.handoffRepo,
   };
   const mcpClient = await createInProcessMcpClient(mcpDeps);
 

@@ -3,6 +3,9 @@
 ## Purpose
 Primary user-facing desktop dashboard (Tauri v2 + Svelte 5). Users manage jobs, configure agents, view workers, manage projects. Connects to server via REST + WebSocket.
 
+## Recent Updates (2026-04-04)
+- Guide completed jobs (2026-04-04): `pages/Jobs.svelte` — new "Guide" button on completed/failed jobs. Opens prompt dialog for guidance text, calls `POST /api/jobs/:id/guide` to re-queue with intervention. Button styled with `--accent-secondary` color.
+
 ## Recent Updates (2026-04-02)
 - Installation help guides (2026-04-02): ComfyUI setup now uses a popup config modal with path detection, connection test, custom nodes status, auto-start toggle, start/stop controls, and Uninstall button. Auto-tests ComfyUI connection after launch. Ollama setup guide simplified to remove manual steps handled automatically by the client.
 - Skill locking (2026-04-01): `pages/Coordinator.svelte` skill detail view and list now show lock status. Users can toggle lock per skill to prevent agent modification by housekeeping/training.

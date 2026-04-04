@@ -39,6 +39,7 @@ export interface WorkerDeps {
   settingsRepo?: SettingsRepo;
   skillsRepo?: SkillsRepo;
   skillStore?: import("../skills/skill-store.js").SkillStore;
+  handoffRepo?: import("../db/handoff.repo.js").HandoffRepo;
   skillEffectivenessRepo?: import("../db/skill-effectiveness.repo.js").SkillEffectivenessRepo;
   skillIndex?: import("../skills/skill-index.js").SkillIndex;
   routingOutcomesRepo?: import("../db/routing-outcomes.repo.js").RoutingOutcomesRepo;
@@ -252,6 +253,7 @@ export class WorkerLoop {
       settingsRepo: this.deps.settingsRepo,
       skillsRepo: this.deps.skillsRepo,
       skillStore: this.deps.skillStore,
+      handoffRepo: this.deps.handoffRepo,
       skillEffectivenessRepo: this.deps.skillEffectivenessRepo,
       skillIndex: this.deps.skillIndex,
       routingOutcomesRepo: this.deps.routingOutcomesRepo,

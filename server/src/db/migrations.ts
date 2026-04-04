@@ -403,6 +403,22 @@ const COLUMN_ADDITIONS = [
   `ALTER TABLE agent_configs ADD COLUMN reasoning_mode TEXT CHECK(reasoning_mode IN ('disabled','plan-act','plan-act-evaluate'))`,
   // Lock skills from being edited by agents (humans can still edit via UI)
   `ALTER TABLE skills ADD COLUMN locked INTEGER NOT NULL DEFAULT 0`,
+  // Handoff notes — inter-agent communication during execution
+  `CREATE TABLE IF NOT EXISTS handoff_notes (
+    id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL,
+    parent_job_id TEXT,
+    program TEXT NOT NULL DEFAULT '',
+    project_path TEXT,
+    category TEXT NOT NULL DEFAULT 'progress' CHECK(category IN ('progress','blocker','done','warning')),
+    content TEXT NOT NULL,
+    file_hashes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_handoff_program ON handoff_notes(program)`,
+  `CREATE INDEX IF NOT EXISTS idx_handoff_project ON handoff_notes(project_path)`,
+  `CREATE INDEX IF NOT EXISTS idx_handoff_parent ON handoff_notes(parent_job_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_handoff_created ON handoff_notes(created_at DESC)`,
 ];
 
 // Reset any jobs stuck in 'running' state (server crashed while they were active)

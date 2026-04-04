@@ -391,6 +391,8 @@ async function main() {
   const headlessProgramsRepo = new HeadlessProgramsRepo(db);
   const settingsRepo = new SettingsRepo(db);
   const skillsRepo = new SkillsRepo(db);
+  const { HandoffRepo } = await import("./db/handoff.repo.js");
+  const handoffRepo = new HandoffRepo(db);
   const { SkillEffectivenessRepo } = await import("./db/skill-effectiveness.repo.js");
   const skillEffectivenessRepo = new SkillEffectivenessRepo(db);
   const { RoutingOutcomesRepo } = await import("./db/routing-outcomes.repo.js");
@@ -697,6 +699,7 @@ async function main() {
     settingsRepo,
     skillsRepo,
     skillStore,
+    handoffRepo,
     skillEffectivenessRepo,
     skillIndex,
     routingOutcomesRepo,

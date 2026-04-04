@@ -12,8 +12,9 @@ import type { ProcessTracker } from "../agents/process-tracker.js";
 import { resolveBridgeTargets, type WorkerResourceLeaseManager } from "../agents/resource-control.js";
 import { executeBridgeCommand, listConnectedBridges, runHeadlessCheck } from "../routes/bridge-commands.js";
 import { newId } from "../utils/id.js";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
-import { join } from "path";
+import { createHash } from "crypto";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "fs";
+import { join, relative } from "path";
 import { tmpdir } from "os";
 import { principalHasPermission, type AuthPrincipal } from "../middleware/auth.js";
 import type { UserPermissionKey } from "../utils/user-permissions.js";
@@ -51,6 +52,8 @@ export interface McpDeps {
   skillsRepo?: import("../db/skills.repo.js").SkillsRepo;
   /** SkillStore facade for dual-write (SQLite + disk) skill mutations. */
   skillStore?: import("../skills/skill-store.js").SkillStore;
+  /** Handoff notes repo for inter-agent communication. */
+  handoffRepo?: import("../db/handoff.repo.js").HandoffRepo;
 }
 
 const CLIENT_API_ALLOW_PREFIXES = [
@@ -918,6 +921,147 @@ export function createMcpServer(deps: McpDeps): McpServer {
     },
   );
 
+  // Tool: create_jobs (batch)
+  server.tool(
+    "create_jobs",
+    "Create multiple sub-jobs at once for parallel execution. " +
+      "Use this instead of calling create_job repeatedly when launching independent sub-jobs across different bridges. " +
+      "Returns all job IDs immediately. Each job enters the queue independently.",
+    {
+      jobs: z.array(z.object({
+        prompt: z.string().describe("Task instructions for the sub-agent"),
+        handover_notes: z.string().optional().describe("Context from the parent job"),
+        target_program: z.string().optional().describe("Route to a specific DCC bridge"),
+        target_worker: z.string().optional().describe("Route to a specific worker machine"),
+        depends_on_job_ids: z.array(z.string()).optional().describe("Job IDs that must complete first"),
+        name: z.string().optional().describe("Short label shown in the job list"),
+      })).min(1).max(20).describe("Array of jobs to create (max 20)"),
+    },
+    async ({ jobs: jobSpecs }) => {
+      const denied = checkPermission("submitJobs");
+      if (denied) return denied;
+
+      // Resolve agent config once for all jobs
+      const configs = deps.agentsRepo.list();
+      if (configs.length === 0) {
+        return { content: [{ type: "text" as const, text: "No agent configs available." }], isError: true };
+      }
+      const defaultConfigId = (configs.find((c: any) => c.engine === "claude-code") ?? configs[0]).id;
+      const callerJob = deps.callerJobId ? deps.jobsRepo.getById(deps.callerJobId) : null;
+      const parentRuntimeOpts = callerJob?.runtimeOptions as Record<string, unknown> | undefined;
+
+      const results: Array<{ name?: string; job_id: string; status: string; target_program?: string; error?: string }> = [];
+
+      for (const spec of jobSpecs) {
+        try {
+          let bridgeId: string | undefined;
+          let bridgeProgram: string | undefined;
+          if (spec.target_program) {
+            bridgeProgram = spec.target_program;
+            const bridges = deps.hub.getBridgesByProgram(spec.target_program);
+            if (bridges.length > 0) {
+              bridgeId = bridges[0].data.id;
+            } else if (!deps.hub.hasVirtualBridgeForProgram(spec.target_program)) {
+              const headless = deps.headlessProgramsRepo?.list()
+                .find((hp) => hp.program === spec.target_program && hp.enabled);
+              if (!headless) {
+                results.push({ name: spec.name, job_id: "", status: "error", target_program: spec.target_program, error: `No "${spec.target_program}" bridge connected` });
+                continue;
+              }
+            }
+          }
+
+          const fullPrompt = spec.handover_notes
+            ? `## Context from Coordinator\n\n${spec.handover_notes}\n\n---\n\n## Your Task\n\n${spec.prompt}`
+            : spec.prompt;
+          const runtimeOptions: Record<string, unknown> = { ...parentRuntimeOpts };
+
+          const job = deps.jobsRepo.create(
+            {
+              prompt: fullPrompt,
+              agentConfigId: defaultConfigId,
+              priority: "normal",
+              coordinationMode: "server",
+              name: spec.name,
+              files: [],
+              contextItems: [],
+              startPaused: false,
+              runtimeOptions: Object.keys(runtimeOptions).length > 0 ? runtimeOptions : undefined,
+            },
+            bridgeId,
+            bridgeProgram,
+            undefined,
+            spec.target_worker,
+            undefined,
+            deps.callerJobId,
+          );
+
+          if (spec.depends_on_job_ids?.length) {
+            for (const depId of spec.depends_on_job_ids) {
+              try { deps.depsRepo.add(job.id, depId); } catch {}
+            }
+          }
+
+          const freshJob = deps.jobsRepo.getById(job.id);
+          if (freshJob) {
+            deps.hub.broadcastToType("client", { type: "job_updated", id: newId(), payload: { job: freshJob } });
+          }
+
+          results.push({ name: spec.name, job_id: job.id, status: job.status, target_program: bridgeProgram });
+        } catch (err: any) {
+          results.push({ name: spec.name, job_id: "", status: "error", error: err?.message ?? String(err) });
+        }
+      }
+
+      return { content: [{ type: "text" as const, text: JSON.stringify({ created: results.filter((r) => r.status !== "error").length, jobs: results }, null, 2) }] };
+    },
+  );
+
+  // Tool: poll_jobs (batch status check)
+  server.tool(
+    "poll_jobs",
+    "Check status of multiple jobs at once. Use after create_jobs to wait for all sub-jobs. " +
+      "Returns status for each job. When all are completed/failed, you can proceed.",
+    {
+      job_ids: z.array(z.string()).min(1).max(50).describe("Job IDs to check"),
+    },
+    async ({ job_ids }) => {
+      const results: Array<Record<string, any>> = [];
+      let allDone = true;
+
+      for (const id of job_ids) {
+        const job = deps.jobsRepo.getById(id);
+        if (!job) {
+          results.push({ job_id: id, status: "not_found" });
+          continue;
+        }
+        const entry: Record<string, any> = {
+          job_id: job.id,
+          name: job.name ?? null,
+          status: job.status,
+          started_at: job.startedAt ?? null,
+          completed_at: job.completedAt ?? null,
+        };
+        if (job.error) entry.error = job.error;
+        if (job.status === "completed" && job.logs) {
+          const logLines = job.logs.split("\n").filter((l: string) => l.trim());
+          entry.output_summary = logLines.slice(-10).join("\n");
+        }
+        if (!["completed", "failed", "cancelled"].includes(job.status)) {
+          allDone = false;
+        }
+        results.push(entry);
+      }
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({ all_done: allDone, jobs: results }, null, 2),
+        }],
+      };
+    },
+  );
+
   // Tool: get_job_logs
   server.tool(
     "get_job_logs",
@@ -1344,6 +1488,119 @@ export function createMcpServer(deps: McpDeps): McpServer {
       const text = results.length === 0
         ? "No skills available."
         : results.map((r) => `- **${r.slug}** (${r.category}/${r.program}) ${r.autoFetch ? "[auto-fetch]" : ""}\n  ${r.title}`).join("\n");
+      return { content: [{ type: "text" as const, text }] };
+    },
+  );
+
+  // ── Handoff tools ──────────────────────────────────────────────────────────
+
+  server.tool(
+    "post_handoff",
+    "Leave a handoff note for other agents working on the same project. " +
+      "Call this after completing a significant step, hitting a blocker, or when files change. " +
+      "Other agents (including future runs on this project) will see your notes via get_handoff.",
+    {
+      content: z.string().describe("What you did, what changed, what to watch out for"),
+      category: z.enum(["progress", "blocker", "done", "warning"]).default("progress")
+        .describe("Note type: progress (default), blocker, done, warning"),
+      program: z.string().optional().describe("DCC program context (e.g. 'blender', 'godot')"),
+      project_path: z.string().optional().describe("Project directory path"),
+      file_hashes: z.record(z.string(), z.string()).optional()
+        .describe("Map of file path → sha256 hash for files you touched/care about"),
+    },
+    async ({ content, category, program, project_path, file_hashes }) => {
+      if (!deps.handoffRepo) {
+        return { content: [{ type: "text" as const, text: "Handoff system not available" }], isError: true };
+      }
+      const callerJob = deps.callerJobId ? deps.jobsRepo.getById(deps.callerJobId) : null;
+      const parentJobId = callerJob?.parentJobId ?? undefined;
+      const note = deps.handoffRepo.post(
+        deps.callerJobId ?? "unknown",
+        program ?? "",
+        project_path ?? null,
+        category,
+        content,
+        file_hashes,
+        parentJobId,
+      );
+      return { content: [{ type: "text" as const, text: `Handoff note posted: ${note.id} [${category}]` }] };
+    },
+  );
+
+  server.tool(
+    "get_handoff",
+    "Check handoff notes from other agents. Call at the START of your task to see " +
+      "what work was done before you, what changed, and what to watch out for.",
+    {
+      project_path: z.string().optional().describe("Filter by project directory"),
+      program: z.string().optional().describe("Filter by DCC program"),
+      parent_job_id: z.string().optional().describe("Get notes from sibling sub-jobs (same parent)"),
+      limit: z.number().optional().default(10).describe("Max notes to return (default 10)"),
+    },
+    async ({ project_path, program, parent_job_id, limit }) => {
+      if (!deps.handoffRepo) {
+        return { content: [{ type: "text" as const, text: "Handoff system not available" }], isError: true };
+      }
+      let notes;
+      if (parent_job_id) {
+        notes = deps.handoffRepo.getForParentJob(parent_job_id, limit);
+      } else if (project_path) {
+        notes = deps.handoffRepo.getForProject(project_path, program, limit);
+      } else {
+        notes = deps.handoffRepo.getRecent(program, limit);
+      }
+      if (notes.length === 0) {
+        return { content: [{ type: "text" as const, text: "No handoff notes found." }] };
+      }
+      const formatted = notes.map((n) =>
+        `[${n.category}] ${n.createdAt} (job: ${n.jobId.slice(0, 8)})\n${n.content}` +
+        (n.fileHashes ? `\nFiles tracked: ${Object.keys(n.fileHashes).join(", ")}` : ""),
+      ).join("\n\n---\n\n");
+      return { content: [{ type: "text" as const, text: formatted }] };
+    },
+  );
+
+  server.tool(
+    "check_project_changes",
+    "Check which project files changed since the last handoff note with file hashes. " +
+      "Returns list of added/modified/deleted files. Call this to know if another agent " +
+      "or user modified files you care about.",
+    {
+      project_path: z.string().describe("Project directory to check"),
+      program: z.string().optional().describe("Filter by DCC program"),
+    },
+    async ({ project_path, program }) => {
+      if (!deps.handoffRepo) {
+        return { content: [{ type: "text" as const, text: "Handoff system not available" }], isError: true };
+      }
+      const latest = deps.handoffRepo.getLatestHashes(project_path, program);
+      if (!latest?.fileHashes) {
+        return { content: [{ type: "text" as const, text: "No previous file hashes found for this project. Call post_handoff with file_hashes first." }] };
+      }
+      const changes: Array<{ path: string; status: "modified" | "deleted" | "unchanged" }> = [];
+      for (const [filePath, oldHash] of Object.entries(latest.fileHashes)) {
+        const fullPath = join(project_path, filePath);
+        try {
+          if (!existsSync(fullPath)) {
+            changes.push({ path: filePath, status: "deleted" });
+          } else {
+            const content = readFileSync(fullPath);
+            const currentHash = createHash("sha256").update(content).digest("hex");
+            if (currentHash !== oldHash) {
+              changes.push({ path: filePath, status: "modified" });
+            } else {
+              changes.push({ path: filePath, status: "unchanged" });
+            }
+          }
+        } catch {
+          changes.push({ path: filePath, status: "deleted" });
+        }
+      }
+      const modified = changes.filter((c) => c.status !== "unchanged");
+      const text = modified.length === 0
+        ? `No changes detected across ${changes.length} tracked file(s) since ${latest.createdAt}.`
+        : `${modified.length} change(s) detected since ${latest.createdAt}:\n` +
+          modified.map((c) => `  ${c.status}: ${c.path}`).join("\n");
       return { content: [{ type: "text" as const, text }] };
     },
   );

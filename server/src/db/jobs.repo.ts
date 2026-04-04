@@ -199,6 +199,7 @@ export class JobsRepo {
   private getChildJobsStmt;
   private pauseStmt;
   private setSessionIdStmt;
+  private guideStmt;
 
   constructor(private db: Database) {
     this.insertStmt = db.prepare(
@@ -289,6 +290,9 @@ export class JobsRepo {
     );
     this.setSessionIdStmt = db.prepare(
       `UPDATE jobs SET session_id = ? WHERE id = ?`,
+    );
+    this.guideStmt = db.prepare(
+      `UPDATE jobs SET status = 'queued', started_at = NULL, completed_at = NULL, error = NULL WHERE id = ? AND status IN ('completed', 'failed')`,
     );
     this.dashboardStatsStmt = db.prepare(
       `SELECT
@@ -565,6 +569,12 @@ export class JobsRepo {
   /** Move a paused job to queued so the worker can pick it up. */
   resume(jobId: string): boolean {
     const result = this.resumeStmt.run(jobId);
+    return result.changes > 0;
+  }
+
+  /** Move a completed/failed job back to queued with guidance (preserves sessionId for resume). */
+  guide(jobId: string): boolean {
+    const result = this.guideStmt.run(jobId);
     return result.changes > 0;
   }
 
