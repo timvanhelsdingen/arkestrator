@@ -1,5 +1,27 @@
 # Arkestrator
 
+## Recent Update (2026-04-04)
+
+- **WebSocket max payload setting**: Configurable via admin System Settings (default 256MB). Bun's 16MB default was rejecting large file transfers.
+- **Project folder as cwd fallback**: Resolver uses attached project's first folder when bridge sends empty projectRoot (unsaved files).
+- **Skill search on errors**: Agents now get a skill_hint on every tool error suggesting `search_skills`. Prompt also mandates searching on limitations (not just errors).
+- **Sub-job runtimeOptions inheritance**: Sub-jobs inherit full parent runtimeOptions (verification, model, timeout, etc.).
+- **Agentic visual verification**: Replaced histogram/pixel-diff verification with vision-model-based inspection. All bridge playbooks updated. Agents compare final output against upstream renders and reference images.
+- **Pipeline verification**: Multi-stage jobs must compare final output against earlier stages. Sub-job handover notes include upstream output paths.
+- **Routing outcome learning**: New `routing_outcomes` table tracks which agent configs succeed for which task patterns. AUTO routing prefers proven configs within the same engine family.
+- **Backup & Restore**: New admin System tab with selective export (checkboxes per category) and import. Compatible with existing config-snapshot format.
+
+## Planned: Training Pipeline → Skills Alignment
+
+The training pipeline creates empty project-reference skill stubs ("No project references discovered yet") instead of useful skills. The vault artifacts (analysis.json) contain rich data that never makes it into searchable skills. Key issues:
+- Skills from training have ~115 chars of stub text, vault artifacts have full analysis
+- `related_skills` field unused (0 of 77 skills link to each other)
+- `playbooks` field is just a path reference, content never loaded
+- Agent `create_skill` MCP tool doesn't expose `relatedSkills` or `playbooks` params
+- Training extraction falls back to synthetic seeds when agent doesn't emit structured JSON
+
+See starting prompt below for implementation plan.
+
 ## Recent Update (2026-04-02)
 
 - **Skill locking**: Skills can now be locked to prevent agent edits. Locked skills are protected from modification by housekeeping and training agents. Toggle via admin panel or API.
