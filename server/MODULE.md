@@ -3,6 +3,9 @@
 ## Purpose
 Central hub. Receives jobs via REST+WS, queues them in SQLite, spawns AI CLI tools as subprocesses, streams results back to bridges+clients. Manages all state.
 
+## Recent Updates (2026-04-04)
+- Training→skills alignment (2026-04-04): `src/agents/coordinator-training.ts` — placeholder stub summaries ("No project references discovered yet") are now filtered out before skill creation, preventing empty skills. Phase 1 and Phase 2 skill content enriched with config prompt guidance, notes excerpts, and expanded file inventory (scene files up to 8, project files up to 20). `extractProjectKeywords()` now accepts optional `config` and `notesExcerpt` params for richer keyword extraction. Skills from the same training run are automatically linked via `relatedSkills`. Playbook references now point to `.md` artifacts instead of `.json`. `src/mcp/tool-server.ts` — `create_skill` and `update_skill` MCP tools now accept optional `relatedSkills` and `playbooks` parameters (with CSV string coercion). `get_skill` handler loads playbook `.md` content on-demand (capped at 3000 chars), creating a tiered token strategy: search=minimal, auto-fetch=lean ~1500 chars, get_skill=deep ~4500 chars.
+
 ## Recent Updates (2026-04-02)
 - Skill locking (2026-04-01): `src/db/skills.repo.ts` adds `locked` boolean field to Skill interface. `SkillStore` and skill mutation routes respect lock status. Housekeeping and training agents skip locked skills. `src/routes/skills.ts` accepts `locked` in create/update payloads.
 - Reasoning mode for local LLM agents (2026-04-01): `packages/protocol/src/local-agentic-loop.ts` `runAgenticLoop()` and `runChatAgenticLoop()` now support plan-act-evaluate reasoning mode. The agent plans its approach, executes tools, then evaluates results before proceeding.

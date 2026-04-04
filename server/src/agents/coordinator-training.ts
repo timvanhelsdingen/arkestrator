@@ -77,8 +77,16 @@ import {
 } from "./training-scheduling.js";
 
 /** Extract searchable keywords from project name, summary, and content. */
-function extractProjectKeywords(name: string, summary: string, content: string): string[] {
-  const text = `${name} ${summary} ${content.slice(0, 2000)}`.toLowerCase();
+function extractProjectKeywords(
+  name: string,
+  summary: string,
+  content: string,
+  config?: Record<string, unknown>,
+  notesExcerpt?: string,
+): string[] {
+  const configPrompt = String(config?.prompt ?? "").slice(0, 500);
+  const notes = String(notesExcerpt ?? "").slice(0, 500);
+  const text = `${name} ${summary} ${content.slice(0, 2000)} ${configPrompt} ${notes}`.toLowerCase();
   const keywords = new Set<string>();
   // DCC-specific terms
   const dccTerms = [
@@ -1461,13 +1469,19 @@ export function queueCoordinatorTrainingJob(
         const normPath = (p: string) => p.replace(/\\/g, "/").toLowerCase().replace(/\/+$/, "");
         const artifactRelPath = relative(resolve(coordinatorPlaybooksDir), resolve(artifactPaths.jsonPath))
           .replace(/\\/g, "/");
-        appendJobLog(hub, jobsRepo, created.id, `Skill creation: skillsRepo=${!!deps.skillsRepo}, summaries=${result.summaries.length}, fsProjects=${projectDetails.length}, playbookRef=${artifactRelPath}`);
-        if (deps.skillsRepo && result.summaries.length > 0) {
+        const artifactMdRelPath = relative(resolve(coordinatorPlaybooksDir), resolve(artifactPaths.markdownPath))
+          .replace(/\\/g, "/");
+        // Filter out placeholder stubs — skills should only contain real content
+        const skillableSummaries = result.summaries.filter(
+          (s) => !String(s.summary ?? "").includes("No project references discovered yet"),
+        );
+        appendJobLog(hub, jobsRepo, created.id, `Skill creation: skillsRepo=${!!deps.skillsRepo}, summaries=${result.summaries.length}, skillable=${skillableSummaries.length}, fsProjects=${projectDetails.length}, playbookRef=${artifactRelPath}`);
+        if (deps.skillsRepo && (skillableSummaries.length > 0 || projectDetails.length > 0)) {
           let skillCount = 0;
           const createdSlugs = new Set<string>();
 
           // Phase 1: create skills from extracted summaries (guaranteed to have content)
-          for (const summary of result.summaries) {
+          for (const summary of skillableSummaries) {
             const name = String(summary.name ?? "").trim();
             const summaryPath = String(summary.path ?? "").trim();
             const summaryText = String(summary.summary ?? "").trim();
@@ -1494,9 +1508,27 @@ export function queueCoordinatorTrainingJob(
               contentParts.push("");
               contentParts.push(summaryText);
             }
+            // Embed config prompt guidance when available
+            const configPrompt = String(matchingProject?.config?.prompt ?? "").trim();
+            if (configPrompt) {
+              contentParts.push("");
+              contentParts.push("## Configuration");
+              contentParts.push(configPrompt.slice(0, 300));
+            }
+            // Embed notes excerpt when available
+            const notesExcerpt = matchingProject?.notesExcerpt?.trim() ?? "";
+            if (notesExcerpt) {
+              contentParts.push("");
+              contentParts.push("## Notes");
+              contentParts.push(notesExcerpt.slice(0, 500));
+            }
+            // Inventory: scene files + general project files
             if (matchingProject?.inventory?.sceneFiles?.length) {
               contentParts.push("");
-              contentParts.push(`Scene files: ${matchingProject.inventory.sceneFiles.slice(0, 5).join(", ")}`);
+              contentParts.push(`**Scene files:** ${matchingProject.inventory.sceneFiles.slice(0, 8).join(", ")}`);
+            }
+            if (matchingProject?.inventory?.files?.length) {
+              contentParts.push(`**Project files:** ${matchingProject.inventory.files.slice(0, 20).join(", ")}`);
             }
             const content = contentParts.join("\n");
             try {
@@ -1508,9 +1540,9 @@ export function queueCoordinatorTrainingJob(
                 title: `${cleanName} — ${normalizedProgram} project reference`,
                 description: summaryText || `Learned patterns and structure from ${cleanName}`,
                 content,
-                playbooks: [artifactRelPath],
+                playbooks: [artifactMdRelPath],
                 source: "training",
-                keywords: extractProjectKeywords(cleanName, summaryText, content),
+                keywords: extractProjectKeywords(cleanName, summaryText, content, matchingProject?.config, notesExcerpt || undefined),
               };
               if (deps.skillStore) {
                 await deps.skillStore.upsertBySlugAndProgram(skillInput);
@@ -1534,18 +1566,28 @@ export function queueCoordinatorTrainingJob(
             if (createdSlugs.has(slug)) continue;
             // Only create if there's meaningful inventory content
             const sceneFiles = project.inventory?.sceneFiles ?? [];
-            const notesExcerpt = project.notesExcerpt?.trim() ?? "";
-            if (sceneFiles.length === 0 && !notesExcerpt) continue;
+            const fsNotesExcerpt = project.notesExcerpt?.trim() ?? "";
+            if (sceneFiles.length === 0 && !fsNotesExcerpt) continue;
+            const fsConfigPrompt = String(project.config?.prompt ?? "").trim();
             const contentParts: string[] = [];
             contentParts.push(`# ${projectName}`);
             contentParts.push(`**Program:** ${normalizedProgram}`);
-            if (notesExcerpt) {
+            if (fsConfigPrompt) {
               contentParts.push("");
-              contentParts.push(notesExcerpt.slice(0, 500));
+              contentParts.push("## Configuration");
+              contentParts.push(fsConfigPrompt.slice(0, 300));
+            }
+            if (fsNotesExcerpt) {
+              contentParts.push("");
+              contentParts.push("## Notes");
+              contentParts.push(fsNotesExcerpt.slice(0, 500));
             }
             if (sceneFiles.length > 0) {
               contentParts.push("");
-              contentParts.push(`Scene files: ${sceneFiles.slice(0, 5).join(", ")}`);
+              contentParts.push(`**Scene files:** ${sceneFiles.slice(0, 8).join(", ")}`);
+            }
+            if (project.inventory?.files?.length) {
+              contentParts.push(`**Project files:** ${project.inventory.files.slice(0, 20).join(", ")}`);
             }
             const content = contentParts.join("\n");
             try {
@@ -1555,11 +1597,11 @@ export function queueCoordinatorTrainingJob(
                 program: normalizedProgram,
                 category: "project-reference",
                 title: `${projectName} — ${normalizedProgram} project reference`,
-                description: `Learned patterns and structure from ${projectName}`,
+                description: fsNotesExcerpt.slice(0, 120) || `Learned patterns and structure from ${projectName}`,
                 content,
-                playbooks: [artifactRelPath],
+                playbooks: [artifactMdRelPath],
                 source: "training",
-                keywords: extractProjectKeywords(projectName, "", content),
+                keywords: extractProjectKeywords(projectName, "", content, project.config, fsNotesExcerpt || undefined),
               };
               if (deps.skillStore) {
                 await deps.skillStore.upsertBySlugAndProgram(skillInput);
@@ -1572,6 +1614,26 @@ export function queueCoordinatorTrainingJob(
             } catch (err: any) {
               appendJobLog(hub, jobsRepo, created.id, `  → Skill FAILED: ${projectName}: ${String(err?.message ?? err)}`);
             }
+          }
+
+          // Link related skills from the same training run
+          if (createdSlugs.size > 1) {
+            const allSlugs = [...createdSlugs];
+            for (const slug of allSlugs) {
+              const related = allSlugs.filter((s) => s !== slug);
+              try {
+                if (deps.skillStore) {
+                  const skill = deps.skillsRepo!.get(slug, normalizedProgram);
+                  if (skill) await deps.skillStore.update(skill.id, { relatedSkills: related });
+                } else {
+                  const skill = deps.skillsRepo!.get(slug, normalizedProgram);
+                  if (skill) deps.skillsRepo!.update(skill.id, { relatedSkills: related });
+                }
+              } catch {
+                // Best-effort — don't fail the job for related skill linking
+              }
+            }
+            appendJobLog(hub, jobsRepo, created.id, `Linked ${allSlugs.length} skills as related (same training run).`);
           }
 
           if (skillCount > 0) {

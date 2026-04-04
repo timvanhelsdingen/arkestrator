@@ -11,16 +11,15 @@
 - **Routing outcome learning**: New `routing_outcomes` table tracks which agent configs succeed for which task patterns. AUTO routing prefers proven configs within the same engine family.
 - **Backup & Restore**: New admin System tab with selective export (checkboxes per category) and import. Compatible with existing config-snapshot format.
 
-## Planned: Training Pipeline → Skills Alignment
+## Done: Training Pipeline → Skills Alignment (2026-04-04) ✅
 
-The training pipeline creates empty project-reference skill stubs ("No project references discovered yet") instead of useful skills. The vault artifacts (analysis.json) contain rich data that never makes it into searchable skills. Key issues:
-- Skills from training have ~115 chars of stub text, vault artifacts have full analysis
-- `related_skills` field unused (0 of 77 skills link to each other)
-- `playbooks` field is just a path reference, content never loaded
-- Agent `create_skill` MCP tool doesn't expose `relatedSkills` or `playbooks` params
-- Training extraction falls back to synthetic seeds when agent doesn't emit structured JSON
-
-See starting prompt below for implementation plan.
+Fixed training pipeline to produce content-rich skills instead of empty stubs:
+- Placeholder stubs filtered out before skill creation (no more "No project references discovered yet" skills)
+- Skills enriched with config prompt guidance, notes excerpts, expanded file inventory
+- `related_skills` populated automatically between skills from same training run
+- `playbooks` now references `.md` artifacts; `get_skill` loads content on-demand (tiered: search=minimal, auto-fetch=lean, get_skill=deep)
+- MCP `create_skill`/`update_skill` now accept `relatedSkills` and `playbooks` params
+- Keyword extraction improved with config/notes text for better search relevance
 
 ## Recent Update (2026-04-02)
 

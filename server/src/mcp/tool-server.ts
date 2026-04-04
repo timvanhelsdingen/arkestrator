@@ -12,7 +12,7 @@ import type { ProcessTracker } from "../agents/process-tracker.js";
 import { resolveBridgeTargets, type WorkerResourceLeaseManager } from "../agents/resource-control.js";
 import { executeBridgeCommand, listConnectedBridges, runHeadlessCheck } from "../routes/bridge-commands.js";
 import { newId } from "../utils/id.js";
-import { mkdirSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { principalHasPermission, type AuthPrincipal } from "../middleware/auth.js";
@@ -1166,6 +1166,21 @@ export function createMcpServer(deps: McpDeps): McpServer {
           : "No bridges connected";
         content = resolveSkillTemplateVars(content, bridgeList, "", "");
       } catch {}
+      // Load playbook content on-demand for skills with artifact references
+      if (skill.playbooks?.length > 0 && deps.config?.coordinatorPlaybooksDir) {
+        for (const pbPath of skill.playbooks.slice(0, 2)) {
+          if (!pbPath.endsWith(".md")) continue;
+          try {
+            const fullPath = join(deps.config.coordinatorPlaybooksDir, pbPath);
+            if (existsSync(fullPath)) {
+              const pbContent = readFileSync(fullPath, "utf-8").slice(0, 3000);
+              content += `\n\n---\n## Training Analysis\n${pbContent}`;
+            }
+          } catch {
+            // Best-effort — don't fail the skill fetch for playbook loading
+          }
+        }
+      }
       const rateReminder = `\n\n---\n_After using this skill, call \`rate_skill("${slug}", "positive"|"average"|"negative")\` to help improve future recommendations._`;
       return { content: [{ type: "text" as const, text: `# ${skill.title}\n\n${content}${rateReminder}` }] };
     },
@@ -1214,8 +1229,16 @@ export function createMcpServer(deps: McpDeps): McpServer {
         z.array(z.string()).optional(),
       ).describe("Search tags (e.g. ['procedural', 'material', 'shader-nodes', 'rock'])"),
       category: z.string().optional().default("custom").describe("Skill category"),
+      relatedSkills: z.preprocess(
+        (v) => (typeof v === "string" ? v.split(",").map((s: string) => s.trim()).filter(Boolean) : v),
+        z.array(z.string()).optional(),
+      ).describe("Slugs of related skills to link together"),
+      playbooks: z.preprocess(
+        (v) => (typeof v === "string" ? v.split(",").map((s: string) => s.trim()).filter(Boolean) : v),
+        z.array(z.string()).optional(),
+      ).describe("Paths to playbook/training artifact files"),
     },
-    async ({ slug, title, program, content, keywords, category }) => {
+    async ({ slug, title, program, content, keywords, category, relatedSkills, playbooks }) => {
       if (!deps.skillsRepo && !deps.skillStore) {
         return { content: [{ type: "text" as const, text: "Skills system not available" }], isError: true };
       }
@@ -1229,6 +1252,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
           description: title,
           keywords: keywords || [program, slug],
           content,
+          relatedSkills: relatedSkills || [],
+          playbooks: playbooks || [],
           source: "agent",
           priority: 50,
           autoFetch: false,
@@ -1260,8 +1285,16 @@ export function createMcpServer(deps: McpDeps): McpServer {
         (v) => (typeof v === "string" ? v.split(",").map((s: string) => s.trim()).filter(Boolean) : v),
         z.array(z.string()).optional(),
       ).describe("New keywords/tags (replaces existing)"),
+      relatedSkills: z.preprocess(
+        (v) => (typeof v === "string" ? v.split(",").map((s: string) => s.trim()).filter(Boolean) : v),
+        z.array(z.string()).optional(),
+      ).describe("Slugs of related skills (replaces existing)"),
+      playbooks: z.preprocess(
+        (v) => (typeof v === "string" ? v.split(",").map((s: string) => s.trim()).filter(Boolean) : v),
+        z.array(z.string()).optional(),
+      ).describe("Paths to playbook/training artifact files (replaces existing)"),
     },
-    async ({ slug, program, content, title, keywords }) => {
+    async ({ slug, program, content, title, keywords, relatedSkills, playbooks }) => {
       if ((!deps.skillsRepo && !deps.skillStore) || !deps.skillIndex) {
         return { content: [{ type: "text" as const, text: "Skills system not available" }], isError: true };
       }
@@ -1276,6 +1309,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
       if (content !== undefined) updates.content = content;
       if (title !== undefined) updates.title = title;
       if (keywords !== undefined) updates.keywords = keywords;
+      if (relatedSkills !== undefined) updates.relatedSkills = relatedSkills;
+      if (playbooks !== undefined) updates.playbooks = playbooks;
       if (Object.keys(updates).length === 0) {
         return { content: [{ type: "text" as const, text: "No updates provided" }], isError: true };
       }
