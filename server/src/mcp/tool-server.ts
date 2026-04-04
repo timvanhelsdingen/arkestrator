@@ -963,7 +963,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
               bridgeId = bridges[0].data.id;
             } else if (!deps.hub.hasVirtualBridgeForProgram(spec.target_program)) {
               const headless = deps.headlessProgramsRepo?.list()
-                .find((hp) => hp.program === spec.target_program && hp.enabled);
+                ?.find((hp) => hp.program === spec.target_program && hp.enabled);
               if (!headless) {
                 results.push({ name: spec.name, job_id: "", status: "error", target_program: spec.target_program, error: `No "${spec.target_program}" bridge connected` });
                 continue;

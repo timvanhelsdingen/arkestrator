@@ -110,8 +110,15 @@
 
   /** Svelte action: auto-scroll a <pre> element to the bottom when its content changes */
   function autoscroll(node: HTMLElement) {
+    let rafId: number | null = null;
     const observer = new MutationObserver(() => {
-      node.scrollTop = node.scrollHeight;
+      // Batch scroll updates via requestAnimationFrame to avoid layout thrashing
+      if (rafId === null) {
+        rafId = requestAnimationFrame(() => {
+          node.scrollTop = node.scrollHeight;
+          rafId = null;
+        });
+      }
     });
     observer.observe(node, { childList: true, characterData: true, subtree: true });
     // Initial scroll
@@ -119,6 +126,7 @@
     return {
       destroy() {
         observer.disconnect();
+        if (rafId !== null) cancelAnimationFrame(rafId);
       },
     };
   }

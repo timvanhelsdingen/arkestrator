@@ -244,7 +244,9 @@
   }
 
   let jobsById = $derived.by(() => new Map(jobs.all.map((job) => [job.id, job])));
+  // Parent-child index only changes on structural changes (add/remove), not status updates
   let childJobsByParent = $derived.by(() => {
+    void jobs.listStructureVersion; // only recalc on add/remove
     const out = new Map<string, Job[]>();
     for (const job of jobs.all) {
       if (!job.parentJobId) continue;
@@ -254,44 +256,35 @@
     }
     return out;
   });
-  let delegationSummaryByJobId = $derived.by(() => {
-    const out = new Map<string, DelegationSummary>();
-    const visiting = new Set<string>();
-    function summarize(jobId: string): DelegationSummary {
-      const cached = out.get(jobId);
-      if (cached) return cached;
-      if (visiting.has(jobId)) return EMPTY_DELEGATION_SUMMARY;
-      visiting.add(jobId);
-      const summary: DelegationSummary = {
-        childCount: 0,
-        activeCount: 0,
-        runningCount: 0,
-        failedCount: 0,
-        completedCount: 0,
-      };
-      for (const child of childJobsByParent.get(jobId) ?? []) {
-        summary.childCount += 1;
-        if (isActiveJobStatus(child.status)) summary.activeCount += 1;
-        if (child.status === "running") summary.runningCount += 1;
-        if (child.status === "failed") summary.failedCount += 1;
-        if (child.status === "completed") summary.completedCount += 1;
-        const nested = summarize(child.id);
-        summary.childCount += nested.childCount;
-        summary.activeCount += nested.activeCount;
-        summary.runningCount += nested.runningCount;
-        summary.failedCount += nested.failedCount;
-        summary.completedCount += nested.completedCount;
-      }
-      visiting.delete(jobId);
-      out.set(jobId, summary);
-      return summary;
+  // Delegation summary — only computed for jobs that actually have children.
+  // Uses a lazy getter pattern so it's computed on-demand per job, not for all jobs upfront.
+  function getDelegationSummaryLazy(jobId: string, visited: Set<string>): DelegationSummary {
+    if (visited.has(jobId)) return EMPTY_DELEGATION_SUMMARY;
+    visited.add(jobId);
+    const children = childJobsByParent.get(jobId);
+    if (!children || children.length === 0) return EMPTY_DELEGATION_SUMMARY;
+    const summary: DelegationSummary = {
+      childCount: 0, activeCount: 0, runningCount: 0, failedCount: 0, completedCount: 0,
+    };
+    for (const child of children) {
+      summary.childCount += 1;
+      if (isActiveJobStatus(child.status)) summary.activeCount += 1;
+      if (child.status === "running") summary.runningCount += 1;
+      if (child.status === "failed") summary.failedCount += 1;
+      if (child.status === "completed") summary.completedCount += 1;
+      const nested = getDelegationSummaryLazy(child.id, visited);
+      summary.childCount += nested.childCount;
+      summary.activeCount += nested.activeCount;
+      summary.runningCount += nested.runningCount;
+      summary.failedCount += nested.failedCount;
+      summary.completedCount += nested.completedCount;
     }
-    for (const job of jobs.all) summarize(job.id);
-    return out;
-  });
+    visited.delete(jobId);
+    return summary;
+  }
 
   function getDelegationSummary(job: Job): DelegationSummary {
-    return delegationSummaryByJobId.get(job.id) ?? EMPTY_DELEGATION_SUMMARY;
+    return getDelegationSummaryLazy(job.id, new Set());
   }
 
   function getParentJob(job: Job): Job | null {
@@ -402,7 +395,7 @@
   }
 
   async function cancelJob(jobId: string) {
-    const delegation = delegationSummaryByJobId.get(jobId) ?? EMPTY_DELEGATION_SUMMARY;
+    const delegation = getDelegationSummaryLazy(jobId, new Set());
     if (delegation.activeCount > 0) {
       showConfirm(
         "Cancel Job with Active Sub-jobs",
