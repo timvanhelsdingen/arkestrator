@@ -99,9 +99,8 @@ export function resolveWorkspace(
 
   // 4. Bridge-submitted jobs should execute through bridge commands by default,
   // not local repo mode. This keeps DCC execution client-side unless the user
-  // explicitly sets a preferred mode override. Skip if a valid project root
-  // exists — the project folder should be used as the working directory.
-  if (!preferredMode && hasBridgeProgram && !projectRoot) {
+  // explicitly sets a preferred mode override.
+  if (!preferredMode && hasBridgeProgram) {
     const shouldDefaultForTargeted =
       targetBridges.length > 0 && targetBridges.includes(job.bridgeProgram!);
     const reason = shouldDefaultForTargeted
