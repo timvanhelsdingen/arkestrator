@@ -125,21 +125,27 @@ export class ComfyUiHealthChecker {
   }
 
   private async probe(ep: { url: string }): Promise<{ version?: string } | null> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-    try {
-      const res = await fetch(`${ep.url}/system_stats`, { signal: controller.signal });
-      clearTimeout(timeout);
-      if (!res.ok) return null;
-      let version: string | undefined;
+    // Try /system_stats first (returns version info), fall back to / (just checks alive)
+    for (const path of ["/system_stats", "/"]) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
       try {
-        const data = await res.json() as { system?: { comfyui_version?: string } };
-        version = data?.system?.comfyui_version;
-      } catch { /* version is optional */ }
-      return { version };
-    } catch {
-      clearTimeout(timeout);
-      return null;
+        const res = await fetch(`${ep.url}${path}`, { signal: controller.signal });
+        clearTimeout(timeout);
+        if (!res.ok) continue;
+        let version: string | undefined;
+        if (path === "/system_stats") {
+          try {
+            const data = await res.json() as { system?: { comfyui_version?: string } };
+            version = data?.system?.comfyui_version;
+          } catch { /* version is optional */ }
+        }
+        return { version };
+      } catch {
+        clearTimeout(timeout);
+        continue;
+      }
     }
+    return null;
   }
 }
