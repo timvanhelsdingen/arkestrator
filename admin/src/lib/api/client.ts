@@ -783,6 +783,10 @@ export const api = {
       request(`/api/policies/${id}`, { method: "DELETE" }),
   },
 
+  projects: {
+    list: () => request("/api/projects"),
+  },
+
   connections: {
     list: () => request("/api/connections"),
     kick: (id: string) =>

@@ -6,6 +6,7 @@ export interface Policy {
   id: string;
   scope: PolicyScope;
   userId: string | null;
+  projectId: string | null;
   type: PolicyType;
   pattern: string;
   action: PolicyAction;
@@ -18,6 +19,7 @@ export interface Policy {
 export interface CreatePolicyInput {
   scope: PolicyScope;
   userId?: string;
+  projectId?: string;
   type: PolicyType;
   pattern: string;
   action?: PolicyAction;
@@ -28,6 +30,7 @@ interface PolicyRow {
   id: string;
   scope: string;
   user_id: string | null;
+  project_id: string | null;
   type: string;
   pattern: string;
   action: string;
@@ -42,6 +45,7 @@ function rowToPolicy(row: PolicyRow): Policy {
     id: row.id,
     scope: row.scope as PolicyScope,
     userId: row.user_id,
+    projectId: row.project_id,
     type: row.type as PolicyType,
     pattern: row.pattern,
     action: row.action as PolicyAction,
@@ -59,14 +63,15 @@ export class PoliciesRepo {
   private listByTypeStmt;
   private listByScopeStmt;
   private listForUserStmt;
+  private listForContextStmt;
   private updateStmt;
   private deleteStmt;
   private toggleStmt;
 
   constructor(private db: Database) {
     this.insertStmt = db.prepare(
-      `INSERT INTO policies (id, scope, user_id, type, pattern, action, description, enabled, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+      `INSERT INTO policies (id, scope, user_id, project_id, type, pattern, action, description, enabled, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
     );
     this.getByIdStmt = db.prepare(`SELECT * FROM policies WHERE id = ?`);
     this.listAllStmt = db.prepare(
@@ -81,8 +86,11 @@ export class PoliciesRepo {
     this.listForUserStmt = db.prepare(
       `SELECT * FROM policies WHERE enabled = 1 AND (scope = 'global' OR user_id = ?) ORDER BY type, scope`,
     );
+    this.listForContextStmt = db.prepare(
+      `SELECT * FROM policies WHERE enabled = 1 AND (scope = 'global' OR user_id = ? OR project_id = ?) ORDER BY type, scope`,
+    );
     this.updateStmt = db.prepare(
-      `UPDATE policies SET scope=?, user_id=?, type=?, pattern=?, action=?, description=?, updated_at=? WHERE id=?`,
+      `UPDATE policies SET scope=?, user_id=?, project_id=?, type=?, pattern=?, action=?, description=?, updated_at=? WHERE id=?`,
     );
     this.deleteStmt = db.prepare(`DELETE FROM policies WHERE id = ?`);
     this.toggleStmt = db.prepare(
@@ -97,6 +105,7 @@ export class PoliciesRepo {
       id,
       input.scope,
       input.userId ?? null,
+      input.projectId ?? null,
       input.type,
       input.pattern,
       input.action ?? "block",
@@ -133,17 +142,28 @@ export class PoliciesRepo {
   getEffectiveForUser(userId: string | null): Policy[] {
     if (!userId) {
       // No user context — only global policies
-      return (
-        this.listByTypeStmt.all("file_path") as PolicyRow[]
-      )
-        .concat(this.listByTypeStmt.all("tool") as PolicyRow[])
-        .concat(this.listByTypeStmt.all("prompt_filter") as PolicyRow[])
-        .concat(this.listByTypeStmt.all("engine_model") as PolicyRow[])
-        .concat(this.listByTypeStmt.all("command_filter") as PolicyRow[])
-        .filter((r) => r.scope === "global")
-        .map(rowToPolicy);
+      return (this.db.prepare(
+        `SELECT * FROM policies WHERE enabled = 1 AND scope = 'global' ORDER BY type, created_at DESC`,
+      ).all() as PolicyRow[]).map(rowToPolicy);
     }
     return (this.listForUserStmt.all(userId) as PolicyRow[]).map(rowToPolicy);
+  }
+
+  /** Returns all enabled policies for a full context: global + user + project */
+  getEffectiveForContext(userId: string | null, projectId: string | null): Policy[] {
+    if (!userId && !projectId) {
+      return this.getEffectiveForUser(null);
+    }
+    if (!projectId) {
+      return this.getEffectiveForUser(userId);
+    }
+    if (!userId) {
+      // Global + project-scoped only
+      return (this.db.prepare(
+        `SELECT * FROM policies WHERE enabled = 1 AND (scope = 'global' OR project_id = ?) ORDER BY type, scope`,
+      ).all(projectId) as PolicyRow[]).map(rowToPolicy);
+    }
+    return (this.listForContextStmt.all(userId, projectId) as PolicyRow[]).map(rowToPolicy);
   }
 
   update(
@@ -157,6 +177,7 @@ export class PoliciesRepo {
     this.updateStmt.run(
       changes.scope ?? existing.scope,
       changes.userId ?? existing.userId,
+      changes.projectId ?? existing.projectId,
       changes.type ?? existing.type,
       changes.pattern ?? existing.pattern,
       changes.action ?? existing.action,

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const PolicyScope = z.enum(["global", "user"]);
+export const PolicyScope = z.enum(["global", "user", "project"]);
 export type PolicyScope = z.infer<typeof PolicyScope>;
 
 export const PolicyType = z.enum([
@@ -9,6 +9,10 @@ export const PolicyType = z.enum([
   "prompt_filter",
   "engine_model",
   "command_filter",
+  "concurrent_limit",
+  "process_priority",
+  "token_budget",
+  "cost_budget",
 ]);
 export type PolicyType = z.infer<typeof PolicyType>;
 
@@ -18,6 +22,7 @@ export type PolicyAction = z.infer<typeof PolicyAction>;
 export const PolicyCreate = z.object({
   scope: PolicyScope.default("global"),
   userId: z.string().uuid().optional(),
+  projectId: z.string().uuid().optional(),
   type: PolicyType,
   pattern: z.string().min(1),
   action: PolicyAction.default("block"),
@@ -29,6 +34,7 @@ export const Policy = z.object({
   id: z.string().uuid(),
   scope: PolicyScope,
   userId: z.string().uuid().nullable(),
+  projectId: z.string().uuid().nullable(),
   type: PolicyType,
   pattern: z.string(),
   action: PolicyAction,

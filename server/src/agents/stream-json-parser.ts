@@ -43,15 +43,28 @@ export function createStreamJsonState(): StreamJsonState {
 export interface ParsedLogLine {
   /** Human-readable message to send via job_log WS message */
   display: string;
+  /** Set when a tool call violates a command_filter policy — spawner should kill the agent */
+  policyViolation?: string;
 }
+
+/**
+ * Callback to check a command script against active policies.
+ * Returns a violation message string if blocked, or null if allowed.
+ */
+export type CommandPolicyChecker = (command: string) => string | null;
 
 /**
  * Process a chunk of stream-json stdout data.
  * Returns an array of human-readable log lines to send to the client.
+ *
+ * @param commandChecker — optional callback that checks Bash commands against
+ *   command_filter policies in real time. When a violation is detected, the
+ *   returned ParsedLogLine will include a `policyViolation` field.
  */
 export function processStreamJsonChunk(
   state: StreamJsonState,
   chunk: string,
+  commandChecker?: CommandPolicyChecker,
 ): ParsedLogLine[] {
   const results: ParsedLogLine[] = [];
 
@@ -74,7 +87,7 @@ export function processStreamJsonChunk(
       continue;
     }
 
-    const parsed = parseEvent(state, event);
+    const parsed = parseEvent(state, event, commandChecker);
     if (parsed) {
       results.push(parsed);
     }
@@ -83,7 +96,7 @@ export function processStreamJsonChunk(
   return results;
 }
 
-function parseEvent(state: StreamJsonState, event: any): ParsedLogLine | null {
+function parseEvent(state: StreamJsonState, event: any, commandChecker?: CommandPolicyChecker): ParsedLogLine | null {
   switch (event.type) {
     case "system":
       if (event.session_id && typeof event.session_id === "string") {
@@ -105,6 +118,7 @@ function parseEvent(state: StreamJsonState, event: any): ParsedLogLine | null {
         if (typeof msgUsage.output_tokens === "number") state.outputTokens += msgUsage.output_tokens;
       }
       const parts: string[] = [];
+      let violation: string | undefined;
       for (const block of msg.content) {
         if (block.type === "thinking" && block.thinking) {
           // Extended thinking / reasoning block — show a preview so logs
@@ -125,18 +139,32 @@ function parseEvent(state: StreamJsonState, event: any): ParsedLogLine | null {
           const input = block.input ?? {};
           const toolDisplay = formatToolUse(block.name, input);
           parts.push(toolDisplay);
+          // Real-time policy check for Bash commands
+          if (commandChecker && block.name === "Bash" && input.command) {
+            const v = commandChecker(input.command);
+            if (v) violation = v;
+          }
         }
       }
       if (parts.length > 0) {
-        return { display: parts.join("\n") };
+        const result: ParsedLogLine = { display: parts.join("\n") };
+        if (violation) result.policyViolation = violation;
+        return result;
       }
       return null;
     }
 
     case "tool_use": {
       state.lastTool = event.name ?? "unknown";
-      const toolDisplay = formatToolUse(event.name, event.input ?? {});
-      return { display: toolDisplay };
+      const input = event.input ?? {};
+      const toolDisplay = formatToolUse(event.name, input);
+      const result: ParsedLogLine = { display: toolDisplay };
+      // Real-time policy check for Bash commands
+      if (commandChecker && event.name === "Bash" && input.command) {
+        const v = commandChecker(input.command);
+        if (v) result.policyViolation = v;
+      }
+      return result;
     }
 
     case "tool_result": {

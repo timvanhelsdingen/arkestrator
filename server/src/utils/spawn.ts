@@ -162,3 +162,55 @@ function buildSpawnArgv(
   argv.push("--", command, ...args);
   return argv;
 }
+
+export type ProcessPriorityLevel = "low" | "below_normal" | "normal" | "above_normal" | "high";
+
+/**
+ * Apply a process priority level to a running process (best-effort).
+ * On Windows: uses wmic. On Unix: uses renice.
+ * Returns true if applied, false if failed (never throws).
+ */
+export async function applyProcessPriority(
+  pid: number,
+  level: ProcessPriorityLevel,
+): Promise<boolean> {
+  if (level === "normal") return true; // No-op for normal priority
+
+  try {
+    if (process.platform === "win32") {
+      // Windows priority classes: idle=64, below_normal=16384, normal=32, above_normal=32768, high=128
+      const priorityMap: Record<string, string> = {
+        low: "64",           // IDLE
+        below_normal: "16384", // BELOW_NORMAL
+        above_normal: "32768", // ABOVE_NORMAL
+        high: "128",          // HIGH
+      };
+      const priorityClass = priorityMap[level];
+      if (!priorityClass) return false;
+      const proc = Bun.spawn(["wmic", "process", "where", `ProcessId=${pid}`, "CALL", "setpriority", priorityClass], {
+        stdout: "ignore",
+        stderr: "ignore",
+      });
+      await proc.exited;
+      return proc.exitCode === 0;
+    } else {
+      // Unix: renice -n <value> -p <pid>
+      const niceMap: Record<string, string> = {
+        low: "19",          // Lowest priority
+        below_normal: "10", // Below normal
+        above_normal: "-5", // Above normal (may need root)
+        high: "-10",        // High (may need root)
+      };
+      const niceValue = niceMap[level];
+      if (!niceValue) return false;
+      const proc = Bun.spawn(["renice", "-n", niceValue, "-p", String(pid)], {
+        stdout: "ignore",
+        stderr: "ignore",
+      });
+      await proc.exited;
+      return proc.exitCode === 0;
+    }
+  } catch {
+    return false;
+  }
+}

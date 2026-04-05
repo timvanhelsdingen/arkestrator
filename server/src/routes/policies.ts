@@ -42,15 +42,19 @@ export function createPolicyRoutes(
         details: parsed.error.flatten(),
       });
     }
-    const { scope, userId, type, pattern, action, description } = parsed.data;
+    const { scope, userId, projectId, type, pattern, action, description } = parsed.data;
 
     if (scope === "user" && !userId) {
       return errorResponse(c, 400, "userId required for user-scoped policies", "INVALID_INPUT");
+    }
+    if (scope === "project" && !projectId) {
+      return errorResponse(c, 400, "projectId required for project-scoped policies", "INVALID_INPUT");
     }
 
     const policy = policiesRepo.create({
       scope,
       userId,
+      projectId,
       type,
       pattern,
       action,

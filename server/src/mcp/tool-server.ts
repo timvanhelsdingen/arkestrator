@@ -446,8 +446,11 @@ export function createMcpServer(deps: McpDeps): McpServer {
       const denied = checkPermission("executeLocal");
       if (denied) return denied;
 
-      // Apply command_filter policies
-      const policies = deps.policiesRepo.getEffectiveForUser(null);
+      // Resolve target client (also needed for policy user context)
+      const callerJob = deps.callerJobId ? deps.jobsRepo.getById(deps.callerJobId) : null;
+
+      // Apply command_filter policies (use job submitter for user-scoped policies)
+      const policies = deps.policiesRepo.getEffectiveForUser(callerJob?.submittedBy ?? null);
       const violations = checkCommandScripts([{ language: mode, script: command }], policies);
       const blockers = violations.filter((v) => v.action === "block");
       if (blockers.length > 0) {
@@ -459,9 +462,6 @@ export function createMcpServer(deps: McpDeps): McpServer {
           isError: true,
         };
       }
-
-      // Resolve target client
-      const callerJob = deps.callerJobId ? deps.jobsRepo.getById(deps.callerJobId) : null;
       const targetWorkerName = callerJob?.targetWorkerName;
 
       let clientId: string | undefined;

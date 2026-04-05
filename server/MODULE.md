@@ -504,11 +504,32 @@ When a bridge connects, the server auto-pulls coordinator scripts and skills fro
 
 ## Policy Enforcement (`src/policies/enforcer.ts`)
 - `checkPromptFilters()` - regex against prompt text
-- `checkCommandScripts()` - regex against command script content (case-insensitive). Filters at 3 choke points: spawner (command-mode output), REST bridge-command endpoint, WS bridge_command_send handler
+- `checkCommandScripts()` - regex against command script content (case-insensitive). Filters at 4 choke points: **real-time stream monitoring** (kills agent on Bash tool violation), spawner (command-mode output), REST bridge-command endpoint, WS bridge_command_send handler
 - `checkEngineModel()` - exact match on engine or engine:model
 - `checkFilePaths()` - glob matching via minimatch (normalized to forward slashes)
 - `getToolRestrictions()` - returns blocked tool names
 - `validateJobSubmission()` - master check combining prompt + engine/model
+
+### Real-Time Stream Policy Enforcement
+The stream-json-parser (`src/agents/stream-json-parser.ts`) accepts an optional `CommandPolicyChecker` callback that checks Bash commands against command_filter policies as they stream from the agent CLI. When a violation is detected:
+1. The `ParsedLogLine` includes a `policyViolation` field
+2. The spawner immediately kills the agent process (`proc.kill()`)
+3. The job is failed with a policy violation error message
+4. Job logs include `[POLICY VIOLATION]` entries for auditing
+
+The MCP `execute_local` tool (`src/mcp/tool-server.ts`) also checks command_filter policies using the calling job's submitter for user-scoped policy support.
+
+### Policy Scoping
+Policies support three scopes: `global` (all users/projects), `user` (per-user), `project` (per-project). Context-aware loading via `PoliciesRepo.getEffectiveForContext(userId, projectId)` merges all applicable scopes.
+
+### Resource Management Policies
+Four resource policy types enforce runtime limits:
+- `concurrent_limit` — max concurrent running jobs (pattern: number, e.g. `"3"`)
+- `process_priority` — OS process priority for agent processes (pattern: `"low"` | `"below_normal"` | `"normal"` | `"above_normal"` | `"high"`)
+- `token_budget` — max token usage (pattern: `"input:500000"` | `"output:100000"` | `"total:600000"`)
+- `cost_budget` — max API cost in USD (pattern: `"5.00"`)
+
+Concurrent limits are checked at dispatch time in worker.ts (job stays queued if over limit). Process priority applied best-effort after spawn via `applyProcessPriority()` in `src/utils/spawn.ts` (Windows: wmic, Unix: renice). Token/cost budgets checked at job submission.
 
 ## Security Controls (`src/security/`)
 - `network-policy.ts`: centralized server-side network/rate-limit controls used by routes.

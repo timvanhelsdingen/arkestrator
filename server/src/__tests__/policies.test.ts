@@ -24,6 +24,7 @@ function makePolicy(
     id: "policy-" + Math.random().toString(36).slice(2),
     scope: "global",
     userId: null,
+    projectId: null,
     action: "block",
     description: null,
     enabled: true,

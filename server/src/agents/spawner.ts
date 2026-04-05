@@ -35,7 +35,7 @@ import { checkFilePaths, checkCommandScripts } from "../policies/enforcer.js";
 import { resolveWorkspace } from "../workspace/resolver.js";
 import type { WorkspaceResolution } from "../workspace/resolver.js";
 import { parseCommandOutput, resolveExpectedCommandLanguage } from "../workspace/command-mode.js";
-import { createStreamJsonState, processStreamJsonChunk, type StreamJsonState } from "./stream-json-parser.js";
+import { createStreamJsonState, processStreamJsonChunk, type StreamJsonState, type CommandPolicyChecker } from "./stream-json-parser.js";
 import { newId } from "../utils/id.js";
 import { logger } from "../utils/logger.js";
 import { collectPaths, startWatching } from "./file-snapshot.js";
@@ -209,6 +209,7 @@ export interface SpawnerDeps {
   toolRestrictions?: string[];
   filePathPolicies?: Policy[];
   commandFilterPolicies?: Policy[];
+  processPriority?: import("../policies/enforcer.js").ProcessPriorityLevel | null;
 }
 
 /** Resolve the effective job timeout: per-job override → DB override → env/config fallback.
@@ -2319,6 +2320,19 @@ export async function spawnAgent(
     : effectiveTimeoutMs;
   deps.processTracker.register(job.id, proc, procTimeoutMs);
 
+  // Apply process priority if set by policy (best-effort, fire-and-forget)
+  if (deps.processPriority && deps.processPriority !== "normal" && proc.pid) {
+    import("../utils/spawn.js").then(({ applyProcessPriority }) => {
+      applyProcessPriority(proc.pid, deps.processPriority!).then((ok) => {
+        if (ok) {
+          logger.info("spawner", `Job ${job.id}: process priority set to "${deps.processPriority}"`);
+        } else {
+          logger.debug("spawner", `Job ${job.id}: failed to set process priority "${deps.processPriority}" (non-fatal)`);
+        }
+      });
+    });
+  }
+
   if (deps.jobInterventionsRepo && !(config.engine === "local-oss" && workspace.mode === "command")) {
     const pending = deps.jobInterventionsRepo.listPending(job.id);
     if (pending.length > 0) {
@@ -2436,6 +2450,22 @@ export async function spawnAgent(
     }
   };
 
+  /** Build a real-time command checker from command_filter policies */
+  const commandChecker: CommandPolicyChecker | undefined =
+    deps.commandFilterPolicies && deps.commandFilterPolicies.length > 0
+      ? (command: string) => {
+          const violations = checkCommandScripts(
+            [{ language: "bash", script: command }],
+            deps.commandFilterPolicies!,
+          );
+          const blocker = violations.find((v) => v.action === "block");
+          return blocker ? blocker.message : null;
+        }
+      : undefined;
+
+  /** Whether the agent was killed due to a real-time policy violation */
+  let policyKilled = false;
+
   /** Stream-json reader: parses JSONL, sends human-readable display lines */
   const streamReaderJson = async (
     stream: ReadableStream<Uint8Array> | number | null | undefined,
@@ -2448,7 +2478,7 @@ export async function spawnAgent(
         const { done, value } = await reader.read();
         if (done) break;
         const chunk = decoder.decode(value, { stream: true });
-        const lines = processStreamJsonChunk(sjState, chunk);
+        const lines = processStreamJsonChunk(sjState, chunk, commandChecker);
         // Save session ID as soon as it's available (for pause/resume)
         if (!sessionIdSaved && sjState.sessionId) {
           sessionIdSaved = true;
@@ -2461,6 +2491,20 @@ export async function spawnAgent(
           }
           sendLog(deps, job, displayText);
           scheduleDBFlush(displayText);
+
+          // Real-time policy violation detected — kill the agent immediately
+          if (line.policyViolation && !policyKilled) {
+            policyKilled = true;
+            const violationMsg = `[POLICY VIOLATION] ${line.policyViolation}`;
+            logger.warn("spawner", `Job ${job.id}: ${violationMsg} — killing agent process`);
+            sendLog(deps, job, violationMsg + "\n");
+            if (logBuffer.length < LOG_BUFFER_MAX) {
+              logBuffer += violationMsg + "\n";
+            }
+            try { proc.kill(); } catch {}
+            reader.cancel().catch(() => {});
+            return;
+          }
         }
       }
     } catch {
@@ -2562,6 +2606,23 @@ export async function spawnAgent(
     // Don't treat as failure. Logs are already saved. Job will resume later.
     watcher?.stop();
     logger.info("spawner", `Job ${job.id} paused by user (session: ${sjState?.sessionId || "none"})`);
+    recordTokens();
+    cleanupSync(deps, workspace, job.id);
+    cleanupAgentTools(cliWrapper, mcpConfigPath, mcpConfigBackup);
+    return;
+  }
+
+  // Real-time policy violation: agent was killed for running a blocked command
+  if (policyKilled) {
+    watcher?.stop();
+    const msg = "Job terminated: agent executed a command that violates an active command_filter policy. Check job logs for details.";
+    deps.jobsRepo.fail(job.id, msg, logBuffer);
+    const rejected = deps.jobInterventionsRepo?.rejectPendingForJob(job.id, msg) ?? [];
+    broadcastInterventionUpdates(deps, job.id, rejected);
+    applyUsedBridgeAttribution(logBuffer ? `${logBuffer}\n${msg}` : msg);
+    recordCoordinatorOutcome(false);
+    sendComplete(deps, job, false, [], [], workspace.mode, msg);
+    broadcastJobUpdated(deps, job.id);
     recordTokens();
     cleanupSync(deps, workspace, job.id);
     cleanupAgentTools(cliWrapper, mcpConfigPath, mcpConfigBackup);

@@ -22,7 +22,7 @@ import {
   principalHasPermission,
   type AuthPrincipal,
 } from "../middleware/auth.js";
-import { validateJobSubmission } from "../policies/enforcer.js";
+import { validateJobSubmission, checkTokenBudget, checkCostBudget } from "../policies/enforcer.js";
 import { newId } from "../utils/id.js";
 import { logger } from "../utils/logger.js";
 import { errorResponse } from "../utils/errors.js";
@@ -883,7 +883,7 @@ export function createJobRoutes(
       }
     }
 
-    const policies = policiesRepo.getEffectiveForUser(user?.id ?? null);
+    const policies = policiesRepo.getEffectiveForContext(user?.id ?? null, parsed.data.projectId ?? null);
     const effectiveModel = resolveModelForRun(config.model, runtimeOptions);
 
     if (

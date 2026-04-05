@@ -86,9 +86,10 @@ const MIGRATIONS = [
   // Policies (block/ignore/warn rules)
   `CREATE TABLE IF NOT EXISTS policies (
     id          TEXT PRIMARY KEY,
-    scope       TEXT NOT NULL DEFAULT 'global' CHECK(scope IN ('global','user')),
+    scope       TEXT NOT NULL DEFAULT 'global' CHECK(scope IN ('global','user','project')),
     user_id     TEXT REFERENCES users(id) ON DELETE CASCADE,
-    type        TEXT NOT NULL CHECK(type IN ('file_path','tool','prompt_filter','engine_model','command_filter')),
+    project_id  TEXT REFERENCES projects(id) ON DELETE CASCADE,
+    type        TEXT NOT NULL CHECK(type IN ('file_path','tool','prompt_filter','engine_model','command_filter','concurrent_limit','process_priority','token_budget','cost_budget')),
     pattern     TEXT NOT NULL,
     action      TEXT NOT NULL DEFAULT 'block' CHECK(action IN ('block','warn')),
     description TEXT,
@@ -98,6 +99,7 @@ const MIGRATIONS = [
   )`,
 
   `CREATE INDEX IF NOT EXISTS idx_policies_scope ON policies(scope, type, enabled)`,
+  `CREATE INDEX IF NOT EXISTS idx_policies_project ON policies(project_id)`,
 
   // Audit log
   `CREATE TABLE IF NOT EXISTS audit_log (
@@ -511,19 +513,28 @@ function rebuildPoliciesTableIfNeeded(db: Database) {
     `SELECT sql FROM sqlite_master WHERE type='table' AND name='policies'`,
   ).get() as { sql: string } | null;
 
-  if (!tableInfo || tableInfo.sql.includes("'command_filter'")) {
-    return; // Already has command_filter or table doesn't exist
+  // Check if the table needs migration: missing resource types or project scope
+  const needsMigration = tableInfo && (
+    !tableInfo.sql.includes("'command_filter'") ||
+    !tableInfo.sql.includes("'concurrent_limit'") ||
+    !tableInfo.sql.includes("'project'") ||
+    !tableInfo.sql.includes("project_id")
+  );
+
+  if (!tableInfo || !needsMigration) {
+    return; // Already up-to-date or table doesn't exist
   }
 
-  logger.info("migrations", "Migrating policies table to support 'command_filter' type...");
+  logger.info("migrations", "Migrating policies table (project scope + resource types)...");
   db.exec("PRAGMA foreign_keys = OFF");
   db.exec("BEGIN TRANSACTION");
   try {
     db.exec(`CREATE TABLE policies_new (
       id          TEXT PRIMARY KEY,
-      scope       TEXT NOT NULL DEFAULT 'global' CHECK(scope IN ('global','user')),
+      scope       TEXT NOT NULL DEFAULT 'global' CHECK(scope IN ('global','user','project')),
       user_id     TEXT REFERENCES users(id) ON DELETE CASCADE,
-      type        TEXT NOT NULL CHECK(type IN ('file_path','tool','prompt_filter','engine_model','command_filter')),
+      project_id  TEXT REFERENCES projects(id) ON DELETE CASCADE,
+      type        TEXT NOT NULL CHECK(type IN ('file_path','tool','prompt_filter','engine_model','command_filter','concurrent_limit','process_priority','token_budget','cost_budget')),
       pattern     TEXT NOT NULL,
       action      TEXT NOT NULL DEFAULT 'block' CHECK(action IN ('block','warn')),
       description TEXT,
@@ -540,6 +551,7 @@ function rebuildPoliciesTableIfNeeded(db: Database) {
     db.exec(`DROP TABLE policies`);
     db.exec(`ALTER TABLE policies_new RENAME TO policies`);
     db.exec(`CREATE INDEX IF NOT EXISTS idx_policies_scope ON policies(scope, type, enabled)`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_policies_project ON policies(project_id)`);
     db.exec("COMMIT");
     logger.info("migrations", "Policies table migration complete.");
   } catch (err) {

@@ -152,6 +152,126 @@ export function getToolRestrictions(policies: Policy[]): string[] {
     .map((p) => p.pattern);
 }
 
+/** Check if the number of running jobs exceeds concurrent_limit policies */
+export function checkConcurrentLimit(
+  runningJobCount: number,
+  policies: Policy[],
+): PolicyViolation[] {
+  const violations: PolicyViolation[] = [];
+  const limits = policies.filter((p) => p.type === "concurrent_limit");
+
+  for (const policy of limits) {
+    const limit = parseInt(policy.pattern, 10);
+    if (isNaN(limit) || limit < 0) continue;
+    if (runningJobCount >= limit) {
+      violations.push({
+        policyId: policy.id,
+        type: policy.type,
+        pattern: policy.pattern,
+        action: policy.action,
+        description: policy.description,
+        message: `Concurrent job limit reached: ${runningJobCount}/${limit}${policy.description ? ` (${policy.description})` : ""}`,
+      });
+    }
+  }
+
+  return violations;
+}
+
+/** Resolve the most restrictive process priority from process_priority policies.
+ *  Returns a priority level string or null if no policy applies. */
+export type ProcessPriorityLevel = "low" | "below_normal" | "normal" | "above_normal" | "high";
+
+const PRIORITY_ORDER: ProcessPriorityLevel[] = ["low", "below_normal", "normal", "above_normal", "high"];
+
+export function resolveProcessPriority(policies: Policy[]): ProcessPriorityLevel | null {
+  const priorityPolicies = policies.filter((p) => p.type === "process_priority");
+  if (priorityPolicies.length === 0) return null;
+
+  let lowestIdx = PRIORITY_ORDER.length;
+  for (const policy of priorityPolicies) {
+    const idx = PRIORITY_ORDER.indexOf(policy.pattern as ProcessPriorityLevel);
+    if (idx >= 0 && idx < lowestIdx) {
+      lowestIdx = idx;
+    }
+  }
+
+  return lowestIdx < PRIORITY_ORDER.length ? PRIORITY_ORDER[lowestIdx] : null;
+}
+
+/** Check token usage against token_budget policies.
+ *  Pattern format: "input:500000" | "output:100000" | "total:600000" */
+export function checkTokenBudget(
+  usedInputTokens: number,
+  usedOutputTokens: number,
+  policies: Policy[],
+): PolicyViolation[] {
+  const violations: PolicyViolation[] = [];
+  const budgets = policies.filter((p) => p.type === "token_budget");
+
+  for (const policy of budgets) {
+    const [kind, limitStr] = policy.pattern.split(":");
+    const limit = parseInt(limitStr, 10);
+    if (isNaN(limit)) continue;
+
+    let used = 0;
+    let label = "";
+    if (kind === "input") {
+      used = usedInputTokens;
+      label = "input tokens";
+    } else if (kind === "output") {
+      used = usedOutputTokens;
+      label = "output tokens";
+    } else if (kind === "total") {
+      used = usedInputTokens + usedOutputTokens;
+      label = "total tokens";
+    } else {
+      continue;
+    }
+
+    if (used >= limit) {
+      violations.push({
+        policyId: policy.id,
+        type: policy.type,
+        pattern: policy.pattern,
+        action: policy.action,
+        description: policy.description,
+        message: `Token budget exceeded: ${used.toLocaleString()} ${label} used (limit: ${limit.toLocaleString()})${policy.description ? ` (${policy.description})` : ""}`,
+      });
+    }
+  }
+
+  return violations;
+}
+
+/** Check cost against cost_budget policies.
+ *  Pattern is the max cost in USD, e.g. "5.00" */
+export function checkCostBudget(
+  usedCostUsd: number,
+  policies: Policy[],
+): PolicyViolation[] {
+  const violations: PolicyViolation[] = [];
+  const budgets = policies.filter((p) => p.type === "cost_budget");
+
+  for (const policy of budgets) {
+    const limit = parseFloat(policy.pattern);
+    if (isNaN(limit)) continue;
+
+    if (usedCostUsd >= limit) {
+      violations.push({
+        policyId: policy.id,
+        type: policy.type,
+        pattern: policy.pattern,
+        action: policy.action,
+        description: policy.description,
+        message: `Cost budget exceeded: $${usedCostUsd.toFixed(2)} used (limit: $${limit.toFixed(2)})${policy.description ? ` (${policy.description})` : ""}`,
+      });
+    }
+  }
+
+  return violations;
+}
+
 /** Master check for job submission: runs prompt + engine/model checks */
 export function validateJobSubmission(
   prompt: string,

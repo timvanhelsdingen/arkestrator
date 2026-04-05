@@ -8,6 +8,7 @@
     id: string;
     scope: string;
     userId: string | null;
+    projectId: string | null;
     type: string;
     pattern: string;
     action: string;
@@ -21,12 +22,23 @@
     username: string;
   }
 
+  interface ProjectOption {
+    id: string;
+    name: string;
+  }
+
+  const RESOURCE_TYPES = new Set(["concurrent_limit", "process_priority", "token_budget", "cost_budget"]);
+
   const typeLabels: Record<string, string> = {
     file_path: "File Paths",
     tool: "Tool Restrictions",
     prompt_filter: "Prompt Filters",
     engine_model: "Engine / Model",
     command_filter: "Command Filters",
+    concurrent_limit: "Concurrent Limit",
+    process_priority: "Process Priority",
+    token_budget: "Token Budget",
+    cost_budget: "Cost Budget",
   };
 
   const typeHelp: Record<string, string> = {
@@ -35,6 +47,10 @@
     prompt_filter: "Regex patterns to block in job prompts (e.g. rm -rf, DELETE FROM)",
     engine_model: "Engine or engine:model to block (e.g. gemini, claude-code:opus)",
     command_filter: "Regex patterns to block commands/scripts before execution (e.g. rm -rf, del /f)",
+    concurrent_limit: "Maximum number of concurrent running jobs (per scope)",
+    process_priority: "Process priority for spawned agent processes",
+    token_budget: "Maximum token usage before blocking new jobs (input/output/total)",
+    cost_budget: "Maximum API cost in USD before blocking new jobs",
   };
 
   const typePlaceholders: Record<string, string> = {
@@ -43,6 +59,10 @@
     prompt_filter: "rm -rf",
     engine_model: "gemini",
     command_filter: "rm\\s+-rf|del\\s+/f",
+    concurrent_limit: "3",
+    process_priority: "below_normal",
+    token_budget: "total:500000",
+    cost_budget: "5.00",
   };
 
   interface PolicyPreset {
@@ -78,6 +98,74 @@
       ],
     },
     {
+      name: "No File Deletion",
+      description: "Block all file and directory deletion commands — agents can only create and modify files",
+      rules: [
+        { type: "command_filter", pattern: "\\brm\\s", action: "block", description: "Block rm command" },
+        { type: "command_filter", pattern: "\\brmdir\\b", action: "block", description: "Block rmdir command" },
+        { type: "command_filter", pattern: "\\bdel\\b", action: "block", description: "Block Windows del command" },
+        { type: "command_filter", pattern: "\\bunlink\\b", action: "block", description: "Block unlink command" },
+        { type: "command_filter", pattern: "Remove-Item", action: "block", description: "Block PowerShell Remove-Item" },
+        { type: "command_filter", pattern: "shutil\\.rmtree|os\\.remove|os\\.unlink", action: "block", description: "Block Python file deletion" },
+      ],
+    },
+    {
+      name: "Read-Only Mode",
+      description: "Block all file-writing tools — agents can only read and analyze, not modify anything",
+      rules: [
+        { type: "tool", pattern: "Write", action: "block", description: "Block file creation tool" },
+        { type: "tool", pattern: "Edit", action: "block", description: "Block file editing tool" },
+        { type: "tool", pattern: "NotebookEdit", action: "block", description: "Block notebook editing tool" },
+        { type: "tool", pattern: "Bash", action: "block", description: "Block shell command execution" },
+      ],
+    },
+    {
+      name: "No Package Installation",
+      description: "Prevent agents from installing or modifying dependencies",
+      rules: [
+        { type: "command_filter", pattern: "npm\\s+install|npm\\s+i\\s", action: "block", description: "Block npm install" },
+        { type: "command_filter", pattern: "yarn\\s+add", action: "block", description: "Block yarn add" },
+        { type: "command_filter", pattern: "pnpm\\s+(add|install)", action: "block", description: "Block pnpm add/install" },
+        { type: "command_filter", pattern: "pip\\s+install", action: "block", description: "Block pip install" },
+        { type: "command_filter", pattern: "apt(-get)?\\s+install", action: "block", description: "Block apt install" },
+        { type: "command_filter", pattern: "brew\\s+install", action: "block", description: "Block brew install" },
+        { type: "command_filter", pattern: "cargo\\s+install", action: "block", description: "Block cargo install" },
+        { type: "command_filter", pattern: "gem\\s+install", action: "block", description: "Block gem install" },
+      ],
+    },
+    {
+      name: "No System Commands",
+      description: "Block privilege escalation and system administration commands",
+      rules: [
+        { type: "command_filter", pattern: "\\bsudo\\b", action: "block", description: "Block sudo" },
+        { type: "command_filter", pattern: "\\bchmod\\b", action: "block", description: "Block permission changes" },
+        { type: "command_filter", pattern: "\\bchown\\b", action: "block", description: "Block ownership changes" },
+        { type: "command_filter", pattern: "systemctl|service\\s+(start|stop|restart)", action: "block", description: "Block service management" },
+        { type: "command_filter", pattern: "shutdown|reboot|poweroff", action: "block", description: "Block system power commands" },
+        { type: "command_filter", pattern: "\\breg\\s+(add|delete)", action: "block", description: "Block Windows registry edits" },
+      ],
+    },
+    {
+      name: "No Process Management",
+      description: "Prevent agents from killing or managing system processes",
+      rules: [
+        { type: "command_filter", pattern: "\\bkill\\b|\\bkillall\\b|\\bpkill\\b", action: "block", description: "Block Unix kill commands" },
+        { type: "command_filter", pattern: "taskkill", action: "block", description: "Block Windows taskkill" },
+        { type: "command_filter", pattern: "Stop-Process", action: "block", description: "Block PowerShell Stop-Process" },
+      ],
+    },
+    {
+      name: "No Database Mutations",
+      description: "Block destructive SQL operations — agents can SELECT but not modify data",
+      rules: [
+        { type: "command_filter", pattern: "\\bDROP\\s+(TABLE|DATABASE|INDEX|VIEW)", action: "block", description: "Block DROP statements" },
+        { type: "command_filter", pattern: "\\bDELETE\\s+FROM\\b", action: "block", description: "Block DELETE statements" },
+        { type: "command_filter", pattern: "\\bTRUNCATE\\b", action: "block", description: "Block TRUNCATE statements" },
+        { type: "command_filter", pattern: "\\bALTER\\s+(TABLE|DATABASE)", action: "block", description: "Block ALTER statements" },
+        { type: "prompt_filter", pattern: "DROP\\s+(TABLE|DATABASE)", action: "block", description: "Block prompts requesting database drops" },
+      ],
+    },
+    {
       name: "Prevent Git Force Push",
       description: "Block force-push and destructive git operations that can lose history",
       rules: [
@@ -102,15 +190,38 @@
       name: "Block Network Exfiltration",
       description: "Block commands that could upload or send data to external servers",
       rules: [
-        { type: "command_filter", pattern: "curl\\s+.*-[dXF]|curl\\s+.*--data|curl\\s+.*--upload", action: "warn", description: "Warn on curl data uploads" },
-        { type: "command_filter", pattern: "wget\\s+.*--post", action: "warn", description: "Warn on wget POST requests" },
-        { type: "command_filter", pattern: "scp\\s|rsync\\s.*:", action: "warn", description: "Warn on remote file transfers" },
+        { type: "command_filter", pattern: "curl\\s+.*-[dXF]|curl\\s+.*--data|curl\\s+.*--upload", action: "block", description: "Block curl data uploads" },
+        { type: "command_filter", pattern: "wget\\s+.*--post", action: "block", description: "Block wget POST requests" },
+        { type: "command_filter", pattern: "scp\\s|rsync\\s.*:", action: "block", description: "Block remote file transfers" },
+        { type: "command_filter", pattern: "nc\\s+-|ncat\\s", action: "block", description: "Block netcat connections" },
+      ],
+    },
+    {
+      name: "Limit Concurrent Jobs",
+      description: "Limit to 3 concurrent agent jobs running at once",
+      rules: [
+        { type: "concurrent_limit", pattern: "3", action: "block", description: "Max 3 concurrent jobs" },
+      ],
+    },
+    {
+      name: "Low Priority Agents",
+      description: "Run all agent processes at below-normal priority to reduce system impact",
+      rules: [
+        { type: "process_priority", pattern: "below_normal", action: "block", description: "Below-normal process priority" },
+      ],
+    },
+    {
+      name: "Cost Cap ($10)",
+      description: "Block new jobs when total API cost exceeds $10",
+      rules: [
+        { type: "cost_budget", pattern: "10.00", action: "block", description: "Max $10 API spend" },
       ],
     },
   ];
 
   let policies = $state<Policy[]>([]);
   let users = $state<UserOption[]>([]);
+  let projects = $state<ProjectOption[]>([]);
   let activeTab = $state("file_path");
   let showPresetsModal = $state(false);
   let applyingPreset = $state(false);
@@ -119,6 +230,7 @@
   let form = $state({
     scope: "global" as string,
     userId: "",
+    projectId: "",
     type: "file_path",
     pattern: "",
     action: "block" as string,
@@ -129,9 +241,12 @@
   let usernameById = $derived(
     new Map(users.map((user) => [user.id, user.username] as const)),
   );
+  let projectNameById = $derived(
+    new Map(projects.map((p) => [p.id, p.name] as const)),
+  );
 
   function resetForm() {
-    form = { scope: "global", userId: "", type: activeTab, pattern: "", action: "block", description: "" };
+    form = { scope: "global", userId: "", projectId: "", type: activeTab, pattern: "", action: "block", description: "" };
     editingId = null;
   }
 
@@ -155,6 +270,18 @@
     } catch {
       users = [];
     }
+
+    // Project list for project-scoped policies
+    try {
+      const result = await api.projects.list();
+      const rows = Array.isArray(result) ? result : [];
+      projects = rows.map((row: any) => ({
+        id: String(row?.id ?? ""),
+        name: String(row?.name ?? ""),
+      })).filter((row: ProjectOption) => row.id && row.name);
+    } catch {
+      projects = [];
+    }
   }
 
   function startEdit(policy: Policy) {
@@ -162,6 +289,7 @@
     form = {
       scope: policy.scope,
       userId: policy.userId ?? "",
+      projectId: policy.projectId ?? "",
       type: policy.type,
       pattern: policy.pattern,
       action: policy.action,
@@ -174,6 +302,7 @@
     const data = {
       scope: form.scope,
       userId: form.scope === "user" ? form.userId || undefined : undefined,
+      projectId: form.scope === "project" ? form.projectId || undefined : undefined,
       type: form.type,
       pattern: form.pattern,
       action: form.action,
@@ -302,6 +431,10 @@
                 <span class="scope-badge">
                   user:{usernameById.get(policy.userId) ?? policy.userId.slice(0, 8)}
                 </span>
+              {:else if policy.scope === "project" && policy.projectId}
+                <span class="scope-badge scope-project">
+                  project:{projectNameById.get(policy.projectId) ?? policy.projectId.slice(0, 8)}
+                </span>
               {:else}
                 <span class="scope-badge">{policy.scope}</span>
               {/if}
@@ -328,10 +461,54 @@
         {/each}
       </select>
     </label>
-    <label class="field">
-      <span>Pattern</span>
-      <input type="text" bind:value={form.pattern} required placeholder={typePlaceholders[form.type] ?? ""} />
-    </label>
+    {#if form.type === "process_priority"}
+      <label class="field">
+        <span>Priority Level</span>
+        <select bind:value={form.pattern} required>
+          <option value="low">Low (idle)</option>
+          <option value="below_normal">Below Normal</option>
+          <option value="normal">Normal</option>
+          <option value="above_normal">Above Normal</option>
+          <option value="high">High</option>
+        </select>
+      </label>
+    {:else if form.type === "concurrent_limit"}
+      <label class="field">
+        <span>Max Concurrent Jobs</span>
+        <input type="number" min="1" max="100" bind:value={form.pattern} required placeholder="3" />
+      </label>
+    {:else if form.type === "cost_budget"}
+      <label class="field">
+        <span>Max Cost (USD)</span>
+        <input type="number" min="0" step="0.01" bind:value={form.pattern} required placeholder="5.00" />
+      </label>
+    {:else if form.type === "token_budget"}
+      <label class="field">
+        <span>Token Budget</span>
+        <div class="inline-fields">
+          <select onchange={(e) => {
+            const kind = (e.target as HTMLSelectElement).value;
+            const num = form.pattern.split(":")[1] || "500000";
+            form.pattern = `${kind}:${num}`;
+          }} value={form.pattern.split(":")[0] || "total"}>
+            <option value="input">Input tokens</option>
+            <option value="output">Output tokens</option>
+            <option value="total">Total tokens</option>
+          </select>
+          <input type="number" min="0" step="1000" placeholder="500000"
+            value={form.pattern.split(":")[1] || ""}
+            oninput={(e) => {
+              const kind = form.pattern.split(":")[0] || "total";
+              form.pattern = `${kind}:${(e.target as HTMLInputElement).value}`;
+            }} required />
+        </div>
+      </label>
+    {:else}
+      <label class="field">
+        <span>Pattern</span>
+        <input type="text" bind:value={form.pattern} required placeholder={typePlaceholders[form.type] ?? ""} />
+      </label>
+    {/if}
     <label class="field">
       <span>Action</span>
       <select bind:value={form.action}>
@@ -344,6 +521,7 @@
       <select bind:value={form.scope}>
         <option value="global">Global (all users)</option>
         <option value="user">Per User</option>
+        <option value="project">Per Project</option>
       </select>
     </label>
     {#if form.scope === "user"}
@@ -358,6 +536,20 @@
           </select>
         {:else}
           <input type="text" bind:value={form.userId} required placeholder="User ID" />
+        {/if}
+      </label>
+    {:else if form.scope === "project"}
+      <label class="field">
+        <span>Project</span>
+        {#if projects.length > 0}
+          <select bind:value={form.projectId} required>
+            <option value="" disabled>Select project...</option>
+            {#each projects as project}
+              <option value={project.id}>{project.name}</option>
+            {/each}
+          </select>
+        {:else}
+          <input type="text" bind:value={form.projectId} required placeholder="Project ID" />
         {/if}
       </label>
     {/if}
@@ -407,6 +599,10 @@
   .action-block { color: var(--status-failed); background: rgba(244, 71, 71, 0.1); }
   .action-warn { color: var(--status-queued); background: rgba(226, 185, 61, 0.1); }
   .scope-badge { padding: 2px 8px; border-radius: 10px; font-size: var(--font-size-sm); background: var(--bg-active); }
+  .scope-project { color: var(--accent); background: rgba(99, 102, 241, 0.1); }
+  .inline-fields { display: flex; gap: 8px; }
+  .inline-fields select { flex: 0 0 140px; }
+  .inline-fields input { flex: 1; }
   .actions { display: flex; gap: 6px; }
   .btn-primary { background: var(--accent); color: #fff; padding: 8px 16px; border-radius: var(--radius-sm); font-weight: 500; }
   .btn-primary:hover { background: var(--accent-hover); }

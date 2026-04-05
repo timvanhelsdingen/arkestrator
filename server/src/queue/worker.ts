@@ -19,7 +19,7 @@ import type { WorkerResourceLeaseManager } from "../agents/resource-control.js";
 import type { LocalLlmGate } from "../agents/local-llm-gate.js";
 import { spawnAgent } from "../agents/spawner.js";
 import { applyRuntimeOptionsToConfig } from "../agents/runtime-options.js";
-import { getToolRestrictions } from "../policies/enforcer.js";
+import { getToolRestrictions, checkConcurrentLimit, resolveProcessPriority } from "../policies/enforcer.js";
 import { newId } from "../utils/id.js";
 import { normalizeQuotes } from "../utils/worker-identity.js";
 import { logger } from "../utils/logger.js";
@@ -203,11 +203,26 @@ export class WorkerLoop {
       return { ok: false, error: `Agent config not found: ${job.agentConfigId}` };
     }
 
-    // Load effective policies for this job's user
-    const policies = this.deps.policiesRepo.getEffectiveForUser(job.submittedBy ?? null);
+    // Load effective policies for this job's user + project context
+    const policies = this.deps.policiesRepo.getEffectiveForContext(job.submittedBy ?? null, job.projectId ?? null);
     const toolRestrictions = getToolRestrictions(policies);
     const filePathPolicies = policies.filter((p) => p.type === "file_path");
     const commandFilterPolicies = policies.filter((p) => p.type === "command_filter");
+
+    // Check concurrent job limits before dispatching
+    const concurrentViolations = checkConcurrentLimit(
+      this.deps.processTracker.count,
+      policies,
+    );
+    const concurrentBlockers = concurrentViolations.filter((v) => v.action === "block");
+    if (concurrentBlockers.length > 0) {
+      // Don't fail — leave queued and try again on next tick
+      logger.info("worker", `Job ${job.id}: concurrent limit reached (${this.deps.processTracker.count} running), deferring`);
+      return { ok: false, error: "concurrent_limit_deferred" };
+    }
+
+    // Resolve process priority from policies
+    const processPriority = resolveProcessPriority(policies);
 
     // If job has a targetWorkerName but no editorContext.projectRoot, inject the worker's lastProjectPath
     let enrichedJob = job;
@@ -264,6 +279,7 @@ export class WorkerLoop {
       toolRestrictions,
       filePathPolicies,
       commandFilterPolicies,
+      processPriority,
     });
 
     return { ok: true };
