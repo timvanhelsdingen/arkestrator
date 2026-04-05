@@ -28,12 +28,12 @@
   .command { background: #3d3552; color: #b8a9c9; }
   .repo { background: #2f4038; color: #a9c9b8; }
   .sync { background: #40382f; color: #c9b8a9; }
-  .godot { background: #2d4a6f; color: #6da1d4; }
-  .blender { background: #5c3a1e; color: #e8923a; }
-  .houdini { background: #5c1e1e; color: #e84040; }
-  .comfyui { background: #163b25; color: #34d399; }
-  .unity { background: #334155; color: #e2e8f0; }
-  .unreal { background: #3d3552; color: #c4b5fd; }
-  .fusion { background: #4a3d1e; color: #e8b832; }
+  .godot { background: #478cbf22; color: #478cbf; }
+  .blender { background: #ea722022; color: #ea7220; }
+  .houdini { background: #ff450022; color: #ff4500; }
+  .comfyui { background: #16a34a22; color: #16a34a; }
+  .unity { background: #cbd5e122; color: #cbd5e1; }
+  .unreal { background: #a78bfa22; color: #a78bfa; }
+  .fusion { background: #e8b83222; color: #e8b832; }
   .blocked { background: #5c4a1e; color: #e8c23a; }
 </style>

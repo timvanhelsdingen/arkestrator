@@ -76,7 +76,7 @@
     api.templates
       .list(type)
       .then((res: any) => {
-        const items = Array.isArray(res?.templates) ? res.templates : [];
+        const items = Array.isArray(res) ? res : Array.isArray(res?.templates) ? res.templates : [];
         templates = items.map((t: any) => ({
           id: t.id ?? "",
           name: t.name ?? "",

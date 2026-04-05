@@ -363,7 +363,8 @@
       case "comfyui": return "C";
       case "unity": return "U";
       case "unreal": return "UE";
-      default: return "";
+      case "fusion": return "F";
+      default: return program ? program.charAt(0).toUpperCase() : "";
     }
   }
 

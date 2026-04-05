@@ -52,7 +52,7 @@
     if (!connection.sessionToken && !connection.apiKey) return;
 
     api.templates.list("job_preset").then((res: any) => {
-      const templates = Array.isArray(res?.templates) ? res.templates : [];
+      const templates = Array.isArray(res) ? res : Array.isArray(res?.templates) ? res.templates : [];
       if (templates.length === 0) return; // keep fallback
       jobPresets = templates.map((t: any) => ({
         id: t.id ?? "",
