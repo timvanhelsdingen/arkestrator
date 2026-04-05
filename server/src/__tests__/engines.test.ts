@@ -110,7 +110,7 @@ describe("buildCommand (codex orchestration)", () => {
     expect(prompt).toContain("## Execution Instructions");
     expect(prompt).toContain("Project-level instructions.");
     expect(prompt).toContain("Config-level instructions.");
-    expect(prompt).toContain("Cross-Bridge Orchestration");
+    expect(prompt).toContain("Global Coordinator");
     expect(prompt).toContain("Bridge Execution");
     expect(prompt).toContain("REST API fallback");
     expect(prompt).toContain("am bridges");
@@ -173,7 +173,7 @@ describe("buildCommand (codex orchestration)", () => {
     );
 
     const prompt = getResolvedPrompt(spec);
-    expect(prompt).toContain("Cross-Bridge Orchestration");
+    expect(prompt).toContain("Global Coordinator");
     expect(prompt).not.toContain("single executable python script");
     expect(spec.args).toContain("--sandbox");
     expect(spec.args).toContain("danger-full-access");
@@ -342,10 +342,10 @@ describe("buildCommand (codex orchestration)", () => {
 
   test("global coordinator prompt is a minimal template with core rules", () => {
     expect(DEFAULT_ORCHESTRATOR_PROMPT).toContain("Global Coordinator");
-    expect(DEFAULT_ORCHESTRATOR_PROMPT).toContain("Output a concise plan");
     expect(DEFAULT_ORCHESTRATOR_PROMPT).toContain("execute_command");
-    expect(DEFAULT_ORCHESTRATOR_PROMPT).toContain("Verification Policy");
-    expect(DEFAULT_ORCHESTRATOR_PROMPT).toContain("Probe `am` before relying on it");
+    expect(DEFAULT_ORCHESTRATOR_PROMPT).toContain("Verification");
+    expect(DEFAULT_ORCHESTRATOR_PROMPT).toContain("stdout");
+    expect(DEFAULT_ORCHESTRATOR_PROMPT).toContain("{MULTI_BRIDGE_SECTION}");
     // Bridge-specific prompts are no longer hardcoded — they come from the bridge repo
   });
 });
@@ -555,7 +555,7 @@ describe("buildCommand (local-oss placeholders)", () => {
     expect(prompt).toContain("## Execution Instructions");
     expect(prompt).toContain("Always respond with executable bridge scripts only.");
     expect(prompt).toContain("single executable gdscript script");
-    expect(prompt).toContain("Cross-Bridge Orchestration");
+    expect(prompt).toContain("Global Coordinator");
     expect(prompt).toContain("## User Request");
     expect(prompt).toContain(job.prompt);
   });
