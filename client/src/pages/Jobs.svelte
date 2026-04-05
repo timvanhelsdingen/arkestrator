@@ -1376,7 +1376,7 @@
               <button class="btn-requeue" onclick={() => requeueJob(job.id)}>Requeue</button>
             {/if}
             {#if job.status === "completed" || job.status === "failed"}
-              <button class="btn-guide" onclick={() => guideJob(job.id)}>Guide</button>
+              <button class="btn-requeue" onclick={() => guideJob(job.id)}>Retry with Guidance</button>
             {/if}
             {#if job.status === "completed" || job.status === "failed" || job.status === "cancelled"}
               <button class="btn-archive" onclick={() => archiveJob(job.id)}>Archive</button>
@@ -1555,6 +1555,7 @@
           <div class="prompt-empty">(No prompt recorded)</div>
         {/if}
       </div>
+      {#if job.status === "running" || job.status === "queued" || job.status === "paused"}
       <div class="intervention-section">
         <div class="intervention-header">
           <strong>Running Job Guidance</strong>
@@ -1562,10 +1563,8 @@
             <span class="intervention-meta">
               {#if job.status === "running"}
                 {interventionSupport.acceptsLiveNotes ? "live next-turn guidance enabled" : interventionSupport.liveReason ?? "live guidance unavailable"}
-              {:else if job.status === "queued" || job.status === "paused"}
-                {interventionSupport.acceptsQueuedNotes ? "queued for next launch/resume" : "guidance unavailable"}
               {:else}
-                guidance unavailable after job end
+                {interventionSupport.acceptsQueuedNotes ? "queued for next launch/resume" : "guidance unavailable"}
               {/if}
             </span>
           {/if}
@@ -1614,6 +1613,7 @@
           </div>
         {/if}
       </div>
+      {/if}
       {#if job.dependsOn && job.dependsOn.length > 0}
         <div class="dependencies-section">
           <strong>Depends On:</strong>
