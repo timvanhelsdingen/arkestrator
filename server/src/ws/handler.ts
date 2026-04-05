@@ -238,7 +238,18 @@ export function handleMessage(
         break;
       case "subscribe_job_logs":
         if (ws.data.type !== "client") break;
-        if (msg.payload?.jobId) deps.hub.subscribeJobLogs(ws.data.id, msg.payload.jobId);
+        if (msg.payload?.jobId) {
+          deps.hub.subscribeJobLogs(ws.data.id, msg.payload.jobId);
+          // Send existing logs so the client sees history before the subscription started
+          const existingJob = deps.jobsRepo.getById(msg.payload.jobId);
+          if (existingJob?.logs) {
+            deps.hub.send(ws.data.id, {
+              type: "job_log",
+              id: newId(),
+              payload: { jobId: msg.payload.jobId, text: existingJob.logs },
+            });
+          }
+        }
         break;
       case "unsubscribe_job_logs":
         if (ws.data.type !== "client") break;
