@@ -1435,6 +1435,13 @@ export function removeCoordinatorScript(dir: string, program: string): boolean {
  * and available headless programs, and how to interact with them.
  * Uses the `am` CLI wrapper (available on PATH) and/or MCP tools (for Claude Code).
  */
+const SKILLS_REMINDER_BLOCK =
+  "\n\n---\n### Skills (Required)\n" +
+  'Before starting work, search for relevant patterns: search_skills("<keywords from the task>")\n' +
+  "If a fix attempt fails or takes more than one retry, search_skills again — someone may have already solved this exact problem.\n" +
+  "After learning something non-trivial, create_skill to save it for future tasks.\n" +
+  "---";
+
 function buildBridgeOrchestrationPrompt(
   bridges?: BridgeInfo[],
   currentProgram?: string,
@@ -1454,8 +1461,10 @@ function buildBridgeOrchestrationPrompt(
 
   const hasOverride = !!(orchestratorPromptOverride && orchestratorPromptOverride.trim());
 
-  // Skip entirely if no override and no other bridges available
-  if (!hasOverride && otherBridges.length === 0 && availableHeadless.length === 0) return "";
+  // If no override and no other bridges, still return the skills reminder
+  if (!hasOverride && otherBridges.length === 0 && availableHeadless.length === 0) {
+    return SKILLS_REMINDER_BLOCK;
+  }
 
   // Group connected bridges by program name
   const byProgram = new Map<string, BridgeInfo[]>();
@@ -1571,6 +1580,9 @@ function buildBridgeOrchestrationPrompt(
       "`read_client_file` MCP tool. This reads files via the bridge connection — no file syncing needed. " +
       "For images, the file is saved locally and you can then use the Read tool to view it visually.";
   }
+
+  // Always append skills reminder as the final section so every bridge job sees it
+  result += SKILLS_REMINDER_BLOCK;
 
   return result;
 }
