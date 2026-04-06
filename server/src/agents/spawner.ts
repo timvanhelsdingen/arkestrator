@@ -1879,23 +1879,20 @@ export async function spawnAgent(
     `Spawning ${config.engine}: ${command} ${args.join(" ")}${runAsUser ? ` [runAs=${runAsUser.username}]` : ""} (job: ${job.id})`,
   );
 
-  // 5. Set up file change detection (repo/sync modes only)
+  // 5. Set up file change detection (ALL modes — file_path policies must be enforced everywhere)
   // Uses OS-level fs.watch + a fast path list (readdir only, no stat/content reads)
   let beforePaths: Set<string> | null = null;
   let watcher: ReturnType<typeof startWatching> | null = null;
-  if (workspace.mode === "command") {
-    if (!existsSync(cwd)) {
-      mkdirSync(cwd, { recursive: true });
-    }
+  if (workspace.mode === "command" && !existsSync(cwd)) {
+    mkdirSync(cwd, { recursive: true });
+  }
+  logger.info("spawner", `Collecting paths and starting watcher for ${cwd}`);
+  beforePaths = await collectPaths(cwd);
+  watcher = startWatching(cwd);
+  if (beforePaths.size === 0) {
+    logger.warn("spawner", `Directory ${cwd} exceeds path limit — file change detection disabled for this job`);
   } else {
-    logger.info("spawner", `Collecting paths and starting watcher for ${cwd}`);
-    beforePaths = await collectPaths(cwd);
-    watcher = startWatching(cwd);
-    if (beforePaths.size === 0) {
-      logger.warn("spawner", `Directory ${cwd} exceeds path limit — file change detection disabled for this job`);
-    } else {
-      logger.info("spawner", `Tracking ${beforePaths.size} existing paths`);
-    }
+    logger.info("spawner", `Tracking ${beforePaths.size} existing paths`);
   }
 
   // 6. Spawn process — strip nested-agent session env vars so child CLIs do not
@@ -2740,6 +2737,38 @@ export async function spawnAgent(
     }
 
     if (workspace.mode === "command") {
+      // Enforce file_path policies — hard block if the agent modified protected files
+      watcher?.stop();
+      const cmdFileChanges = watcher
+        ? await watcher.getChanges(beforePaths!)
+        : [];
+      if (cmdFileChanges.length > 0) {
+        logger.info(
+          "spawner",
+          `Detected ${cmdFileChanges.length} file change(s) in command mode for job ${job.id}`,
+        );
+        for (const fc of cmdFileChanges) {
+          logger.info("spawner", `  ${fc.action}: ${fc.path}`);
+        }
+        if (deps.filePathPolicies && deps.filePathPolicies.length > 0) {
+          const changedPaths = cmdFileChanges.map((fc) => fc.path);
+          const violations = checkFilePaths(changedPaths, deps.filePathPolicies);
+          const blockers = violations.filter((v) => v.action === "block");
+          if (blockers.length > 0) {
+            const msg = `Policy violation: ${blockers.map((v) => v.message).join("; ")}`;
+            logger.warn("spawner", msg);
+            deps.jobsRepo.fail(job.id, msg, logBuffer);
+            applyUsedBridgeAttribution(logBuffer ? `${logBuffer}\n${msg}` : msg);
+            recordCoordinatorOutcome(false);
+            sendComplete(deps, job, false, [], [], workspace.mode, msg);
+            broadcastJobUpdated(deps, job.id);
+            recordTokens();
+            cleanupAgentTools(cliWrapper, mcpConfigPath, mcpConfigBackup);
+            return;
+          }
+        }
+      }
+
       // Parse stdout for command/script blocks
       // For stream-json: use accumulated plainText (assistant text blocks contain the code fences)
       const textForParsing = sjState ? sjState.plainText : logBuffer;
@@ -2978,6 +3007,24 @@ export async function spawnAgent(
       );
       applyUsedBridgeAttribution(logBuffer);
       if (workspace.mode === "command") {
+        // Enforce file_path policies even on non-zero exit treated as success
+        const doneFileChanges = watcher ? await watcher.getChanges(beforePaths!) : [];
+        if (doneFileChanges.length > 0 && deps.filePathPolicies && deps.filePathPolicies.length > 0) {
+          const changedPaths = doneFileChanges.map((fc) => fc.path);
+          const violations = checkFilePaths(changedPaths, deps.filePathPolicies);
+          const blockers = violations.filter((v) => v.action === "block");
+          if (blockers.length > 0) {
+            const msg = `Policy violation: ${blockers.map((v) => v.message).join("; ")}`;
+            logger.warn("spawner", msg);
+            deps.jobsRepo.fail(job.id, msg, logBuffer);
+            recordCoordinatorOutcome(false);
+            sendComplete(deps, job, false, [], [], workspace.mode, msg);
+            broadcastJobUpdated(deps, job.id);
+            recordTokens();
+            cleanupAgentTools(cliWrapper, mcpConfigPath, mcpConfigBackup);
+            return;
+          }
+        }
         const textForParsing = sjState ? sjState.plainText : logBuffer;
         const expectedCommandLanguage = resolveExpectedCommandLanguage(
           job.editorContext?.metadata,
@@ -2993,6 +3040,24 @@ export async function spawnAgent(
         sendComplete(deps, job, true, [], commands, workspace.mode);
       } else {
         const fileChanges = watcher ? await watcher.getChanges(beforePaths!) : [];
+        // Enforce file_path policies on [done] fallback (repo/sync mode)
+        if (fileChanges.length > 0 && deps.filePathPolicies && deps.filePathPolicies.length > 0) {
+          const changedPaths = fileChanges.map((fc) => fc.path);
+          const violations = checkFilePaths(changedPaths, deps.filePathPolicies);
+          const blockers = violations.filter((v) => v.action === "block");
+          if (blockers.length > 0) {
+            const msg = `Policy violation: ${blockers.map((v) => v.message).join("; ")}`;
+            logger.warn("spawner", msg);
+            deps.jobsRepo.fail(job.id, msg, logBuffer);
+            recordCoordinatorOutcome(false);
+            sendComplete(deps, job, false, [], [], workspace.mode, msg);
+            broadcastJobUpdated(deps, job.id);
+            recordTokens();
+            cleanupSync(deps, workspace, job.id);
+            cleanupAgentTools(cliWrapper, mcpConfigPath, mcpConfigBackup);
+            return;
+          }
+        }
         deps.jobsRepo.complete(job.id, fileChanges, logBuffer);
         const rejected = deps.jobInterventionsRepo?.rejectPendingForJob(job.id, "Job finished before queued guidance could be delivered.") ?? [];
         broadcastInterventionUpdates(deps, job.id, rejected);
