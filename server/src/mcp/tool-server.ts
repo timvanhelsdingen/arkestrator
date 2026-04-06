@@ -300,15 +300,18 @@ export function createMcpServer(deps: McpDeps): McpServer {
       'Use "gdscript" language for Godot, "python" for Blender/Houdini, "workflow" for ComfyUI (JSON workflow). ' +
       "The command runs directly in the target application's scripting environment. " +
       "For ComfyUI, the script should be a JSON workflow object (API format). " +
-      "Blocks until execution completes (up to timeout).",
+      "Blocks until execution completes (up to timeout). " +
+      "When multiple bridges of the same program are connected (e.g. Blender on two machines), use worker or bridge_id to target a specific one.",
     {
-      target: z.string().describe('Target bridge program name, e.g. "godot", "blender", "houdini", "comfyui"'),
+      target: z.string().describe('Target bridge program name, e.g. "godot", "blender", "houdini", "comfyui". When using bridge_id, set this to the program name as a hint (e.g. "blender").'),
       language: z.string().describe('Script language: "gdscript" for Godot, "python" for Blender/Houdini, "workflow" for ComfyUI'),
       script: z.string().describe("The script code to execute"),
       description: z.string().optional().describe("Optional description of what the script does"),
       timeout: z.number().optional().describe("Timeout in ms (default 60000, max 300000)"),
+      worker: z.string().optional().describe('Target a specific machine by worker name, e.g. "tim\'s-macbook-pro" or "tvh-13900k". Use list_bridges to discover worker names.'),
+      bridge_id: z.string().optional().describe("Target a specific bridge by its exact ID (from list_bridges). Takes precedence over worker."),
     },
-    async ({ target, language, script, description, timeout }) => {
+    async ({ target, language, script, description, timeout, worker, bridge_id }) => {
       const denied = checkPermission("executeCommands");
       if (denied) return denied;
       const callerJob = deps.callerJobId ? deps.jobsRepo.getById(deps.callerJobId) : null;
@@ -318,11 +321,12 @@ export function createMcpServer(deps: McpDeps): McpServer {
         deps.headlessProgramsRepo,
         deps.config,
         {
-          target,
+          target: bridge_id ?? target,
+          targetType: bridge_id ? "id" : "program",
           commands: [{ language, script, description }],
           timeout,
           executionMode: callerJob?.runtimeOptions?.bridgeExecutionMode,
-          targetWorkerName: callerJob?.targetWorkerName,
+          targetWorkerName: worker ?? callerJob?.targetWorkerName,
         },
         deps.resourceLeaseManager,
         deps.settingsRepo,
@@ -368,17 +372,20 @@ export function createMcpServer(deps: McpDeps): McpServer {
   // Tool: execute_multiple_commands
   server.tool(
     "execute_multiple_commands",
-    "Execute multiple scripts in sequence on a bridge. Useful for batch operations.",
+    "Execute multiple scripts in sequence on a bridge. Useful for batch operations. " +
+      "When multiple bridges of the same program are connected (e.g. Blender on two machines), use worker or bridge_id to target a specific one.",
     {
-      target: z.string().describe('Target bridge program name, e.g. "godot", "blender", "comfyui"'),
+      target: z.string().describe('Target bridge program name, e.g. "godot", "blender", "comfyui". When using bridge_id, set this to the program name as a hint.'),
       commands: z.array(z.object({
         language: z.string().describe('Script language: "gdscript", "python", or "workflow" (ComfyUI)'),
         script: z.string().describe("The script code to execute"),
         description: z.string().optional().describe("What this script does"),
       })).describe("Array of commands to execute in order"),
       timeout: z.number().optional().describe("Timeout in ms (default 60000, max 300000)"),
+      worker: z.string().optional().describe('Target a specific machine by worker name, e.g. "tim\'s-macbook-pro" or "tvh-13900k". Use list_bridges to discover worker names.'),
+      bridge_id: z.string().optional().describe("Target a specific bridge by its exact ID (from list_bridges). Takes precedence over worker."),
     },
-    async ({ target, commands, timeout }) => {
+    async ({ target, commands, timeout, worker, bridge_id }) => {
       const denied = checkPermission("executeCommands");
       if (denied) return denied;
       const callerJob = deps.callerJobId ? deps.jobsRepo.getById(deps.callerJobId) : null;
@@ -388,11 +395,12 @@ export function createMcpServer(deps: McpDeps): McpServer {
         deps.headlessProgramsRepo,
         deps.config,
         {
-          target,
+          target: bridge_id ?? target,
+          targetType: bridge_id ? "id" : "program",
           commands,
           timeout,
           executionMode: callerJob?.runtimeOptions?.bridgeExecutionMode,
-          targetWorkerName: callerJob?.targetWorkerName,
+          targetWorkerName: worker ?? callerJob?.targetWorkerName,
         },
         deps.resourceLeaseManager,
         deps.settingsRepo,
