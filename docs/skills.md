@@ -44,7 +44,7 @@ All other enabled skills are available through MCP tools — `search_skills` and
 
 > MANDATORY: Before starting bridge work, call search_skills with a query describing your task type to find relevant execution patterns, known pitfalls, and project-specific guidance.
 
-This keeps the base system prompt lean while giving agents access to the full skill library on demand. Only MCP-loaded skills are tracked for effectiveness (auto-fetch skills are not, since their usage is forced and would pollute the signal).
+This keeps the base system prompt lean while giving agents access to the full skill library on demand. Both auto-fetch and on-demand skills are tracked for effectiveness — agents are instructed to rate all skills they used before finishing their job.
 
 ### Ranking Algorithm
 
@@ -149,6 +149,90 @@ The ranking algorithm uses a three-phase confidence model for effectiveness scor
 | `minScoreThreshold`    | 0.05    | Minimum combined score to include in results      |
 
 The floor at 0.10 ensures even poorly performing skills can still surface if the prompt match is strong enough. Skills are never hard-disabled by low effectiveness alone.
+
+## Agent Rating Tools
+
+Agents have two rating tools that drive the effectiveness feedback loop. Both are available as MCP tools and CLI commands.
+
+### `rate_skill` — Rate a Skill After Using It
+
+Agents call this to assess how useful a specific skill was for their current task.
+
+| Input | Values | Maps To |
+|-------|--------|---------|
+| `rating` | `useful` | `positive` |
+| `rating` | `not_useful` | `negative` |
+| `rating` | `partial` | `average` |
+| `notes` | Optional string | Stored with the rating |
+
+MCP: `rate_skill(slug, rating, notes?)`
+CLI: `am skills rate <slug> <useful|not_useful|partial>`
+
+The `get_skill` response appends a reminder to rate the skill after use. Auto-fetched skills are also listed in the "Job & Skill Feedback" prompt section for agents to rate.
+
+### `rate_job` — Self-Rate the Job Outcome
+
+Agents call this once near the end of their work to self-assess the overall job quality.
+
+| Input | Values | Maps To |
+|-------|--------|---------|
+| `rating` | `good` | `positive` |
+| `rating` | `average` | `average` |
+| `rating` | `poor` | `negative` |
+| `notes` | Optional string (max 4000 chars) | Stored with the rating |
+
+MCP: `rate_job(rating, notes?)`
+CLI: `am jobs rate <good|average|poor> [notes]`
+
+When `rate_job` is called:
+1. The job's `outcomeRating` is set
+2. Any skills used in the job that the agent didn't explicitly rate via `rate_skill` are updated with the job's outcome as a fallback
+3. The updated job is broadcast to clients
+
+### User Outcome Rating
+
+Users can also rate jobs after completion via the UI or `POST /api/jobs/:id/outcome`. User ratings:
+- Accept `good`/`average`/`poor` (legacy `positive`/`negative` also accepted)
+- Propagate to all descendant sub-jobs
+- Update skill effectiveness for unrated skills
+- Feed into coordinator learning (experience entries with quality weights)
+
+### Rating Flow Summary
+
+```
+Agent executes job
+    |
+    v
+Agent calls rate_skill() for each skill used     <- explicit per-skill
+    |
+    v
+Agent calls rate_job() before finishing           <- explicit per-job
+    |                                                (also covers unrated skills)
+    v
+User optionally rates job via UI/API              <- overrides agent rating
+    |                                                (propagates to descendants)
+    v
+Skill effectiveness scores updated
+    |
+    v
+Coordinator learning records experience
+    |
+    v
+Future jobs get better skill ranking
+```
+
+### Prompt Instructions
+
+The spawner injects a "Job & Skill Feedback" section into every agent prompt that tells the agent:
+1. To call `rate_job` with `good`, `average`, or `poor` before finishing
+2. To call `rate_skill` for each skill it loaded or was auto-fetched
+3. Lists the specific auto-fetched skill slugs to rate
+
+This section is critical — without it, agents complete work without rating anything and the feedback loop breaks.
+
+**Developer invariant:** The "Job & Skill Feedback" prompt section and the `rate_skill`/`rate_job` MCP tools must stay in sync. If you change the tool's accepted values, update the prompt instructions and the `get_skill` inline reminder to match. The enum values are:
+- `rate_skill`: `useful` | `not_useful` | `partial`
+- `rate_job`: `good` | `average` | `poor`
 
 ## Skill Locking
 

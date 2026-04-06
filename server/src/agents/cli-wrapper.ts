@@ -36,6 +36,7 @@ function printUsage() {
   console.log("  am jobs status <jobId>");
   console.log("  am jobs interventions <jobId>");
   console.log("  am jobs create -f <job.json>");
+  console.log("  am jobs rate <good|average|poor> [notes]");
   console.log("  am headless-check <program> --args '[\\"--headless\\",\\"--path\\",\\"/project\\"]'");
   console.log("  am headless-check <program> -f <headless-check.json>");
   console.log("  am skills search <query> [--program <program>]");
@@ -233,6 +234,7 @@ async function cmdJobs(rest) {
     console.log("  am jobs status <jobId>");
     console.log("  am jobs interventions <jobId>");
     console.log("  am jobs create -f <job.json>");
+    console.log("  am jobs rate <good|average|poor> [notes]");
     return;
   }
 
@@ -273,6 +275,24 @@ async function cmdJobs(rest) {
     const payload = normalizeJobPayload(raw, fallbackConfigId);
     const data = await request("/api/jobs", { method: "POST", body: JSON.stringify(payload) });
     console.log(JSON.stringify(data, null, 2));
+    return;
+  }
+
+  if (sub === "rate") {
+    const rating = rest[1];
+    if (!rating || !["good", "average", "poor"].includes(rating)) {
+      throw new Error("Usage: am jobs rate <good|average|poor> [notes]");
+    }
+    const notes = rest.slice(2).join(" ") || "";
+    if (!JOB_ID) {
+      console.error("Warning: ARKESTRATOR_JOB_ID not set, cannot rate job");
+      return;
+    }
+    const data = await request("/api/jobs/" + encodeURIComponent(JOB_ID) + "/outcome", {
+      method: "POST",
+      body: JSON.stringify({ rating, notes }),
+    });
+    console.log("Job rated: " + rating + (notes ? " — " + notes : ""));
     return;
   }
 
