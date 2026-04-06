@@ -762,6 +762,9 @@ function dispatchImmediate(msg: any) {
     case "file_deliver":
       void handleFileDeliver(msg.payload);
       break;
+    case "transfer_initiate":
+      void handleTransferInitiate(msg.payload);
+      break;
     case "skills_updated":
       // Server auto-pulled skills after bridge connect — notify UI pages
       window.dispatchEvent(new CustomEvent("arkestrator:skills_updated", { detail: msg.payload }));
@@ -802,6 +805,80 @@ async function handleFileDeliver(payload: {
   } catch (err) {
     console.error("[file_deliver] Failed to apply file changes:", err);
   }
+}
+
+/** Handle incoming HTTP file transfer initiation from the server. */
+async function handleTransferInitiate(payload: {
+  transferId?: string;
+  files?: Array<{ path: string; size: number; sha256?: string }>;
+  totalBytes?: number;
+  projectPath?: string;
+  source?: string;
+  downloadBaseUrl?: string;
+}) {
+  const { transferId, files, downloadBaseUrl, projectPath } = payload;
+  if (!transferId || !Array.isArray(files) || !downloadBaseUrl) return;
+
+  console.log(`[transfer_initiate] Starting download of ${files.length} file(s), ${((payload.totalBytes ?? 0) / 1024 / 1024).toFixed(1)} MB`);
+
+  let filesCompleted = 0;
+  let bytesCompleted = 0;
+
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    // Resolve path relative to projectPath if needed
+    let destPath = file.path;
+    if (projectPath && !destPath.startsWith("/") && !destPath.match(/^[A-Za-z]:\\/)) {
+      const sep = projectPath.includes("\\") ? "\\" : "/";
+      destPath = `${projectPath}${sep}${destPath}`;
+    }
+
+    // Build download URL with auth
+    let downloadUrl = `${downloadBaseUrl}/${i}`;
+    if (connection.apiKey) {
+      downloadUrl += `?key=${encodeURIComponent(connection.apiKey)}`;
+    }
+
+    try {
+      const written = await invoke<number>("fs_download_file", {
+        url: downloadUrl,
+        destPath,
+        apiKey: connection.apiKey ?? undefined,
+      });
+      filesCompleted++;
+      bytesCompleted += written;
+      console.log(`[transfer] Downloaded ${file.path} (${(written / 1024 / 1024).toFixed(1)} MB)`);
+    } catch (err) {
+      console.error(`[transfer] Failed to download ${file.path}:`, err);
+      sendMessage({
+        type: "transfer_progress",
+        id: crypto.randomUUID(),
+        payload: {
+          transferId,
+          bytesCompleted,
+          filesCompleted,
+          filesTotal: files.length,
+          status: "error",
+          error: String(err),
+        },
+      });
+      return;
+    }
+  }
+
+  // Report completion
+  sendMessage({
+    type: "transfer_progress",
+    id: crypto.randomUUID(),
+    payload: {
+      transferId,
+      bytesCompleted,
+      filesCompleted,
+      filesTotal: files.length,
+      status: "complete",
+    },
+  });
+  console.log(`[transfer] Transfer ${transferId} complete: ${filesCompleted} files, ${(bytesCompleted / 1024 / 1024).toFixed(1)} MB`);
 }
 
 /** Write bridge-facing shared config for local bridge auto-discovery.

@@ -27,6 +27,7 @@ import { SkillIndex } from "./skills/skill-index.js";
 import { materializeSkills } from "./skills/skill-materializer.js";
 import { JobInterventionsRepo } from "./db/job-interventions.repo.js";
 import { SyncManager } from "./workspace/sync-manager.js";
+import { TransferManager } from "./transfers/transfer-manager.js";
 import { WebSocketHub } from "./ws/hub.js";
 import { handleMessage } from "./ws/handler.js";
 import { handleClientDisconnect } from "./agents/client-dispatch.js";
@@ -399,6 +400,7 @@ async function main() {
   const routingOutcomesRepo = new RoutingOutcomesRepo(db);
   const jobInterventionsRepo = new JobInterventionsRepo(db);
   const syncManager = new SyncManager(config);
+  const transferManager = new TransferManager(config);
 
   // 4. Seed defaults on first run
   const firstRun = usersRepo.isEmpty();
@@ -630,8 +632,9 @@ async function main() {
     jobsRepo.fail(jobId, msg, "");
   });
 
-  // 7. Start sync manager cleanup timer
+  // 7. Start sync manager and transfer manager cleanup timers
   syncManager.start();
+  transferManager.start();
 
   // 7.5. Schedule periodic session cleanup (every hour)
   const sessionCleanupInterval = setInterval(() => {
@@ -713,7 +716,7 @@ async function main() {
   });
 
   // 9. Create Hono app
-  const app = createApp({ db, jobsRepo, agentsRepo, apiKeysRepo, usersRepo, policiesRepo, auditRepo, projectsRepo, templatesRepo, workersRepo, usageRepo, depsRepo, syncManager, hub, headlessProgramsRepo, settingsRepo, skillsRepo, skillStore, skillEffectivenessRepo, skillIndex, jobInterventionsRepo, config, resourceLeaseManager, processTracker, dispatchJob: (id) => worker.dispatchById(id) });
+  const app = createApp({ db, jobsRepo, agentsRepo, apiKeysRepo, usersRepo, policiesRepo, auditRepo, projectsRepo, templatesRepo, workersRepo, usageRepo, depsRepo, syncManager, transferManager, hub, headlessProgramsRepo, settingsRepo, skillsRepo, skillStore, skillEffectivenessRepo, skillIndex, jobInterventionsRepo, config, resourceLeaseManager, processTracker, dispatchJob: (id) => worker.dispatchById(id) });
 
   // Handler deps for WebSocket messages
   const handlerDeps = {
@@ -1160,11 +1163,11 @@ async function main() {
   // 12. Graceful shutdown
   process.on(
     "SIGINT",
-    () => shutdown(worker, processTracker, syncManager, sessionCleanupInterval, wsHeartbeatInterval, coordinatorTrainingInterval, housekeepingInterval, trashPurgeInterval, comfyUiHealth, db),
+    () => shutdown(worker, processTracker, syncManager, transferManager, sessionCleanupInterval, wsHeartbeatInterval, coordinatorTrainingInterval, housekeepingInterval, trashPurgeInterval, comfyUiHealth, db),
   );
   process.on(
     "SIGTERM",
-    () => shutdown(worker, processTracker, syncManager, sessionCleanupInterval, wsHeartbeatInterval, coordinatorTrainingInterval, housekeepingInterval, trashPurgeInterval, comfyUiHealth, db),
+    () => shutdown(worker, processTracker, syncManager, transferManager, sessionCleanupInterval, wsHeartbeatInterval, coordinatorTrainingInterval, housekeepingInterval, trashPurgeInterval, comfyUiHealth, db),
   );
 }
 
@@ -1172,6 +1175,7 @@ function shutdown(
   worker: WorkerLoop,
   processTracker: ProcessTracker,
   syncManager: SyncManager,
+  transferManager: TransferManager,
   sessionCleanupInterval: ReturnType<typeof setInterval>,
   wsHeartbeatInterval: ReturnType<typeof setInterval>,
   coordinatorTrainingInterval: ReturnType<typeof setInterval>,
@@ -1184,6 +1188,7 @@ function shutdown(
   worker.stop();
   processTracker.stop();
   syncManager.stop();
+  transferManager.stop();
   comfyUiHealth.stop();
   clearInterval(sessionCleanupInterval);
   clearInterval(wsHeartbeatInterval);

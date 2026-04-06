@@ -620,6 +620,54 @@ export const FileDeliverMessage = makeMessage(
 );
 export type FileDeliverMessage = z.infer<typeof FileDeliverMessage>;
 
+// --- HTTP File Transfer (large/batch binary transfers via streaming HTTP) ---
+
+/** Server → Bridge/Client: files are ready for download via HTTP. */
+export const TransferInitiateMessage = makeMessage(
+  "transfer_initiate",
+  z.object({
+    /** Unique transfer ID. */
+    transferId: z.string(),
+    /** Files available for download. */
+    files: z.array(
+      z.object({
+        path: z.string(),
+        size: z.number().int().nonnegative(),
+        sha256: z.string().optional(),
+      }),
+    ),
+    /** Total bytes across all files. */
+    totalBytes: z.number().int().nonnegative(),
+    /** Optional project path — relative file paths are resolved against this. */
+    projectPath: z.string().optional(),
+    /** Source description (e.g. "blender export", job ID). */
+    source: z.string().optional(),
+    /** Base URL for downloading files — append /{fileIndex}?key=<apiKey>. */
+    downloadBaseUrl: z.string(),
+  }),
+);
+export type TransferInitiateMessage = z.infer<typeof TransferInitiateMessage>;
+
+/** Bridge/Client → Server: download progress reporting. */
+export const TransferProgressMessage = makeMessage(
+  "transfer_progress",
+  z.object({
+    /** Transfer being downloaded. */
+    transferId: z.string(),
+    /** Total bytes downloaded so far across all files. */
+    bytesCompleted: z.number().int().nonnegative(),
+    /** Number of files fully downloaded. */
+    filesCompleted: z.number().int().nonnegative(),
+    /** Total number of files in the transfer. */
+    filesTotal: z.number().int().nonnegative(),
+    /** Current status. */
+    status: z.enum(["downloading", "complete", "error"]),
+    /** Error message if status is "error". */
+    error: z.string().optional(),
+  }),
+);
+export type TransferProgressMessage = z.infer<typeof TransferProgressMessage>;
+
 // --- Client Headless Capabilities (client reports auto-detected headless programs) ---
 
 export const ClientHeadlessCapability = z.object({
@@ -703,6 +751,8 @@ export const Message = z.discriminatedUnion("type", [
   BridgeFileReadResponseMessage,
   FileDeliverMessage,
   ClientHeadlessCapabilitiesMessage,
+  TransferInitiateMessage,
+  TransferProgressMessage,
   ErrorMessage,
 ]);
 export type Message = z.infer<typeof Message>;

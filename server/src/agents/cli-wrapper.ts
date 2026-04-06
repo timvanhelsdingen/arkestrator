@@ -311,8 +311,43 @@ async function cmdFilePush(rest) {
   if (!localPath) throw new Error("Missing <local-path> argument");
   const remotePath = args.shift() || require("path").basename(localPath);
 
-  // Read file and encode as base64 for binary safety
   const buffer = fs.readFileSync(localPath);
+  const HTTP_THRESHOLD = 5 * 1024 * 1024; // 5 MB
+
+  // Large files use HTTP streaming transfer
+  if (buffer.length > HTTP_THRESHOLD) {
+    // 1. Create transfer
+    const transfer = await request("/api/transfers", {
+      method: "POST",
+      body: JSON.stringify({
+        files: [{ path: remotePath, size: buffer.length }],
+        target,
+        targetType,
+        projectPath,
+        source: "am file-push (job " + JOB_ID + ")",
+      }),
+    });
+
+    // 2. Upload file as raw binary via HTTP PUT
+    const uploadUrl = SERVER + transfer.files[0].uploadUrl;
+    const uploadRes = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: {
+        "Authorization": "Bearer " + KEY,
+        "Content-Type": "application/octet-stream",
+        ...(JOB_ID ? { "X-Job-Id": JOB_ID } : {}),
+      },
+      body: buffer,
+    });
+    if (!uploadRes.ok) {
+      throw new Error("Upload failed (" + uploadRes.status + "): " + (await uploadRes.text()));
+    }
+    const result = await uploadRes.json();
+    console.log(JSON.stringify({ transferId: transfer.transferId, ...result }, null, 2));
+    return;
+  }
+
+  // Small files use existing base64 WebSocket path
   const isText = !buffer.some((b, i) => i < Math.min(buffer.length, 1024) && b === 0);
   const fileChange = {
     path: remotePath,
