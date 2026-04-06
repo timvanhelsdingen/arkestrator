@@ -215,6 +215,9 @@ export function handleMessage(
       case "bridge_file_read_response":
         handleBridgeFileReadResponse(ws, msg, deps);
         break;
+      case "transfer_progress":
+        handleTransferProgress(ws, msg, deps);
+        break;
       case "worker_headless_result":
         handleWorkerHeadlessResult(ws, msg as any, deps);
         break;
@@ -749,6 +752,24 @@ function handleBridgeFileReadResponse(
   const resolved = deps.hub.resolvePendingCommand(correlationId, msg.payload);
   if (resolved) {
     logger.info("handler", `File read response from ${ws.data.id} resolved pending command ${correlationId} (${msg.payload.files.length} file(s))`);
+  }
+}
+
+function handleTransferProgress(
+  ws: ServerWebSocket<WsData>,
+  msg: { id: string; payload: { transferId: string; bytesCompleted: number; filesCompleted: number; filesTotal: number; status: string; error?: string } },
+  deps: HandlerDeps,
+) {
+  // Broadcast transfer progress to all connected clients (admin UI, etc.)
+  for (const client of deps.hub.getClients()) {
+    if (client.id !== ws.data.id) {
+      deps.hub.send(client.id, msg);
+    }
+  }
+  if (msg.payload.status === "complete") {
+    logger.info("handler", `Transfer ${msg.payload.transferId} completed by ${ws.data.workerName ?? ws.data.id}`);
+  } else if (msg.payload.status === "error") {
+    logger.warn("handler", `Transfer ${msg.payload.transferId} error from ${ws.data.workerName ?? ws.data.id}: ${msg.payload.error}`);
   }
 }
 

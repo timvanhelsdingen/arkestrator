@@ -22,6 +22,7 @@ import { createChatRoutes } from "./routes/chat.js";
 import { createSettingsRoutes } from "./routes/settings.js";
 import { createSkillsRoutes } from "./routes/skills.js";
 import { createTemplatesRoutes } from "./routes/templates.js";
+import { createTransfersRoutes } from "./routes/transfers.js";
 import { createMcpRoutes } from "./mcp/routes.js";
 import { CodexChatSessionManager } from "./chat/codex-sessions.js";
 import type { Database } from "bun:sqlite";
@@ -40,6 +41,7 @@ import type { SettingsRepo } from "./db/settings.repo.js";
 import type { JobInterventionsRepo } from "./db/job-interventions.repo.js";
 import type { Config } from "./config.js";
 import type { SyncManager } from "./workspace/sync-manager.js";
+import type { TransferManager } from "./transfers/transfer-manager.js";
 import type { WebSocketHub } from "./ws/hub.js";
 import type { ProcessTracker } from "./agents/process-tracker.js";
 import type { WorkerResourceLeaseManager } from "./agents/resource-control.js";
@@ -70,6 +72,7 @@ export interface AppDeps {
   usageRepo: UsageRepo;
   depsRepo: DependenciesRepo;
   syncManager: SyncManager;
+  transferManager: TransferManager;
   hub: WebSocketHub;
   headlessProgramsRepo: HeadlessProgramsRepo;
   settingsRepo: SettingsRepo;
@@ -181,6 +184,7 @@ export function createApp(deps: AppDeps) {
       deps.settingsRepo,
     ),
   );
+  app.route("/api/transfers", createTransfersRoutes(deps.transferManager, deps.hub, deps.apiKeysRepo, deps.usersRepo, deps.config));
   app.route("/api/headless-programs", createHeadlessProgramRoutes(deps.headlessProgramsRepo, deps.usersRepo, deps.apiKeysRepo));
   app.route(
     "/api/chat",

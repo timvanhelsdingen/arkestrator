@@ -27,6 +27,10 @@ export interface Config {
   snapshotsDir: string;
   coordinatorReferencePaths: string[];
   coordinatorPlaybookSourcePaths: string[];
+  transferTempDir: string;
+  transferTtlMs: number;
+  transferMaxSizeMb: number;
+  httpTransferThresholdBytes: number;
   corsOrigins: string[];
   trustProxyHeaders: boolean;
   tlsCertPath?: string;
@@ -113,6 +117,10 @@ export function loadConfig(): Config {
     snapshotsDir: process.env.SNAPSHOTS_DIR ?? join(dataDir, "snapshots"),
     coordinatorReferencePaths: parsePathList(process.env.COORDINATOR_REFERENCE_PATHS),
     coordinatorPlaybookSourcePaths: parsePathList(process.env.COORDINATOR_PLAYBOOK_SOURCE_PATHS),
+    transferTempDir: process.env.TRANSFER_TEMP_DIR ?? join(dataDir, "transfer-tmp"),
+    transferTtlMs: parseInt(process.env.TRANSFER_TTL_MS ?? String(60 * 60 * 1000), 10),
+    transferMaxSizeMb: parseInt(process.env.TRANSFER_MAX_SIZE_MB ?? "2000", 10),
+    httpTransferThresholdBytes: parseInt(process.env.HTTP_TRANSFER_THRESHOLD_BYTES ?? String(5 * 1024 * 1024), 10),
     corsOrigins: process.env.CORS_ORIGINS
       ? process.env.CORS_ORIGINS.split(",").map((o) => o.trim())
       : [],

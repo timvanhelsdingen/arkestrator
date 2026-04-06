@@ -1380,6 +1380,114 @@ fn fs_exists(path: String) -> bool {
     std::path::Path::new(&path).exists()
 }
 
+/// Download a file from an HTTP URL directly to disk (streaming, no full-file buffer).
+/// Supports resume via optional `range_start` byte offset.
+#[tauri::command]
+async fn fs_download_file(
+    url: String,
+    dest_path: String,
+    api_key: Option<String>,
+    range_start: Option<u64>,
+) -> Result<u64, String> {
+    use std::io::Write;
+
+    let client = reqwest::Client::new();
+    let mut req = client.get(&url).header("User-Agent", "Arkestrator-Client");
+
+    if let Some(key) = &api_key {
+        req = req.header("Authorization", format!("Bearer {}", key));
+    }
+    if let Some(start) = range_start {
+        req = req.header("Range", format!("bytes={}-", start));
+    }
+
+    let response = req.send().await.map_err(|e| format!("Download request failed: {e}"))?;
+
+    if !response.status().is_success() {
+        return Err(format!(
+            "Download failed with status {}: {}",
+            response.status(),
+            response.text().await.unwrap_or_default()
+        ));
+    }
+
+    // Ensure parent directory exists
+    if let Some(parent) = std::path::Path::new(&dest_path).parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create directory {}: {e}", parent.display()))?;
+    }
+
+    // Open file in append mode for resume, or create new
+    let mut file = if range_start.unwrap_or(0) > 0 {
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&dest_path)
+            .map_err(|e| format!("Failed to open {dest_path} for append: {e}"))?
+    } else {
+        std::fs::File::create(&dest_path)
+            .map_err(|e| format!("Failed to create {dest_path}: {e}"))?
+    };
+
+    let mut bytes_written: u64 = range_start.unwrap_or(0);
+    let mut stream = response.bytes_stream();
+    use futures::StreamExt;
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("Stream error: {e}"))?;
+        file.write_all(&chunk)
+            .map_err(|e| format!("Write error: {e}"))?;
+        bytes_written += chunk.len() as u64;
+    }
+
+    Ok(bytes_written)
+}
+
+/// Upload a file from disk to an HTTP URL (streaming, no full-file buffer).
+/// Supports resume via optional `offset` (sends Content-Range header).
+#[tauri::command]
+async fn fs_upload_file(
+    url: String,
+    file_path: String,
+    api_key: Option<String>,
+    offset: Option<u64>,
+) -> Result<u64, String> {
+    let metadata = std::fs::metadata(&file_path)
+        .map_err(|e| format!("Failed to stat {file_path}: {e}"))?;
+    let file_size = metadata.len();
+
+    let start = offset.unwrap_or(0);
+    let bytes = std::fs::read(&file_path)
+        .map_err(|e| format!("Failed to read {file_path}: {e}"))?;
+    let body_bytes = if start > 0 { &bytes[start as usize..] } else { &bytes[..] };
+
+    let client = reqwest::Client::new();
+    let mut req = client.put(&url)
+        .header("User-Agent", "Arkestrator-Client")
+        .header("Content-Type", "application/octet-stream");
+
+    if let Some(key) = &api_key {
+        req = req.header("Authorization", format!("Bearer {}", key));
+    }
+    if start > 0 {
+        req = req.header(
+            "Content-Range",
+            format!("bytes {}-{}/{}", start, file_size - 1, file_size),
+        );
+    }
+
+    let response = req.body(body_bytes.to_vec()).send().await
+        .map_err(|e| format!("Upload request failed: {e}"))?;
+
+    if !response.status().is_success() {
+        return Err(format!(
+            "Upload failed with status {}: {}",
+            response.status(),
+            response.text().await.unwrap_or_default()
+        ));
+    }
+
+    Ok(file_size)
+}
+
 fn show_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
@@ -1547,6 +1655,8 @@ pub fn run() {
             fs_read_file_base64,
             fs_delete_path,
             fs_exists,
+            fs_download_file,
+            fs_upload_file,
             bridges::fetch_bridge_registry,
             bridges::download_and_install_bridge,
             bridges::detect_program_paths,
