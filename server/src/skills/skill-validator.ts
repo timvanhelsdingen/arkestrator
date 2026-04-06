@@ -5,6 +5,7 @@
  * - Invalid regex patterns in keywords
  * - Empty content
  * - Missing required fields
+ * - Related skills referencing non-existent skills
  */
 
 import type { Skill } from "../db/skills.repo.js";
@@ -18,13 +19,26 @@ export interface ValidationIssue {
 export interface ValidationResult {
   valid: boolean;
   issues: ValidationIssue[];
+  /** Related skill slugs that were stripped because they don't exist. */
+  strippedRelatedSkills?: string[];
 }
+
+/** Resolver function that checks whether a skill slug exists. */
+export type SkillExistsResolver = (slug: string) => boolean;
 
 /**
  * Validate a skill definition for common issues.
+ *
+ * If `skillExists` is provided, validates that all relatedSkills references
+ * point to existing skills. Invalid references are reported as warnings and
+ * listed in `strippedRelatedSkills` so callers can remove them before saving.
  */
-export function validateSkill(skill: Partial<Skill>): ValidationResult {
+export function validateSkill(
+  skill: Partial<Skill>,
+  skillExists?: SkillExistsResolver,
+): ValidationResult {
   const issues: ValidationIssue[] = [];
+  const strippedRelatedSkills: string[] = [];
 
   // Check content
   const content = String(skill.content ?? "").trim();
@@ -85,9 +99,27 @@ export function validateSkill(skill: Partial<Skill>): ValidationResult {
     }
   }
 
+  // Validate related skills references exist
+  if (skillExists) {
+    const related = Array.isArray(skill.relatedSkills) ? skill.relatedSkills : [];
+    for (const ref of related) {
+      const slug = String(ref ?? "").trim();
+      if (!slug) continue;
+      if (!skillExists(slug)) {
+        strippedRelatedSkills.push(slug);
+        issues.push({
+          field: "relatedSkills",
+          severity: "warning",
+          message: `Related skill "${slug}" does not exist and will be removed`,
+        });
+      }
+    }
+  }
+
   return {
     valid: issues.every((issue) => issue.severity !== "error"),
     issues,
+    strippedRelatedSkills: strippedRelatedSkills.length > 0 ? strippedRelatedSkills : undefined,
   };
 }
 

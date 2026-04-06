@@ -77,9 +77,28 @@ export async function rebuildSkillsIndexFromDisk(
     }
   }
 
+  // Clean up broken relatedSkills references — strip any slugs that don't exist
+  const allSlugs = new Set(
+    skillsRepo.listAll().map((s) => s.slug),
+  );
+  let refsFixed = 0;
+  for (const skill of skillsRepo.listAll()) {
+    if (!skill.relatedSkills || skill.relatedSkills.length === 0) continue;
+    const valid = skill.relatedSkills.filter((ref) => allSlugs.has(ref));
+    if (valid.length < skill.relatedSkills.length) {
+      const removed = skill.relatedSkills.filter((ref) => !allSlugs.has(ref));
+      skillsRepo.update(skill.id, { relatedSkills: valid });
+      refsFixed++;
+      logger.debug(
+        "skill-loader",
+        `Fixed broken relatedSkills in ${skill.program}/${skill.slug}: removed [${removed.join(", ")}]`,
+      );
+    }
+  }
+
   logger.info(
     "skill-loader",
-    `Rebuilt index: ${loaded} loaded, ${skipped} skipped, ${removed} removed`,
+    `Rebuilt index: ${loaded} loaded, ${skipped} skipped, ${removed} removed${refsFixed > 0 ? `, ${refsFixed} broken refs fixed` : ""}`,
   );
 
   return { loaded, skipped, removed };

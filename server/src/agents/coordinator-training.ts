@@ -21,7 +21,6 @@ import { newId } from "../utils/id.js";
 import { logger } from "../utils/logger.js";
 import { recordCoordinatorExecutionOutcome } from "./coordinator-playbooks.js";
 import { getCoordinatorScriptDefault, getCoordinatorScriptPrograms, type ProgramDiscoveryDeps } from "./engines.js";
-import { queueHousekeepingJob, type HousekeepingDeps } from "./housekeeping.js";
 import {
   flushTrainingRepositoryIndexRefresh,
   parseTrainingRepositoryOverrides,
@@ -233,8 +232,6 @@ export interface QueueCoordinatorTrainingJobOptions {
   trainingLevel?: TrainingLevel;
   /** Set when called from orchestrator to link child jobs to the parent. */
   parentJobId?: string;
-  /** Chain housekeeping after training completes. Defaults to false. */
-  chainHousekeeping?: boolean;
 }
 
 export interface QueueCoordinatorTrainingJobDeps {
@@ -738,202 +735,103 @@ export function extractSkillBlocksFromLogs(logs: string): Array<{
 }
 
 /**
- * Unified training orchestrator — creates a single parent job that:
+ * Training orchestrator result — returned by the server-side orchestration
+ * function so callers can track the spawned training jobs.
+ */
+export interface TrainingOrchestrationResult {
+  children: Array<{ program: string; jobId: string }>;
+  failures: Array<{ program: string; error: string }>;
+}
+
+/**
+ * Unified training orchestrator — pure server-side function (no wrapper job).
  * 1. Auto-detects programs from source paths (or uses explicit list)
- * 2. Fans out per-program training children
- * 3. Waits for all children to complete
- * 4. Optionally chains a housekeeping job afterward
- * 5. Extracts skills from housekeeping output
+ * 2. Fans out per-program training children in parallel
+ * 3. Returns immediately with child job references
+ *
+ * Housekeeping is NOT chained — it runs on its own independent schedule.
  */
 export function queueTrainingOrchestrator(
-  deps: QueueCoordinatorTrainingJobDeps & { housekeepingDeps?: HousekeepingDeps },
+  deps: QueueCoordinatorTrainingJobDeps,
   options: Omit<QueueCoordinatorTrainingJobOptions, "program"> & {
     programs?: string[];
-    chainHousekeeping?: boolean;
   },
-): Job {
-  // 1. Create orchestrator job
-  const jobInput: JobSubmit = {
-    name: "[Training] Auto-detect & train",
-    prompt: "Training orchestrator — coordinates per-program training and housekeeping.",
-    agentConfigId: resolveTrainingAgentId(deps.agentsRepo, deps.settingsRepo, ""),
-    priority: "normal",
-    coordinationMode: "server",
-    files: [],
-    contextItems: [],
-    editorContext: {
-      projectRoot: deps.coordinatorPlaybooksDir,
-      metadata: {
-        coordinator_training_orchestrator: true,
-        coordinator_training_trigger: options.trigger,
-      },
-    },
-  };
+): TrainingOrchestrationResult {
+  // Resolve source paths
+  const sourcePaths = Array.isArray(options.sourcePaths) && options.sourcePaths.length > 0
+    ? options.sourcePaths
+    : resolveTrainingSourcePaths(
+        deps.settingsRepo,
+        deps.defaultCoordinatorPlaybookSourcePaths ?? [],
+        deps.coordinatorPlaybooksDir,
+        "global",
+        undefined,
+      );
 
-  const created = deps.jobsRepo.create(jobInput);
-  const claimed = deps.jobsRepo.claim(created.id);
-  if (!claimed) throw new Error("Failed to start training orchestrator");
-  broadcastJobUpdated(deps.hub, deps.jobsRepo, created.id);
-  appendJobLog(deps.hub, deps.jobsRepo, created.id, "Training orchestrator started.");
+  // Determine programs: user-specified or auto-detect from content
+  let programs: string[];
+  if (Array.isArray(options.programs) && options.programs.length > 0) {
+    const programDeps: ProgramDiscoveryDeps = {
+      coordinatorScriptsDir: deps.coordinatorScriptsDir,
+      hub: deps.hub,
+      headlessProgramsRepo: deps.headlessProgramsRepo,
+    };
+    const known = new Set(getCoordinatorScriptPrograms(programDeps).map((p) => p.toLowerCase()));
+    programs = [...new Set(options.programs.map((p) => p.trim().toLowerCase()).filter(Boolean))].filter((p) => known.has(p));
+    if (programs.length === 0) programs = ["global"];
+    logger.info("coordinator-training", `Training orchestrator: user-specified programs: ${programs.join(", ")}`);
+  } else {
+    const programDeps: ProgramDiscoveryDeps = {
+      coordinatorScriptsDir: deps.coordinatorScriptsDir,
+      hub: deps.hub,
+      headlessProgramsRepo: deps.headlessProgramsRepo,
+    };
+    const knownPrograms = getCoordinatorScriptPrograms(programDeps);
+    const detected = detectProgramsInPaths(sourcePaths, knownPrograms);
 
-  // 2. Async handler
-  setTimeout(() => {
-    void (async () => {
-      try {
-        // Resolve source paths
-        const sourcePaths = Array.isArray(options.sourcePaths) && options.sourcePaths.length > 0
-          ? options.sourcePaths
-          : resolveTrainingSourcePaths(
-              deps.settingsRepo,
-              deps.defaultCoordinatorPlaybookSourcePaths ?? [],
-              deps.coordinatorPlaybooksDir,
-              "global",
-              undefined,
-            );
-        appendJobLog(deps.hub, deps.jobsRepo, created.id, `Source paths (${sourcePaths.length}): ${sourcePaths.join(", ")}`);
-
-        // Determine programs: user-specified or auto-detect from content.
-        // Auto-detect uses a quick file scan as a hint, but the training
-        // agent itself will determine the real programs during analysis.
-        let programs: string[];
-        if (Array.isArray(options.programs) && options.programs.length > 0) {
-          const programDeps: ProgramDiscoveryDeps = {
-            coordinatorScriptsDir: deps.coordinatorScriptsDir,
-            hub: deps.hub,
-            headlessProgramsRepo: deps.headlessProgramsRepo,
-          };
-          const known = new Set(getCoordinatorScriptPrograms(programDeps).map((p) => p.toLowerCase()));
-          programs = [...new Set(options.programs.map((p) => p.trim().toLowerCase()).filter(Boolean))].filter((p) => known.has(p));
-          if (programs.length === 0) programs = ["global"];
-          appendJobLog(deps.hub, deps.jobsRepo, created.id, `User-specified programs: ${programs.join(", ")}`);
-        } else {
-          // Auto-detect programs from file signatures in source paths AND
-          // from the training prompt (e.g. "use comfyui to analyze" → comfyui).
-          const programDeps: ProgramDiscoveryDeps = {
-            coordinatorScriptsDir: deps.coordinatorScriptsDir,
-            hub: deps.hub,
-            headlessProgramsRepo: deps.headlessProgramsRepo,
-          };
-          const knownPrograms = getCoordinatorScriptPrograms(programDeps);
-          const detected = detectProgramsInPaths(sourcePaths, knownPrograms);
-
-          // Also scan the training prompt for explicit program mentions
-          const trainingPrompt = String(options.trainingPrompt ?? "").toLowerCase();
-          if (trainingPrompt) {
-            for (const prog of knownPrograms) {
-              const p = prog.toLowerCase();
-              if (p !== "global" && !detected.includes(p) && trainingPrompt.includes(p)) {
-                detected.push(p);
-              }
-            }
-          }
-
-          if (detected.length > 0) {
-            programs = detected;
-            appendJobLog(deps.hub, deps.jobsRepo, created.id, `Auto-detected programs: ${programs.join(", ")} (from file signatures + prompt)`);
-          } else {
-            // No specific DCC programs detected — fall back to global.
-            programs = ["global"];
-            appendJobLog(deps.hub, deps.jobsRepo, created.id, `No specific programs detected from file signatures or prompt — training as global (filesystem analysis only)`);
-          }
+    // Also scan the training prompt for explicit program mentions
+    const trainingPrompt = String(options.trainingPrompt ?? "").toLowerCase();
+    if (trainingPrompt) {
+      for (const prog of knownPrograms) {
+        const p = prog.toLowerCase();
+        if (p !== "global" && !detected.includes(p) && trainingPrompt.includes(p)) {
+          detected.push(p);
         }
-
-        // Queue per-program training children (passes sourcePaths through)
-        const children: Array<{ program: string; jobId: string }> = [];
-        const failures: Array<{ program: string; error: string }> = [];
-        for (const program of programs) {
-          try {
-            const child = queueCoordinatorTrainingJob(deps, {
-              ...options,
-              sourcePaths,
-              program,
-              parentJobId: created.id,
-            });
-            children.push({ program, jobId: child.id });
-            appendJobLog(deps.hub, deps.jobsRepo, created.id, `Queued training for ${program}: ${child.id}`);
-          } catch (err: any) {
-            failures.push({ program, error: String(err?.message ?? err) });
-            appendJobLog(deps.hub, deps.jobsRepo, created.id, `Failed to queue ${program}: ${err?.message}`);
-          }
-        }
-
-        // Wait for all training children in parallel
-        if (children.length > 0) {
-          // Signal must be present BEFORE children finish so the spawner's exit
-          // handler doesn't race and fail us for having pending children.
-          appendJobLog(deps.hub, deps.jobsRepo, created.id, `All sub-jobs dispatched (${children.length}).`);
-          appendJobLog(deps.hub, deps.jobsRepo, created.id, `Waiting for ${children.length} training job(s) in parallel...`);
-          await Promise.all(
-            children.map(async (child) => {
-              const terminal = await waitForCoordinatorTrainingJobTerminalState(deps.jobsRepo, child.jobId, 60 * 60_000);
-              appendJobLog(deps.hub, deps.jobsRepo, created.id, `Training ${child.program}: ${terminal.status}`);
-            }),
-          );
-        }
-
-        // Chain housekeeping
-        const chainHousekeeping = options.chainHousekeeping !== false;
-        if (chainHousekeeping && deps.housekeepingDeps) {
-          appendJobLog(deps.hub, deps.jobsRepo, created.id, "Chaining housekeeping job...");
-          const hkResult = queueHousekeepingJob(deps.housekeepingDeps, {
-            submittedBy: options.submittedBy,
-            parentJobId: created.id,
-          });
-          if (hkResult) {
-            appendJobLog(deps.hub, deps.jobsRepo, created.id, `Housekeeping queued: ${hkResult.jobId}`);
-            const hkTerminal = await waitForCoordinatorTrainingJobTerminalState(deps.jobsRepo, hkResult.jobId, 30 * 60_000);
-            appendJobLog(deps.hub, deps.jobsRepo, created.id, `Housekeeping: ${hkTerminal.status}`);
-
-            // Extract skills from housekeeping logs
-            if (hkTerminal.status === "completed" && hkTerminal.logs && (deps.skillStore || deps.skillsRepo)) {
-              const extracted = extractSkillBlocksFromLogs(hkTerminal.logs);
-              let skillCount = 0;
-              for (const skill of extracted) {
-                try {
-                  const input = {
-                    slug: skill.slug,
-                    name: skill.title,
-                    program: skill.program,
-                    category: skill.category || "housekeeping",
-                    title: skill.title,
-                    description: `Auto-generated by housekeeping`,
-                    content: skill.content,
-                    source: "housekeeping",
-                  };
-                  if (deps.skillStore) {
-                    await deps.skillStore.upsertBySlugAndProgram(input);
-                  } else {
-                    deps.skillsRepo!.upsertBySlugAndProgram(input);
-                  }
-                  skillCount++;
-                } catch { /* skip individual skill failures */ }
-              }
-              if (skillCount > 0) {
-                appendJobLog(deps.hub, deps.jobsRepo, created.id, `Extracted ${skillCount} skill(s) from housekeeping.`);
-              }
-            }
-          } else {
-            appendJobLog(deps.hub, deps.jobsRepo, created.id, "Housekeeping skipped (no agent available).");
-          }
-        }
-
-        // Complete orchestrator
-        const summary = `Training completed. Programs: ${children.map((c) => c.program).join(", ")}. Failures: ${failures.length}.`;
-        appendJobLog(deps.hub, deps.jobsRepo, created.id, summary);
-        const logs = deps.jobsRepo.getById(created.id)?.logs ?? "";
-        deps.jobsRepo.complete(created.id, [], logs);
-        broadcastJobUpdated(deps.hub, deps.jobsRepo, created.id);
-      } catch (err: any) {
-        const message = String(err?.message ?? err ?? "Unknown orchestrator error");
-        appendJobLog(deps.hub, deps.jobsRepo, created.id, `Failed: ${message}`);
-        const logs = deps.jobsRepo.getById(created.id)?.logs ?? "";
-        deps.jobsRepo.fail(created.id, message, logs);
-        broadcastJobUpdated(deps.hub, deps.jobsRepo, created.id);
       }
-    })();
-  }, 0);
+    }
 
-  return deps.jobsRepo.getById(created.id) ?? created;
+    if (detected.length > 0) {
+      programs = detected;
+      logger.info("coordinator-training", `Training orchestrator: auto-detected programs: ${programs.join(", ")}`);
+    } else {
+      programs = ["global"];
+      logger.info("coordinator-training", `Training orchestrator: no programs detected, training as global`);
+    }
+  }
+
+  // Queue per-program training children (passes sourcePaths through)
+  const children: Array<{ program: string; jobId: string }> = [];
+  const failures: Array<{ program: string; error: string }> = [];
+  for (const program of programs) {
+    try {
+      const child = queueCoordinatorTrainingJob(deps, {
+        ...options,
+        sourcePaths,
+        program,
+      });
+      children.push({ program, jobId: child.id });
+      logger.info("coordinator-training", `Training orchestrator: queued ${program}: ${child.id}`);
+    } catch (err: any) {
+      failures.push({ program, error: String(err?.message ?? err) });
+      logger.warn("coordinator-training", `Training orchestrator: failed to queue ${program}: ${err?.message}`);
+    }
+  }
+
+  if (failures.length > 0) {
+    logger.warn("coordinator-training", `Training orchestrator: ${failures.length} failure(s): ${failures.map((f) => f.program).join(", ")}`);
+  }
+
+  return { children, failures };
 }
 
 export function queueCoordinatorTrainingJob(
@@ -1653,39 +1551,6 @@ export function queueCoordinatorTrainingJob(
           created.id,
           `Completed training. Projects: ${result.projectCount}. Applied: ${apply ? "yes" : "no"}. Generated: ${result.generatedAt}`,
         );
-        // Chain housekeeping if requested
-        if (options.chainHousekeeping && (deps.skillStore || deps.skillsRepo)) {
-          appendJobLog(hub, jobsRepo, created.id, "Chaining housekeeping...");
-          const hkDeps: HousekeepingDeps = { jobsRepo, skillsRepo: deps.skillsRepo!, skillStore: deps.skillStore, agentsRepo, settingsRepo, hub };
-          const hkResult = queueHousekeepingJob(hkDeps, { submittedBy, parentJobId: created.id });
-          if (hkResult) {
-            appendJobLog(hub, jobsRepo, created.id, `Housekeeping queued: ${hkResult.jobId}`);
-            const hkTerminal = await waitForCoordinatorTrainingJobTerminalState(jobsRepo, hkResult.jobId, 30 * 60_000);
-            appendJobLog(hub, jobsRepo, created.id, `Housekeeping: ${hkTerminal.status}`);
-            if (hkTerminal.status === "completed" && hkTerminal.logs && (deps.skillStore || deps.skillsRepo)) {
-              const extracted = extractSkillBlocksFromLogs(hkTerminal.logs);
-              let hkSkillCount = 0;
-              for (const skill of extracted) {
-                try {
-                  const input = {
-                    slug: skill.slug, name: skill.title, program: skill.program,
-                    category: skill.category || "housekeeping", title: skill.title,
-                    description: "Auto-generated by housekeeping", content: skill.content,
-                    source: "housekeeping",
-                  };
-                  if (deps.skillStore) {
-                    await deps.skillStore.upsertBySlugAndProgram(input);
-                  } else {
-                    deps.skillsRepo!.upsertBySlugAndProgram(input);
-                  }
-                  hkSkillCount++;
-                } catch { /* skip */ }
-              }
-              if (hkSkillCount > 0) appendJobLog(hub, jobsRepo, created.id, `Extracted ${hkSkillCount} skill(s) from housekeeping.`);
-            }
-          }
-        }
-
         const logs = jobsRepo.getById(created.id)?.logs ?? "";
         jobsRepo.complete(
           created.id,
@@ -1727,7 +1592,7 @@ export function queueCoordinatorTrainingJob(
 }
 
 export function runScheduledCoordinatorTrainingTick(
-  deps: QueueCoordinatorTrainingJobDeps & { housekeepingDeps?: HousekeepingDeps },
+  deps: QueueCoordinatorTrainingJobDeps,
 ): Array<{ program: string; jobId: string }> {
   const programDeps: ProgramDiscoveryDeps = {
     coordinatorScriptsDir: deps.coordinatorScriptsDir,
@@ -1752,12 +1617,9 @@ export function runScheduledCoordinatorTrainingTick(
     if (schedulePrograms.length === 0) return [];
   }
 
-  // Check if any training orchestrator or training job is already running
+  // Check if any training job is already running
   const runningJobs = deps.jobsRepo.list(["queued", "running"]).jobs;
-  const hasRunningTraining = runningJobs.some((job) => {
-    const metadata = job.editorContext?.metadata as Record<string, unknown> | undefined;
-    return metadata?.coordinator_training_orchestrator === true || isCoordinatorTrainingJob(job);
-  });
+  const hasRunningTraining = runningJobs.some((job) => isCoordinatorTrainingJob(job));
   if (hasRunningTraining) return [];
 
   // Check per-program timing — only start if at least one program is due
@@ -1795,13 +1657,12 @@ export function runScheduledCoordinatorTrainingTick(
 
   if (activeDuePrograms.length === 0) return [];
 
-  // Create one orchestrator for all due programs
+  // Spawn per-program training jobs directly (no orchestrator wrapper)
   try {
-    const orchestratorJob = queueTrainingOrchestrator(deps, {
+    const result = queueTrainingOrchestrator(deps, {
       programs: activeDuePrograms,
       apply: schedule.apply,
       trigger: "scheduled",
-      chainHousekeeping: true,
     });
 
     // Update last-run timestamps for all due programs
@@ -1811,11 +1672,11 @@ export function runScheduledCoordinatorTrainingTick(
     }
     setCoordinatorTrainingLastRunByProgram(deps.settingsRepo, lastRunByProgram);
 
-    return activeDuePrograms.map((program) => ({ program, jobId: orchestratorJob.id }));
+    return result.children;
   } catch (err: any) {
     logger.warn(
       "coordinator-training",
-      `Scheduled training orchestrator queue failed: ${String(err?.message ?? err)}`,
+      `Scheduled training queue failed: ${String(err?.message ?? err)}`,
     );
     return [];
   }
