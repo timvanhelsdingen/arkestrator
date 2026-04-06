@@ -19,6 +19,7 @@ import { tmpdir } from "os";
 import { principalHasPermission, type AuthPrincipal } from "../middleware/auth.js";
 import type { UserPermissionKey } from "../utils/user-permissions.js";
 import { checkCommandScripts } from "../policies/enforcer.js";
+import { validateSkill } from "../skills/skill-validator.js";
 
 export interface McpDeps {
   hub: WebSocketHub;
@@ -1554,6 +1555,20 @@ export function createMcpServer(deps: McpDeps): McpServer {
         return { content: [{ type: "text" as const, text: "Skills system not available" }], isError: true };
       }
       try {
+        // Validate and strip invalid relatedSkills references
+        let validatedRelated = relatedSkills || [];
+        const warnings: string[] = [];
+        if (validatedRelated.length > 0 && deps.skillIndex) {
+          const validation = validateSkill(
+            { relatedSkills: validatedRelated } as any,
+            (s) => deps.skillIndex!.get(s) !== null,
+          );
+          if (validation.strippedRelatedSkills?.length) {
+            validatedRelated = validatedRelated.filter((s) => !validation.strippedRelatedSkills!.includes(s));
+            warnings.push(`Stripped non-existent related skills: ${validation.strippedRelatedSkills.join(", ")}`);
+          }
+        }
+
         const input = {
           name: slug,
           slug,
@@ -1563,7 +1578,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
           description: title,
           keywords: keywords || [program, slug],
           content,
-          relatedSkills: relatedSkills || [],
+          relatedSkills: validatedRelated,
           playbooks: playbooks || [],
           source: "agent",
           priority: 50,
@@ -1576,7 +1591,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
           deps.skillsRepo!.upsertBySlugAndProgram(input);
           deps.skillIndex?.refresh();
         }
-        return { content: [{ type: "text" as const, text: `Skill created: ${slug} [${program}] — "${title}"` }] };
+        const msg = `Skill created: ${slug} [${program}] — "${title}"`;
+        return { content: [{ type: "text" as const, text: warnings.length > 0 ? `${msg}\nWarnings: ${warnings.join("; ")}` : msg }] };
       } catch (err: any) {
         return { content: [{ type: "text" as const, text: `Failed to create skill: ${err.message}` }], isError: true };
       }
@@ -1617,10 +1633,23 @@ export function createMcpServer(deps: McpDeps): McpServer {
         return { content: [{ type: "text" as const, text: `Skill "${slug}" is locked and cannot be edited by agents. Only humans can unlock it via the UI.` }], isError: true };
       }
       const updates: Record<string, any> = {};
+      const warnings: string[] = [];
       if (content !== undefined) updates.content = content;
       if (title !== undefined) updates.title = title;
       if (keywords !== undefined) updates.keywords = keywords;
-      if (relatedSkills !== undefined) updates.relatedSkills = relatedSkills;
+      if (relatedSkills !== undefined) {
+        // Validate and strip invalid relatedSkills references
+        const validation = validateSkill(
+          { relatedSkills } as any,
+          (s) => deps.skillIndex!.get(s) !== null,
+        );
+        if (validation.strippedRelatedSkills?.length) {
+          updates.relatedSkills = relatedSkills.filter((s: string) => !validation.strippedRelatedSkills!.includes(s));
+          warnings.push(`Stripped non-existent related skills: ${validation.strippedRelatedSkills.join(", ")}`);
+        } else {
+          updates.relatedSkills = relatedSkills;
+        }
+      }
       if (playbooks !== undefined) updates.playbooks = playbooks;
       if (Object.keys(updates).length === 0) {
         return { content: [{ type: "text" as const, text: "No updates provided" }], isError: true };
@@ -1632,7 +1661,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
           deps.skillsRepo!.update(skill.id, updates);
           deps.skillIndex.refresh();
         }
-        return { content: [{ type: "text" as const, text: `Updated skill: ${slug} — fields: ${Object.keys(updates).join(", ")}` }] };
+        const msg = `Updated skill: ${slug} — fields: ${Object.keys(updates).join(", ")}`;
+        return { content: [{ type: "text" as const, text: warnings.length > 0 ? `${msg}\nWarnings: ${warnings.join("; ")}` : msg }] };
       } catch (err: any) {
         return { content: [{ type: "text" as const, text: `Failed to update skill: ${err.message}` }], isError: true };
       }

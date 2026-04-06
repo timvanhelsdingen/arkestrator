@@ -3488,11 +3488,10 @@ export function createSettingsTrainingRoutes(deps: SettingsRouteDeps) {
     const trainingLevel = String(body?.trainingLevel ?? "").trim();
     const excludeWorker = String(body?.excludeWorker ?? "").trim();
 
-    // Use orchestrator so it auto-detects programs from source paths
-    // (e.g. .blend → blender, .hip → houdini) and fans out per-program children.
-    let trainingJob: import("@arkestrator/protocol").Job;
+    // Spawn per-program training jobs directly (no orchestrator wrapper).
+    let trainingResult: import("../agents/coordinator-training.js").TrainingOrchestrationResult;
     try {
-      trainingJob = queueTrainingOrchestrator(
+      trainingResult = queueTrainingOrchestrator(
         {
           jobsRepo,
           agentsRepo,
@@ -3515,7 +3514,6 @@ export function createSettingsTrainingRoutes(deps: SettingsRouteDeps) {
           excludeWorker: excludeWorker || undefined,
           trainingLevel: (trainingLevel || undefined) as import("../agents/coordinator-training.js").TrainingLevel | undefined,
           submittedBy: user.id,
-          chainHousekeeping: true,
         },
       );
     } catch (err: any) {
@@ -3528,15 +3526,20 @@ export function createSettingsTrainingRoutes(deps: SettingsRouteDeps) {
       action: "coordinator_training_run_now",
       resource: "settings",
       details: JSON.stringify({
-        jobId: trainingJob.id,
-        programs: requestedPrograms.length > 0 ? requestedPrograms : "auto-detect",
+        jobIds: trainingResult.children.map((c) => c.jobId),
+        programs: trainingResult.children.map((c) => c.program),
         autoDetected: requestedPrograms.length === 0,
         apply,
       }),
       ipAddress: getClientIp(c),
     });
 
-    return c.json({ ok: true, apply, orchestratorJobId: trainingJob.id, job: trainingJob });
+    return c.json({
+      ok: true,
+      apply,
+      jobs: trainingResult.children,
+      failures: trainingResult.failures,
+    });
   });
 
   // List normalized training-job summaries from vault artifacts so admin UI can

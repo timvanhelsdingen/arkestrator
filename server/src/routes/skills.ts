@@ -181,14 +181,23 @@ export function createSkillsRoutes(
   }
 
   // GET / — list skills (from index, includes all sources)
+  // When filtering by program, global skills are returned separately.
   router.get("/", async (c) => {
     const auth = await requireAuth(c);
     if (!auth) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
 
     const program = c.req.query("program");
     const category = c.req.query("category") as any;
-    const skills = skillIndex.list({ program: program || undefined, category: category || undefined });
-    return c.json({ skills });
+    const allSkills = skillIndex.list({ program: program || undefined, category: category || undefined });
+
+    // When filtering by a specific program, split global skills into their own group
+    if (program) {
+      const programSkills = allSkills.filter((s) => s.program !== "global");
+      const globalSkills = allSkills.filter((s) => s.program === "global");
+      return c.json({ skills: programSkills, globalSkills });
+    }
+
+    return c.json({ skills: allSkills });
   });
 
   // POST / — create custom skill (writes to DB via skillsRepo)
