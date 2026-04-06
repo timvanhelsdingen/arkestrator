@@ -1807,7 +1807,7 @@
             {:else}
               {#each filteredSkills as skill}
                 {@const eff = skillEffectiveness[skill.id]}
-                {@const isAutoFetch = skill.autoFetch}
+
                 {@const key = skillKey(skill)}
                 <tr>
                   <td><input type="checkbox"
@@ -1824,16 +1824,10 @@
                   <td><span class="badge">{skill.category}</span></td>
                   <td class="muted">{skill.source ?? ""}</td>
                   <td class="mono">
-                    {#if isAutoFetch}
-                      <span class="muted" title="Auto-fetch skills are always injected — usage tracking is not applicable">—</span>
-                    {:else}
                       {eff?.totalUsed ?? "-"}{eff && eff.pendingOutcomes > 0 ? ` (${eff.totalUsed - eff.pendingOutcomes} rated)` : ""}
-                    {/if}
                   </td>
                   <td>
-                    {#if isAutoFetch}
-                      <span class="muted" title="Auto-fetch skills are always injected — effectiveness tracking is not applicable">—</span>
-                    {:else if eff && (eff.totalUsed - (eff.pendingOutcomes ?? 0)) > 0}
+                    {#if eff && (eff.totalUsed - (eff.pendingOutcomes ?? 0)) > 0}
                       {@const pct = Math.round(eff.successRate * 100)}
                       <span class="badge {pct >= 70 ? 'success' : pct >= 40 ? 'warn' : 'bad'}">{pct}%</span>
                     {:else if eff && eff.totalUsed > 0}
