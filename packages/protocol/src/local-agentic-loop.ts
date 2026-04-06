@@ -112,7 +112,9 @@ export interface AgenticLoopDeps {
 
   /**
    * Return extra text to append to the task prompt (e.g. operator interventions).
-   * Called once per turn, before building the prompt.
+   * Called at the start of each turn AND after every tool execution for immediate
+   * guidance delivery. Must be idempotent — interventions should be marked as
+   * delivered on first call so subsequent calls return empty.
    */
   getTurnPromptSuffix?(turn: number): string;
 
@@ -469,6 +471,19 @@ export async function runAgenticLoop(
       action: compactJson(action, 3000),
       result: compactJson(historyResult, 5000),
     });
+
+    // Check for operator guidance immediately after tool execution so it's
+    // visible to the very next LLM call, rather than waiting for the next
+    // full turn boundary. This makes guidance delivery near-instant.
+    const midTurnSuffix = deps.getTurnPromptSuffix?.(turn) ?? "";
+    if (midTurnSuffix) {
+      history.push({
+        turn,
+        action: compactJson({ type: "operator_guidance" }, 200),
+        result: compactJson({ guidance: midTurnSuffix }, 5000),
+      });
+      deps.log(`${prefix} turn ${turn}: operator guidance injected mid-turn`);
+    }
   }
 
   // Exhausted all turns
@@ -722,6 +737,13 @@ export async function runChatAgenticLoop(
             messages.push({ role: "assistant", content: evalText });
           }
         }
+      }
+
+      // Check for operator guidance immediately after tool execution
+      const midTurnGuidance = deps.getTurnPromptSuffix?.(turn) ?? "";
+      if (midTurnGuidance) {
+        messages.push({ role: "user", content: midTurnGuidance });
+        deps.log(`${prefix} turn ${turn}: operator guidance injected mid-turn`);
       }
 
       // Slide window
