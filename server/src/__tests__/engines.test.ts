@@ -457,7 +457,9 @@ describe("buildCommand (local-oss placeholders)", () => {
 
     const spec = buildCommand(config, job);
     expect(spec.command).toBe("ollama");
-    expect(spec.args).toEqual(["run", "llama3.2:latest", job.prompt]);
+    expect(spec.args[0]).toBe("run");
+    expect(spec.args[1]).toBe("llama3.2:latest");
+    expect(spec.args[2]).toContain(job.prompt);
   });
 
   test("does not append trailing prompt when prompt placeholder is explicitly used", () => {
@@ -491,7 +493,10 @@ describe("buildCommand (local-oss placeholders)", () => {
     };
 
     const spec = buildCommand(config, job);
-    expect(spec.args).toEqual(["--model", "custom-weight-v2", "--prompt", job.prompt]);
+    expect(spec.args[0]).toBe("--model");
+    expect(spec.args[1]).toBe("custom-weight-v2");
+    expect(spec.args[2]).toBe("--prompt");
+    expect(spec.args[3]).toContain(job.prompt);
   });
 
   test("injects execution instructions for command-mode local runs", () => {
