@@ -2,6 +2,8 @@ import { lstat, readdir, readFile, readlink } from "node:fs/promises";
 import { watch, existsSync, type FSWatcher } from "node:fs";
 import { join, relative, extname } from "node:path";
 import type { FileChange } from "@arkestrator/protocol";
+import type { Policy } from "../db/policies.repo.js";
+import { minimatch } from "minimatch";
 
 const SKIP_DIRS = new Set(["node_modules", "__pycache__"]);
 
@@ -71,9 +73,26 @@ export interface DirWatcher {
   getChanges(beforePaths: Set<string>): Promise<FileChange[]>;
 }
 
-export function startWatching(rootDir: string): DirWatcher {
+/**
+ * Options for real-time file path policy enforcement during watching.
+ * When provided, the watcher checks each changed file against blocked
+ * policies and fires the onViolation callback immediately.
+ */
+export interface WatcherPolicyOptions {
+  /** file_path policies with action "block" */
+  policies: Policy[];
+  /** Called synchronously when a changed file matches a blocked pattern */
+  onViolation: (path: string, message: string) => void;
+}
+
+export function startWatching(rootDir: string, policyOpts?: WatcherPolicyOptions): DirWatcher {
   const changedPaths = new Set<string>();
   let watcher: FSWatcher | null = null;
+
+  // Pre-filter to only blocked file_path policies for fast matching
+  const blockedPolicies = policyOpts
+    ? policyOpts.policies.filter((p) => p.type === "file_path" && p.action === "block")
+    : [];
 
   try {
     watcher = watch(rootDir, { recursive: true }, (_event, filename) => {
@@ -83,6 +102,17 @@ export function startWatching(rootDir: string): DirWatcher {
       const parts = rel.split("/");
       if (parts.some((p) => shouldSkip(p))) return;
       changedPaths.add(rel);
+
+      // Real-time file_path policy enforcement — check every fs event
+      if (policyOpts && blockedPolicies.length > 0) {
+        for (const policy of blockedPolicies) {
+          if (minimatch(rel, policy.pattern, { dot: true })) {
+            const msg = `File "${rel}" matches blocked pattern "${policy.pattern}"${policy.description ? ` (${policy.description})` : ""}`;
+            policyOpts.onViolation(rel, msg);
+            break;
+          }
+        }
+      }
     });
   } catch {
     // fs.watch failed (e.g. unsupported platform) — getChanges returns empty

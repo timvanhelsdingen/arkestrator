@@ -9,7 +9,7 @@ import type { JobsRepo } from "../db/jobs.repo.js";
 import type { SettingsRepo } from "../db/settings.repo.js";
 import type { Config } from "../config.js";
 import type { WorkerResourceLeaseManager } from "../agents/resource-control.js";
-import { checkCommandScripts } from "../policies/enforcer.js";
+import { checkCommandScripts, checkScriptFilePaths } from "../policies/enforcer.js";
 import { executeWorkerHeadlessCommands, runWorkerHeadlessCheck } from "../agents/worker-headless.js";
 import { executeComfyUiHeadless } from "../agents/comfyui-headless.js";
 import {
@@ -151,6 +151,25 @@ export async function executeBridgeCommand(
       },
       status: 403,
     };
+  }
+
+  // Check scripts for file paths that violate file_path policies
+  for (const cmd of commands) {
+    const fpViolations = checkScriptFilePaths(cmd.script, policies);
+    const fpBlockers = fpViolations.filter((v) => v.action === "block");
+    if (fpBlockers.length > 0) {
+      return {
+        error: "Command blocked by file_path policy",
+        result: {
+          violations: fpBlockers.map((v) => ({
+            pattern: v.pattern,
+            message: v.message,
+            description: v.description,
+          })),
+        },
+        status: 403,
+      };
+    }
   }
 
   const timeoutMs = Math.min(

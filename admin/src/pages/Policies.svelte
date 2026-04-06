@@ -86,27 +86,55 @@
     },
     {
       name: "Prevent Destructive Operations",
-      description: "Block dangerous shell commands that delete files, format disks, or wipe data",
+      description: "Block dangerous commands that delete files, format disks, or wipe data — covers all languages",
       rules: [
+        // Recursive/forced shell deletion
         { type: "command_filter", pattern: "rm\\s+-r[f ]|rm\\s+-fr", action: "block", description: "Block recursive file deletion" },
         { type: "command_filter", pattern: "rmdir\\s+/s", action: "block", description: "Block Windows recursive directory removal" },
         { type: "command_filter", pattern: "del\\s+/[sfq]", action: "block", description: "Block Windows force-delete" },
+        // Disk/filesystem destruction
         { type: "command_filter", pattern: "format\\s+[a-z]:", action: "block", description: "Block disk formatting" },
         { type: "command_filter", pattern: "mkfs\\.", action: "block", description: "Block filesystem creation" },
         { type: "command_filter", pattern: "dd\\s+if=.*of=/dev/", action: "block", description: "Block raw disk writes" },
+        // Any language — broad delete method calls
+        { type: "command_filter", pattern: "\\.rmtree\\s*\\(|\\.removedirs\\s*\\(", action: "block", description: "Block recursive deletion calls" },
+        { type: "command_filter", pattern: "DirAccess\\.remove|FileAccess\\.remove", action: "block", description: "Block GDScript file deletion" },
         { type: "prompt_filter", pattern: "rm\\s+-rf\\s+/(?!tmp)", action: "block", description: "Block prompts requesting recursive root deletion" },
       ],
     },
     {
       name: "No File Deletion",
-      description: "Block all file and directory deletion commands — agents can only create and modify files",
+      description: "AGGRESSIVE — block ALL file/directory deletion across every language and method. Kills the job on first violation.",
       rules: [
+        // Shell (Unix)
         { type: "command_filter", pattern: "\\brm\\s", action: "block", description: "Block rm command" },
-        { type: "command_filter", pattern: "\\brmdir\\b", action: "block", description: "Block rmdir command" },
-        { type: "command_filter", pattern: "\\bdel\\b", action: "block", description: "Block Windows del command" },
-        { type: "command_filter", pattern: "\\bunlink\\b", action: "block", description: "Block unlink command" },
-        { type: "command_filter", pattern: "Remove-Item", action: "block", description: "Block PowerShell Remove-Item" },
-        { type: "command_filter", pattern: "shutil\\.rmtree|os\\.remove|os\\.unlink", action: "block", description: "Block Python file deletion" },
+        { type: "command_filter", pattern: "\\brmdir\\b", action: "block", description: "Block rmdir" },
+        { type: "command_filter", pattern: "\\bunlink\\b", action: "block", description: "Block unlink" },
+        { type: "command_filter", pattern: "\\bshred\\b", action: "block", description: "Block shred" },
+        // Shell (Windows)
+        { type: "command_filter", pattern: "\\bdel\\s+/|\\bdel\\s+[\"']|\\bdel\\s+[A-Za-z]:", action: "block", description: "Block Windows del with path" },
+        { type: "command_filter", pattern: "\\berase\\b", action: "block", description: "Block Windows erase" },
+        // PowerShell
+        { type: "command_filter", pattern: "Remove-Item|Remove-Variable|Clear-Content", action: "block", description: "Block PowerShell deletion" },
+        // Any language — method calls that delete/remove/unlink
+        { type: "command_filter", pattern: "\\.remove\\s*\\(", action: "block", description: "Block .remove() calls" },
+        { type: "command_filter", pattern: "\\.unlink\\s*\\(", action: "block", description: "Block .unlink() calls" },
+        { type: "command_filter", pattern: "\\.rmdir\\s*\\(", action: "block", description: "Block .rmdir() calls" },
+        { type: "command_filter", pattern: "\\.rmtree\\s*\\(", action: "block", description: "Block .rmtree() calls" },
+        { type: "command_filter", pattern: "\\.removedirs\\s*\\(", action: "block", description: "Block .removedirs() calls" },
+        { type: "command_filter", pattern: "\\.delete\\s*\\(", action: "block", description: "Block .delete() calls" },
+        // Python specific
+        { type: "command_filter", pattern: "os\\.system\\s*\\(", action: "block", description: "Block os.system() calls" },
+        { type: "command_filter", pattern: "subprocess\\.", action: "block", description: "Block subprocess module" },
+        { type: "command_filter", pattern: "send2trash|trash\\s*\\(", action: "block", description: "Block trash/recycle" },
+        // Node.js
+        { type: "command_filter", pattern: "fs\\.unlink|fs\\.rmdir|fs\\.rm\\b|rimraf", action: "block", description: "Block Node.js deletion" },
+        // GDScript
+        { type: "command_filter", pattern: "DirAccess\\.remove|FileAccess\\.remove|Directory\\.remove", action: "block", description: "Block GDScript deletion" },
+        // Lua
+        { type: "command_filter", pattern: "lfs\\.rmdir|lfs\\.delete", action: "block", description: "Block Lua FS deletion" },
+        // Prompt-level block — catch prompts asking to delete
+        { type: "prompt_filter", pattern: "\\bdelete\\b.*\\.(png|jpg|blend|fbx|obj|zip|rar|7z|exe|dll|psd|ai|svg|mp4|mov|wav|mp3)", action: "block", description: "Block prompts requesting file deletion" },
       ],
     },
     {

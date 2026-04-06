@@ -54,17 +54,26 @@ export interface ParsedLogLine {
 export type CommandPolicyChecker = (command: string) => string | null;
 
 /**
+ * Callback to check a file path against file_path policies.
+ * Returns a violation message string if blocked, or null if allowed.
+ */
+export type FilePathPolicyChecker = (filePath: string) => string | null;
+
+/**
  * Process a chunk of stream-json stdout data.
  * Returns an array of human-readable log lines to send to the client.
  *
  * @param commandChecker — optional callback that checks Bash commands against
  *   command_filter policies in real time. When a violation is detected, the
  *   returned ParsedLogLine will include a `policyViolation` field.
+ * @param filePathChecker — optional callback that checks file paths from
+ *   Write/Edit/NotebookEdit tool calls against file_path policies.
  */
 export function processStreamJsonChunk(
   state: StreamJsonState,
   chunk: string,
   commandChecker?: CommandPolicyChecker,
+  filePathChecker?: FilePathPolicyChecker,
 ): ParsedLogLine[] {
   const results: ParsedLogLine[] = [];
 
@@ -87,7 +96,7 @@ export function processStreamJsonChunk(
       continue;
     }
 
-    const parsed = parseEvent(state, event, commandChecker);
+    const parsed = parseEvent(state, event, commandChecker, filePathChecker);
     if (parsed) {
       results.push(parsed);
     }
@@ -96,7 +105,7 @@ export function processStreamJsonChunk(
   return results;
 }
 
-function parseEvent(state: StreamJsonState, event: any, commandChecker?: CommandPolicyChecker): ParsedLogLine | null {
+function parseEvent(state: StreamJsonState, event: any, commandChecker?: CommandPolicyChecker, filePathChecker?: FilePathPolicyChecker): ParsedLogLine | null {
   switch (event.type) {
     case "system":
       if (event.session_id && typeof event.session_id === "string") {
@@ -144,6 +153,24 @@ function parseEvent(state: StreamJsonState, event: any, commandChecker?: Command
             const v = commandChecker(input.command);
             if (v) violation = v;
           }
+          // Real-time file_path policy check for file-modifying tools
+          if (filePathChecker && !violation) {
+            const fp = getToolFilePath(block.name, input);
+            if (fp) {
+              const v = filePathChecker(fp);
+              if (v) violation = v;
+            }
+          }
+          // Real-time file_path check for scripts (Bash, execute_command, execute_local)
+          if (filePathChecker && !violation) {
+            const script = input.command ?? input.script ?? null;
+            if (script && typeof script === "string") {
+              for (const fp of extractFilePathsFromScript(script)) {
+                const v = filePathChecker(fp);
+                if (v) { violation = v; break; }
+              }
+            }
+          }
         }
       }
       if (parts.length > 0) {
@@ -163,6 +190,24 @@ function parseEvent(state: StreamJsonState, event: any, commandChecker?: Command
       if (commandChecker && event.name === "Bash" && input.command) {
         const v = commandChecker(input.command);
         if (v) result.policyViolation = v;
+      }
+      // Real-time file_path policy check for file-modifying tools
+      if (filePathChecker && !result.policyViolation) {
+        const fp = getToolFilePath(event.name, input);
+        if (fp) {
+          const v = filePathChecker(fp);
+          if (v) result.policyViolation = v;
+        }
+      }
+      // Real-time file_path check for scripts (Bash, execute_command, execute_local)
+      if (filePathChecker && !result.policyViolation) {
+        const script = input.command ?? input.script ?? null;
+        if (script && typeof script === "string") {
+          for (const fp of extractFilePathsFromScript(script)) {
+            const v = filePathChecker(fp);
+            if (v) { result.policyViolation = v; break; }
+          }
+        }
       }
       return result;
     }
@@ -261,6 +306,44 @@ function parseEvent(state: StreamJsonState, event: any, commandChecker?: Command
     default:
       return null;
   }
+}
+
+/**
+ * Extract the file path from a file-modifying tool call.
+ * Returns the relative path (stripped of cwd prefix) or null if not applicable.
+ */
+function getToolFilePath(toolName: string, input: Record<string, any>): string | null {
+  switch (toolName) {
+    case "Write":
+    case "Edit":
+    case "Read":
+      return input.file_path ?? null;
+    case "NotebookEdit":
+      return input.notebook_path ?? null;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Extract file paths mentioned in a script/command string.
+ * Looks for Windows and Unix-style absolute paths and quoted paths.
+ * Returns all candidate paths found.
+ */
+function extractFilePathsFromScript(script: string): string[] {
+  const paths: string[] = [];
+  // Windows absolute paths: D:\foo\bar.png, D:/foo/bar.png (with or without quotes)
+  const winRe = /[A-Za-z]:[\\\/][\w\\\/.\-\s]+\.\w+/g;
+  // Unix absolute paths: /home/user/file.ext (with or without quotes)
+  const unixRe = /\/(?:home|tmp|var|opt|usr|mnt|media|root)\/[\w\/.\-\s]+\.\w+/g;
+  let m;
+  while ((m = winRe.exec(script)) !== null) {
+    paths.push(m[0].trim());
+  }
+  while ((m = unixRe.exec(script)) !== null) {
+    paths.push(m[0].trim());
+  }
+  return paths;
 }
 
 /** Format a tool use event into a concise human-readable string */
