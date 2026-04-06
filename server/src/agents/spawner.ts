@@ -1722,7 +1722,10 @@ export async function spawnAgent(
   // Inject relevant skills from the skills DB into the agent's context.
   // Skills are ranked by semantic relevance to the job prompt + effectiveness scores.
   // AutoFetch skills (coordinators, bridge scripts) always inject regardless of score.
-  if (deps.skillsRepo) {
+  // Skip entirely when all coordination scripts are disabled — auto-fetch skills
+  // contain coordinator/bridge content that the user explicitly opted out of.
+  const allCoordinationDisabled = !includeBridge && !includeCoordinator && !includeTraining;
+  if (deps.skillsRepo && !allCoordinationDisabled) {
     const jobProgram = (job.bridgeProgram ?? "").trim().toLowerCase();
 
     // Only inject auto-fetch skills (coordinators, bridge scripts) into the

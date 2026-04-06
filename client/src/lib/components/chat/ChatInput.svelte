@@ -17,6 +17,12 @@
   } from "../../api/rest";
   import TemplatePicker from "./TemplatePicker.svelte";
 
+  type AttachmentMeta = { id: string; name: string; kind: "text" | "image" | "binary"; size: number };
+
+  // Module-level storage: survives component remounts (navigation) but not page reloads.
+  // File objects can't be serialized to localStorage so this is the best we can do.
+  const _savedAttachments = new Map<string, AttachmentMeta[]>();
+  const _savedAttachmentFiles = new Map<string, Map<string, File>>();
 
   let {
     draftPrompt,
@@ -39,6 +45,7 @@
   } = $props();
 
   let projects = $state<Array<{ id: string; name: string }>>([]);
+  let projectsLoaded = $state(false);
   let localModelCatalog = $state<LocalModelCatalogEntry[]>([]);
   let providerModelCatalogs = $state<Record<string, ProviderModelCatalog>>({});
   let localModelsLoadedKey = $state("");
@@ -50,7 +57,8 @@
     if (connection.isConnected) {
       api.projects.list().then((list: any) => {
         projects = Array.isArray(list) ? list : list.projects ?? [];
-      }).catch(() => {});
+        projectsLoaded = true;
+      }).catch(() => { projectsLoaded = true; });
     }
   });
 
@@ -174,7 +182,9 @@
 
   // If a persisted tab references a deleted/unknown project ID, reset to "none"
   // so submissions do not silently bind to stale project mappings.
+  // Guard on projectsLoaded to avoid resetting before the API response arrives.
   $effect(() => {
+    if (!projectsLoaded) return;
     const tab = chatStore.activeTab;
     if (!tab || tab.projectSelection !== "project" || !tab.projectId) return;
     if (!projects.some((project) => project.id === tab.projectId)) {
@@ -190,14 +200,10 @@
   let promptText = $state("");
   let syncedDraftPrompt = $state<string | null>(null);
   let improving = $state(false);
-  // Store raw file data alongside metadata for uploading with job
-  let attachmentFiles = $state<Map<string, File>>(new Map());
-  let attachments = $state<Array<{
-    id: string;
-    name: string;
-    kind: "text" | "image" | "binary";
-    size: number;
-  }>>([]);
+  // Restore attachments from module-level storage (survives navigation)
+  const tabId = chatStore.activeTab?.id ?? "";
+  let attachmentFiles = $state<Map<string, File>>(_savedAttachmentFiles.get(tabId) ?? new Map());
+  let attachments = $state<AttachmentMeta[]>(_savedAttachments.get(tabId) ?? []);
   let textarea: HTMLTextAreaElement | undefined = $state();
   let fileInput: HTMLInputElement | undefined = $state();
   let bridgeDropdownOpen = $state(false);
@@ -304,9 +310,10 @@
   let totalWorkerCount = $derived(workerEntries.length);
 
   let selectedCount = $derived(selectedWorkerNames.length);
+  const DEPENDENCY_ELIGIBLE_STATUSES = new Set(["running", "paused", "queued"]);
   let dependencyJobs = $derived.by(() =>
     jobs.all
-      .slice()
+      .filter((job) => DEPENDENCY_ELIGIBLE_STATUSES.has(job.status))
       .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
       .slice(0, 200),
   );
@@ -616,6 +623,19 @@
     if (promptText === syncedDraftPrompt) return;
     syncedDraftPrompt = promptText;
     chatStore.setDraftPrompt(promptText);
+  });
+
+  // Sync attachments to module-level storage so they survive navigation
+  $effect(() => {
+    const tid = chatStore.activeTab?.id;
+    if (!tid) return;
+    if (attachments.length > 0) {
+      _savedAttachments.set(tid, attachments);
+      _savedAttachmentFiles.set(tid, attachmentFiles);
+    } else {
+      _savedAttachments.delete(tid);
+      _savedAttachmentFiles.delete(tid);
+    }
   });
 
   function toggleWorker(workerName: string) {

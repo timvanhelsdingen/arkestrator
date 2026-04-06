@@ -4,6 +4,7 @@
 Central hub. Receives jobs via REST+WS, queues them in SQLite, spawns AI CLI tools as subprocesses, streams results back to bridges+clients. Manages all state.
 
 ## Recent Updates (2026-04-06)
+- Skip auto-fetch skills when coordination disabled (2026-04-06): `src/agents/spawner.ts` — added `allCoordinationDisabled` check that skips auto-fetch skill injection when all coordination scripts are disabled for the job (i.e. `coordinationScripts.mode === "none"`), preventing skill content from being appended to jobs that intentionally opt out of coordination.
 - Agent job self-rating (2026-04-06): `src/mcp/tool-server.ts` — new `rate_job` MCP tool lets agents self-assess their own job outcome (`good`/`average`/`poor` + optional notes). Calls `markOutcome()` and updates skill effectiveness for unrated skills. Also fixed `get_skill` inline `rate_skill` reminder which used wrong enum values (`"positive"|"average"|"negative"` instead of `"useful"|"not_useful"|"partial"`). `src/agents/spawner.ts` — added `rate_job` handler for local-oss agents, restored "Job & Skill Feedback" prompt section telling agents to self-rate both their job and skills before finishing, re-enabled auto-fetch skill usage tracking. `src/agents/cli-wrapper.ts` — added `am jobs rate <good|average|poor> [notes]` CLI subcommand.
 
 ## Recent Updates (2026-04-04)
