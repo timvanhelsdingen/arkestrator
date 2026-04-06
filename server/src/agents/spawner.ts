@@ -1252,6 +1252,23 @@ export async function executeLocalAgenticToolCall(
     return { ok: true, data: `Rated: ${slug} → ${rating}` };
   }
 
+  if (call.tool === "rate_job") {
+    const rating = parseStringArg(args.rating);
+    if (!rating || !["good", "average", "poor"].includes(rating)) {
+      return { ok: false, error: "rate_job requires rating: good, average, or poor" };
+    }
+    const notes = parseStringArg(args.notes) || "";
+    const storedRating = rating === "good" ? "positive" as const
+      : rating === "average" ? "average" as const
+      : "negative" as const;
+    deps.jobsRepo.markOutcome(job.id, storedRating, notes.trim(), null);
+    if (deps.skillEffectivenessRepo) {
+      const skillOutcome = rating === "good" ? "positive" : rating === "poor" ? "negative" : "average";
+      deps.skillEffectivenessRepo.recordOutcome(job.id, skillOutcome);
+    }
+    return { ok: true, data: `Job rated: ${rating}${notes.trim() ? ` — ${notes.trim()}` : ""}` };
+  }
+
   return { ok: false, error: `Unsupported tool: ${call.tool}` };
 }
 
@@ -1749,12 +1766,13 @@ export async function spawnAgent(
         skillLines.push(`## Available Skills (${rankedSkillCount} learned skills)`);
         skillLines.push(
           "Before starting work, search for relevant skills to avoid reinventing the wheel. " +
-          "Use MCP tools if available: search_skills, get_skill, create_skill, rate_skill. " +
+          "Use MCP tools if available: search_skills, get_skill, create_skill, rate_skill, rate_job. " +
           "If MCP is unavailable, use the am CLI instead:\n" +
           "  - `am skills search '<query>' [--program <program>]` — find relevant skills\n" +
           "  - `am skills get <slug>` — load a skill's full content\n" +
           "  - `am skills create --slug <slug> --title '<title>' --program <program> --content '<content>'` — save a new skill\n" +
           "  - `am skills rate <slug> <useful|not_useful|partial>` — rate a skill after using it\n" +
+          "  - `am jobs rate <good|average|poor> [notes]` — rate your own job outcome before finishing\n" +
           "Search for your task type before starting (e.g., 'blender rendering', 'nuke compositing'). " +
           "Search AGAIN whenever you hit errors, unexpected results, or need to retry — use the specific problem as the query. " +
           "Do not keep guessing when a skill might already have the answer. " +
@@ -1780,19 +1798,32 @@ export async function spawnAgent(
         );
       }
 
-      // Auto-fetch skills are not tracked for effectiveness —
-      // only on-demand skills (via get_skill) prompt agents to rate them.
+      // Tell the agent to rate skills and their own job outcome
+      const autoFetchSlugs = autoFetchSkills.map((s) => s.slug);
+      skillLines.push("\n## Job & Skill Feedback");
+      skillLines.push(
+        "Before finishing your task, you MUST do the following:\n" +
+        "1. **Rate your job outcome** — call `rate_job` with `good`, `average`, or `poor` to self-assess how well the task went.\n" +
+        "2. **Rate skills you used** — call `rate_skill` for each skill you loaded or referenced, rating it `useful`, `not_useful`, or `partial`." +
+        (autoFetchSlugs.length > 0
+          ? `\n   Auto-fetched skills to rate: ${autoFetchSlugs.map((s) => `\`${s}\``).join(", ")}.`
+          : "") +
+        "\n\nThis feedback is critical — it improves skill recommendations and helps the system learn from your work.",
+      );
 
       const skillBlock = skillLines.join("\n").trim();
       orchestratorPromptOverride = orchestratorPromptOverride
         ? `${orchestratorPromptOverride}\n\n${skillBlock}`
         : skillBlock;
 
-      // NOTE: Auto-fetch skills are NOT tracked for effectiveness.
-      // They're always injected as background context — tracking them
-      // creates noise (agents rarely rate them, so they show 0%).
-      // Only on-demand skills (fetched via search_skills/get_skill MCP
-      // tools) are tracked for effectiveness.
+      // Record auto-fetch skill usage for effectiveness tracking.
+      // Agents are instructed to rate these, so recording usage ensures
+      // the effectiveness data is meaningful.
+      if (deps.skillEffectivenessRepo) {
+        for (const skill of autoFetchSkills) {
+          deps.skillEffectivenessRepo.recordUsage(skill.id, job.id);
+        }
+      }
     }
 
     // Log for observability

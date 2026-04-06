@@ -44,6 +44,14 @@ pnpm --filter @arkestrator/protocol build     # Build protocol package
 - Protocol package is workspace-internal, referenced as `@arkestrator/protocol`
 - Provider model catalogs and reasoning tiers are time-sensitive runtime data. If the UI exposes model/reasoning suggestion lists for any provider and they are not dynamically discovered, agents must re-verify them against current official provider/runtime sources whenever touching that surface and before release/build packaging work. Do not leave stale hardcoded model lists in place when newer official variants exist.
 
+### Skill System
+**Read [`docs/skills.md`](docs/skills.md) before touching skill-related code.** It covers the full skill lifecycle, ranking algorithm, effectiveness tracking, and agent rating tools (`rate_skill`, `rate_job`). Key invariants:
+- The "Job & Skill Feedback" prompt section in `spawner.ts` and the MCP tool definitions in `tool-server.ts` must stay in sync — if you change accepted enum values in one, update the other
+- `rate_skill` accepts: `useful` | `not_useful` | `partial`
+- `rate_job` accepts: `good` | `average` | `poor`
+- The `get_skill` response appends an inline reminder with the correct `rate_skill` values — keep this in sync too
+- Auto-fetch skills ARE tracked for effectiveness and agents are instructed to rate them
+
 ### Project Plan
 **Always check `PROJECT_PLAN.md` before starting work.** It tracks:
 - What's done (âœ…) and what's next (â¬œ)

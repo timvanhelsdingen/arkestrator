@@ -1451,7 +1451,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
           }
         }
       }
-      const rateReminder = `\n\n---\n_After using this skill, call \`rate_skill("${slug}", "positive"|"average"|"negative")\` to help improve future recommendations._`;
+      const rateReminder = `\n\n---\n_After using this skill, call \`rate_skill("${slug}", "useful"|"not_useful"|"partial")\` to help improve future recommendations._`;
       return { content: [{ type: "text" as const, text: `# ${skill.title}\n\n${content}${rateReminder}` }] };
     },
   );
@@ -1481,6 +1481,47 @@ export function createMcpServer(deps: McpDeps): McpServer {
       deps.skillEffectivenessRepo.recordSkillOutcome(skill.id, deps.callerJobId, outcome);
       const notesSuffix = notes ? ` — ${notes}` : "";
       return { content: [{ type: "text" as const, text: `Recorded: ${slug} → ${rating}${notesSuffix}` }] };
+    },
+  );
+
+  server.tool(
+    "rate_job",
+    "Rate the overall quality of your own job before finishing. " +
+      "Call this once near the end of your work to self-assess how well the task went. " +
+      "This helps the system learn from successes and failures.",
+    {
+      rating: z.enum(["good", "average", "poor"]).describe(
+        "good = task completed successfully as requested; average = partially completed or with caveats; poor = failed or produced incorrect results",
+      ),
+      notes: z.string().max(4000).optional().describe(
+        "Brief explanation of what went well or what went wrong (e.g. 'completed all requested changes' or 'bridge disconnected mid-task')",
+      ),
+    },
+    async ({ rating, notes }) => {
+      if (!deps.callerJobId) {
+        return { content: [{ type: "text" as const, text: "No job context — rate_job can only be called by an agent running a job" }], isError: true };
+      }
+      const job = deps.jobsRepo.getById(deps.callerJobId);
+      if (!job) {
+        return { content: [{ type: "text" as const, text: `Job not found: ${deps.callerJobId}` }], isError: true };
+      }
+      // Map input rating to stored outcome
+      const storedRating = rating === "good" ? "positive" as const
+        : rating === "average" ? "average" as const
+        : "negative" as const;
+      const notesTrimmed = (notes ?? "").trim();
+      deps.jobsRepo.markOutcome(deps.callerJobId, storedRating, notesTrimmed, null);
+      // Update skill effectiveness for unrated skills
+      if (deps.skillEffectivenessRepo) {
+        const skillOutcome = rating === "good" ? "positive" : rating === "poor" ? "negative" : "average";
+        deps.skillEffectivenessRepo.recordOutcome(deps.callerJobId, skillOutcome);
+      }
+      // Broadcast the updated job to clients
+      const updated = deps.jobsRepo.getById(deps.callerJobId);
+      if (updated) {
+        deps.hub.broadcastToType("client", { type: "job_updated", id: newId(), payload: { job: updated } });
+      }
+      return { content: [{ type: "text" as const, text: `Job rated: ${rating}${notesTrimmed ? ` — ${notesTrimmed}` : ""}` }] };
     },
   );
 
