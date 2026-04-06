@@ -1,13 +1,18 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { getCurrentWindow } from "@tauri-apps/api/window";
 
-  const appWindow = getCurrentWindow();
+  let appWindow: ReturnType<typeof getCurrentWindow> | null = $state(null);
   const isMac = navigator.platform.toUpperCase().includes("MAC");
   const clientVersion = __CLIENT_VERSION__;
 
-  function minimize() { appWindow.minimize(); }
-  function toggleMaximize() { appWindow.toggleMaximize(); }
-  function close() { appWindow.close(); }
+  onMount(() => {
+    try { appWindow = getCurrentWindow(); } catch { appWindow = null; }
+  });
+
+  function minimize() { appWindow?.minimize(); }
+  function toggleMaximize() { appWindow?.toggleMaximize(); }
+  function close() { appWindow?.close(); }
 </script>
 
 <div class="titlebar" class:macos={isMac} data-tauri-drag-region>
