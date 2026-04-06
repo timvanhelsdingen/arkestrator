@@ -7,6 +7,7 @@ import type { UsersRepo } from "../db/users.repo.js";
 import { getAuthPrincipal, principalHasPermission, type AuthPrincipal } from "../middleware/auth.js";
 import { logger } from "../utils/logger.js";
 import { errorResponse } from "../utils/errors.js";
+import type { JobInterventionsRepo } from "../db/job-interventions.repo.js";
 
 /**
  * Create Hono routes for MCP.
@@ -100,6 +101,13 @@ export function createMcpRoutes(
         return c.body(null, 202);
       }
 
+      // Piggyback pending operator guidance onto every tool call response.
+      // This ensures agents receive guidance ASAP regardless of engine type,
+      // without needing to explicitly poll list_job_interventions.
+      if (callerJobId && mcpDeps.jobInterventionsRepo) {
+        injectPendingGuidance(response, callerJobId, mcpDeps.jobInterventionsRepo);
+      }
+
       return c.json(response);
     } catch (err: any) {
       logger.error("mcp", `MCP request error: ${err.message}`);
@@ -118,4 +126,44 @@ export function createMcpRoutes(
   });
 
   return app;
+}
+
+/**
+ * Append pending operator guidance to a tool call response so agents
+ * receive guidance immediately with any MCP tool call, regardless of
+ * engine type (claude-code, codex, local-oss).
+ */
+function injectPendingGuidance(
+  response: JSONRPCMessage,
+  jobId: string,
+  repo: JobInterventionsRepo,
+): void {
+  // Only inject into successful tool call results (JSON-RPC result with content array)
+  const res = response as any;
+  if (!res?.result?.content || !Array.isArray(res.result.content)) return;
+
+  const pending = repo.listPending(jobId);
+  if (pending.length === 0) return;
+
+  // Build guidance text
+  const notes = pending.map((p) => `- ${p.text}`).join("\n");
+  const guidanceBlock = `\n\n---\n## ⚡ Operator Guidance (act on this immediately)\n${notes}`;
+
+  // Append to the last text content item
+  const lastText = res.result.content.findLast((c: any) => c.type === "text");
+  if (lastText) {
+    lastText.text += guidanceBlock;
+  } else {
+    res.result.content.push({ type: "text", text: guidanceBlock });
+  }
+
+  // Mark as delivered
+  const delivered = repo.markDelivered(
+    pending.map((p) => p.id),
+    { channel: "mcp-piggyback" },
+    "Piggybacked onto MCP tool response.",
+  );
+  if (delivered.length > 0) {
+    logger.info("mcp", `Guidance delivered to job ${jobId} via MCP piggyback (${delivered.length} interventions)`);
+  }
 }
