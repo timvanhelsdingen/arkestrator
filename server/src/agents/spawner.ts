@@ -1776,7 +1776,8 @@ export async function spawnAgent(
           "Search for your task type before starting (e.g., 'blender rendering', 'nuke compositing'). " +
           "Search AGAIN whenever you hit errors, unexpected results, or need to retry — use the specific problem as the query. " +
           "Do not keep guessing when a skill might already have the answer. " +
-          "When you learn something non-trivial, create a skill so future tasks benefit.",
+          "When you learn something non-trivial (workarounds, error fixes, API quirks, multi-step patterns), " +
+          "create a skill with `create_skill` so future tasks benefit.",
         );
       }
 
@@ -1803,8 +1804,12 @@ export async function spawnAgent(
       skillLines.push("\n## Job & Skill Feedback");
       skillLines.push(
         "Before finishing your task, you MUST do the following:\n" +
-        "1. **Rate your job outcome** — call `rate_job` with `good`, `average`, or `poor` to self-assess how well the task went.\n" +
-        "2. **Rate skills you used** — call `rate_skill` for each skill you loaded or referenced, rating it `useful`, `not_useful`, or `partial`." +
+        "1. **Create skills if you learned something new** — if you discovered workarounds, non-obvious techniques, error fixes, " +
+        "API quirks, or multi-step workflows during this task, call `create_skill` for each one. " +
+        "Include concrete code examples, parameter values, and gotchas. " +
+        "Skip this if the task was straightforward and didn't teach you anything new.\n" +
+        "2. **Rate your job outcome** — call `rate_job` with `good`, `average`, or `poor` to self-assess how well the task went.\n" +
+        "3. **Rate skills you used** — call `rate_skill` for each skill you loaded or referenced, rating it `useful`, `not_useful`, or `partial`." +
         (autoFetchSlugs.length > 0
           ? `\n   Auto-fetched skills to rate: ${autoFetchSlugs.map((s) => `\`${s}\``).join(", ")}.`
           : "") +
