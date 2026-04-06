@@ -23,7 +23,13 @@ export interface SharedConfig {
 export function resolveSpawnedAgentServerUrl(port: number, shared?: SharedConfig | null): string {
   const configured = String(shared?.serverUrl ?? "").trim();
   if (configured && isLocalhostUrl(configured)) {
-    return configured;
+    // The configured URL may point at the client relay port (e.g. 17800) rather
+    // than the server's actual port. Always use the real server port so spawned
+    // agents reach the API directly instead of going through the bridge relay.
+    const configuredPort = extractPort(configured);
+    if (configuredPort === port) {
+      return configured;
+    }
   }
   return `http://127.0.0.1:${port}`;
 }
