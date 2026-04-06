@@ -145,6 +145,32 @@ export function checkFilePaths(
   return violations;
 }
 
+/**
+ * Extract file paths mentioned in a script/command string.
+ * Catches Windows paths (D:\foo\bar.ext), Unix paths (/home/...), and quoted paths.
+ */
+export function extractFilePathsFromScript(script: string): string[] {
+  const paths: string[] = [];
+  // Windows absolute paths: D:\foo\bar.png, D:/foo/bar.png
+  const winRe = /[A-Za-z]:[\\\/][\w\\\/.\-\s]+\.\w+/g;
+  // Unix absolute paths: /home/user/file.ext, /tmp/file.ext etc.
+  const unixRe = /\/(?:home|tmp|var|opt|usr|mnt|media|root)\/[\w\/.\-\s]+\.\w+/g;
+  let m;
+  while ((m = winRe.exec(script)) !== null) paths.push(m[0].trim());
+  while ((m = unixRe.exec(script)) !== null) paths.push(m[0].trim());
+  return paths;
+}
+
+/** Check a script/command string for file paths that violate file_path policies */
+export function checkScriptFilePaths(
+  script: string,
+  policies: Policy[],
+): PolicyViolation[] {
+  const paths = extractFilePathsFromScript(script);
+  if (paths.length === 0) return [];
+  return checkFilePaths(paths, policies);
+}
+
 /** Get blocked tool names from tool policies */
 export function getToolRestrictions(policies: Policy[]): string[] {
   return policies

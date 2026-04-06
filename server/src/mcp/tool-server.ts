@@ -18,7 +18,7 @@ import { join, relative } from "path";
 import { tmpdir } from "os";
 import { principalHasPermission, type AuthPrincipal } from "../middleware/auth.js";
 import type { UserPermissionKey } from "../utils/user-permissions.js";
-import { checkCommandScripts } from "../policies/enforcer.js";
+import { checkCommandScripts, checkFilePaths, checkScriptFilePaths } from "../policies/enforcer.js";
 import { validateSkill } from "../skills/skill-validator.js";
 
 export interface McpDeps {
@@ -164,6 +164,27 @@ async function forwardClientApiRequest(
       body: { error: `Client API forwarding failed: ${err?.message ?? String(err)}` },
     };
   }
+}
+
+/**
+ * Kill the calling agent job when a policy violation is detected in an MCP tool.
+ * This prevents the agent from retrying with creative workarounds.
+ */
+function killCallerJob(deps: McpDeps, reason: string): void {
+  if (!deps.callerJobId) return;
+  // Kill the process immediately so the agent can't try again
+  if (deps.processTracker) {
+    deps.processTracker.kill(deps.callerJobId);
+  }
+  // Mark the job as failed
+  try {
+    deps.jobsRepo.fail(deps.callerJobId, `[POLICY VIOLATION] ${reason}`, "");
+    deps.hub.broadcastToType("client", {
+      type: "job_updated",
+      id: newId(),
+      payload: { job: deps.jobsRepo.getById(deps.callerJobId) },
+    });
+  } catch { /* best effort */ }
 }
 
 export function createMcpServer(deps: McpDeps): McpServer {
@@ -344,6 +365,10 @@ export function createMcpServer(deps: McpDeps): McpServer {
       }
 
       if (result.error) {
+        // Kill the job if it was a policy violation (status 403)
+        if (result.status === 403) {
+          killCallerJob(deps, result.error);
+        }
         const parts = [`Error: ${result.error}`];
         if (result.result?.stdout) parts.push(`stdout:\n${result.result.stdout}`);
         if (result.result?.stderr) parts.push(`stderr:\n${result.result.stderr}`);
@@ -418,6 +443,9 @@ export function createMcpServer(deps: McpDeps): McpServer {
       }
 
       if (result.error) {
+        if (result.status === 403) {
+          killCallerJob(deps, result.error);
+        }
         const parts = [`Error: ${result.error}`];
         if (result.result?.stdout) parts.push(`stdout:\n${result.result.stdout}`);
         if (result.result?.stderr) parts.push(`stderr:\n${result.result.stderr}`);
@@ -463,14 +491,20 @@ export function createMcpServer(deps: McpDeps): McpServer {
       const violations = checkCommandScripts([{ language: mode, script: command }], policies);
       const blockers = violations.filter((v) => v.action === "block");
       if (blockers.length > 0) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: `Command blocked by policy: ${blockers.map((b) => b.message).join("; ")}`,
-          }],
-          isError: true,
-        };
+        const msg = `Command blocked by policy: ${blockers.map((b) => b.message).join("; ")}`;
+        killCallerJob(deps, msg);
+        return { content: [{ type: "text" as const, text: msg }], isError: true };
       }
+
+      // Apply file_path policies — extract paths from script and check against blocked patterns
+      const fpViolations = checkScriptFilePaths(command, policies);
+      const fpBlockers = fpViolations.filter((v) => v.action === "block");
+      if (fpBlockers.length > 0) {
+        const msg = `Command blocked by file_path policy: ${fpBlockers.map((b) => b.message).join("; ")}`;
+        killCallerJob(deps, msg);
+        return { content: [{ type: "text" as const, text: msg }], isError: true };
+      }
+
       const targetWorkerName = callerJob?.targetWorkerName;
 
       let clientId: string | undefined;

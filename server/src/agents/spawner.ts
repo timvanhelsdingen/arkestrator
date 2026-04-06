@@ -35,10 +35,10 @@ import { checkFilePaths, checkCommandScripts } from "../policies/enforcer.js";
 import { resolveWorkspace } from "../workspace/resolver.js";
 import type { WorkspaceResolution } from "../workspace/resolver.js";
 import { parseCommandOutput, resolveExpectedCommandLanguage } from "../workspace/command-mode.js";
-import { createStreamJsonState, processStreamJsonChunk, type StreamJsonState, type CommandPolicyChecker } from "./stream-json-parser.js";
+import { createStreamJsonState, processStreamJsonChunk, type StreamJsonState, type CommandPolicyChecker, type FilePathPolicyChecker } from "./stream-json-parser.js";
 import { newId } from "../utils/id.js";
 import { logger } from "../utils/logger.js";
-import { collectPaths, startWatching } from "./file-snapshot.js";
+import { collectPaths, startWatching, type WatcherPolicyOptions } from "./file-snapshot.js";
 import { parseTokenUsage } from "./token-parser.js";
 import type { UsageRepo } from "../db/usage.repo.js";
 import type { DependenciesRepo } from "../db/dependencies.repo.js";
@@ -1860,6 +1860,20 @@ export async function spawnAgent(
         })()
       : job;
 
+  // Inject file_path policy warnings into the agent prompt (soft prevention)
+  if (deps.filePathPolicies && deps.filePathPolicies.length > 0) {
+    const blockPolicies = deps.filePathPolicies.filter((p) => p.action === "block");
+    if (blockPolicies.length > 0) {
+      const patterns = blockPolicies.map((p) =>
+        `- \`${p.pattern}\`${p.description ? ` — ${p.description}` : ""}`
+      ).join("\n");
+      const warning = `## FILE PATH RESTRICTIONS\nThe following file patterns are PROTECTED and must NOT be modified, deleted, moved, or overwritten:\n${patterns}\nAny attempt to touch these files will immediately terminate your session. Work around them — do not try to edit, remove, or rename them.`;
+      orchestratorPromptOverride = orchestratorPromptOverride
+        ? `${orchestratorPromptOverride}\n\n${warning}`
+        : warning;
+    }
+  }
+
   // Resolve default project directory from settings or platform default
   const defaultProjectDir =
     deps.settingsRepo?.get("default_project_dir") || getDefaultProjectDir();
@@ -1891,7 +1905,25 @@ export async function spawnAgent(
   }
   logger.info("spawner", `Collecting paths and starting watcher for ${cwd}`);
   beforePaths = await collectPaths(cwd);
-  watcher = startWatching(cwd);
+
+  // Real-time fs.watch enforcement: kill process immediately if a protected file is touched
+  let watcherPolicyKilled = false;
+  let watcherPolicyMessage = "";
+  const watcherPolicyOpts: WatcherPolicyOptions | undefined =
+    deps.filePathPolicies && deps.filePathPolicies.length > 0
+      ? {
+          policies: deps.filePathPolicies,
+          onViolation: (path, message) => {
+            if (watcherPolicyKilled) return; // already killing
+            watcherPolicyKilled = true;
+            watcherPolicyMessage = message;
+            logger.warn("spawner", `Job ${job.id}: [FS POLICY VIOLATION] ${message} — killing agent process`);
+            try { proc?.kill(); } catch {}
+          },
+        }
+      : undefined;
+
+  watcher = startWatching(cwd, watcherPolicyOpts);
   if (beforePaths.size === 0) {
     logger.warn("spawner", `Directory ${cwd} exceeds path limit — file change detection disabled for this job`);
   } else {
@@ -2316,7 +2348,7 @@ export async function spawnAgent(
   }
 
   const startTime = Date.now();
-  let proc;
+  let proc: ReturnType<typeof import("bun")["spawn"]> | undefined;
   try {
     // claude-code hangs when stdin is piped on Windows (stdout never flushes).
     // Use "ignore" for claude-code; codex still needs "pipe" for stdin-based
@@ -2499,6 +2531,22 @@ export async function spawnAgent(
         }
       : undefined;
 
+  /** Build a real-time file path checker from file_path policies */
+  const filePathChecker: FilePathPolicyChecker | undefined =
+    deps.filePathPolicies && deps.filePathPolicies.length > 0
+      ? (filePath: string) => {
+          // Tool calls use absolute paths — make relative to cwd for glob matching
+          const normalized = filePath.replace(/\\/g, "/");
+          const cwdNorm = cwd.replace(/\\/g, "/").replace(/\/$/, "") + "/";
+          const rel = normalized.startsWith(cwdNorm)
+            ? normalized.slice(cwdNorm.length)
+            : normalized;
+          const violations = checkFilePaths([rel], deps.filePathPolicies!);
+          const blocker = violations.find((v) => v.action === "block");
+          return blocker ? blocker.message : null;
+        }
+      : undefined;
+
   /** Whether the agent was killed due to a real-time policy violation */
   let policyKilled = false;
 
@@ -2514,7 +2562,7 @@ export async function spawnAgent(
         const { done, value } = await reader.read();
         if (done) break;
         const chunk = decoder.decode(value, { stream: true });
-        const lines = processStreamJsonChunk(sjState, chunk, commandChecker);
+        const lines = processStreamJsonChunk(sjState, chunk, commandChecker, filePathChecker);
         // Save session ID as soon as it's available (for pause/resume)
         if (!sessionIdSaved && sjState.sessionId) {
           sessionIdSaved = true;
@@ -2652,6 +2700,25 @@ export async function spawnAgent(
   if (policyKilled) {
     watcher?.stop();
     const msg = "Job terminated: agent executed a command that violates an active command_filter policy. Check job logs for details.";
+    deps.jobsRepo.fail(job.id, msg, logBuffer);
+    const rejected = deps.jobInterventionsRepo?.rejectPendingForJob(job.id, msg) ?? [];
+    broadcastInterventionUpdates(deps, job.id, rejected);
+    applyUsedBridgeAttribution(logBuffer ? `${logBuffer}\n${msg}` : msg);
+    recordCoordinatorOutcome(false);
+    sendComplete(deps, job, false, [], [], workspace.mode, msg);
+    broadcastJobUpdated(deps, job.id);
+    recordTokens();
+    cleanupSync(deps, workspace, job.id);
+    cleanupAgentTools(cliWrapper, mcpConfigPath, mcpConfigBackup);
+    return;
+  }
+
+  // Real-time fs.watch policy violation: agent touched a file matching a blocked file_path policy
+  if (watcherPolicyKilled) {
+    watcher?.stop();
+    const msg = `Job terminated: file_path policy violation — ${watcherPolicyMessage}`;
+    logger.warn("spawner", msg);
+    sendLog(deps, job, `[POLICY VIOLATION] ${watcherPolicyMessage}\n`);
     deps.jobsRepo.fail(job.id, msg, logBuffer);
     const rejected = deps.jobInterventionsRepo?.rejectPendingForJob(job.id, msg) ?? [];
     broadcastInterventionUpdates(deps, job.id, rejected);
