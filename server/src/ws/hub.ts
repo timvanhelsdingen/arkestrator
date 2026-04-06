@@ -153,8 +153,10 @@ export class WebSocketHub {
       const incomingProject = this.normalizeProjectPath(ws.data.projectPath);
       const identityKey = this.makeBridgeIdentityKey(prog, workerKey, incomingProject);
 
-      // O(1) lookup via identity index instead of iterating all connections
-      const existingId = this.bridgeIdentityIndex.get(identityKey);
+      // Only replace stale bridges when BOTH have a concrete project path.
+      // When projectPath is empty/undefined (unsaved file), multiple instances
+      // of the same program on one worker are allowed to coexist.
+      const existingId = incomingProject ? this.bridgeIdentityIndex.get(identityKey) : undefined;
       if (existingId && existingId !== ws.data.id) {
         const old = this.connections.get(existingId);
         if (old) {
