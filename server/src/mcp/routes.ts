@@ -8,6 +8,7 @@ import { getAuthPrincipal, principalHasPermission, type AuthPrincipal } from "..
 import { logger } from "../utils/logger.js";
 import { errorResponse } from "../utils/errors.js";
 import type { JobInterventionsRepo } from "../db/job-interventions.repo.js";
+import { newId } from "../utils/id.js";
 
 /**
  * Create Hono routes for MCP.
@@ -105,7 +106,7 @@ export function createMcpRoutes(
       // This ensures agents receive guidance ASAP regardless of engine type,
       // without needing to explicitly poll list_job_interventions.
       if (callerJobId && mcpDeps.jobInterventionsRepo) {
-        injectPendingGuidance(response, callerJobId, mcpDeps.jobInterventionsRepo);
+        injectPendingGuidance(response, callerJobId, mcpDeps);
       }
 
       return c.json(response);
@@ -136,8 +137,11 @@ export function createMcpRoutes(
 function injectPendingGuidance(
   response: JSONRPCMessage,
   jobId: string,
-  repo: JobInterventionsRepo,
+  deps: McpDeps,
 ): void {
+  const repo = deps.jobInterventionsRepo;
+  if (!repo) return;
+
   // Only inject into successful tool call results (JSON-RPC result with content array)
   const res = response as any;
   if (!res?.result?.content || !Array.isArray(res.result.content)) return;
@@ -165,5 +169,19 @@ function injectPendingGuidance(
   );
   if (delivered.length > 0) {
     logger.info("mcp", `Guidance delivered to job ${jobId} via MCP piggyback (${delivered.length} interventions)`);
+    // Broadcast delivery status to clients so the UI updates
+    const job = deps.jobsRepo.getById(jobId);
+    if (job) {
+      for (const entry of delivered) {
+        const updated = repo.getById(entry.id);
+        if (updated) {
+          deps.hub.broadcastToType("client", {
+            type: "job_intervention_updated",
+            id: newId(),
+            payload: { jobId, intervention: updated },
+          });
+        }
+      }
+    }
   }
 }
