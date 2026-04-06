@@ -297,6 +297,48 @@ const DEFAULT_TEMPLATES: SeedTemplate[] = [
     sortOrder: 10,
   },
 
+  // ── Project templates ─────────────────────────────────────────────────
+  {
+    name: "Folder per bridge",
+    slug: "project-folder-per-bridge",
+    type: "project",
+    category: "File Structure",
+    description: "Separate subfolder for each bridge program",
+    content: "Create a separate subfolder for each bridge program (Blender, Godot, Houdini, etc.) under the project root. Place all generated assets and files for that program inside its respective folder.",
+    icon: "📂",
+    sortOrder: 10,
+  },
+  {
+    name: "Organized by asset type",
+    slug: "project-asset-type",
+    type: "project",
+    category: "File Structure",
+    description: "Organize by models, textures, scripts, etc.",
+    content: "Organize project files by asset type: models/, textures/, scripts/, scenes/, audio/, and exports/. Each bridge should output to the appropriate asset type folder.",
+    icon: "🗂️",
+    sortOrder: 20,
+  },
+  {
+    name: "Pipeline stages",
+    slug: "project-pipeline-stages",
+    type: "project",
+    category: "File Structure",
+    description: "Numbered folders for each pipeline stage",
+    content: "Organize files by pipeline stage: 01_concept/, 02_modeling/, 03_texturing/, 04_rigging/, 05_animation/, 06_lighting/, 07_rendering/, 08_compositing/. Each stage maps to the appropriate bridge program.",
+    icon: "🔄",
+    sortOrder: 30,
+  },
+  {
+    name: "Version controlled",
+    slug: "project-version-controlled",
+    type: "project",
+    category: "File Structure",
+    description: "Latest + versioned snapshot folder structure",
+    content: "Use a versioned folder structure: keep a _latest/ folder with the most recent outputs and a _versions/ folder with timestamped snapshots. Agents should always output to _latest/ and archive previous versions before overwriting.",
+    icon: "📋",
+    sortOrder: 40,
+  },
+
   // ── Job presets ───────────────────────────────────────────────────────
   {
     name: "Quick Draft",

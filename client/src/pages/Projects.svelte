@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { api } from "../lib/api/rest";
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
+  import { connection } from "../lib/stores/connection.svelte";
   import ConfirmDialog from "../lib/components/ui/ConfirmDialog.svelte";
 
   interface PathMappingEntry { platform: string; path: string; }
@@ -22,25 +23,56 @@
     updatedAt: string;
   }
 
-  // Prompt presets
-  const PROMPT_PRESETS: { label: string; prompt: string }[] = [
+  // Hardcoded fallback presets used when the server has no project templates
+  const FALLBACK_PRESETS: { id: string; name: string; icon: string; content: string }[] = [
     {
-      label: "Folder per bridge",
-      prompt: "Create a separate subfolder for each bridge program (Blender, Godot, Houdini, etc.) under the project root. Place all generated assets and files for that program inside its respective folder.",
+      id: "_fallback_folder_per_bridge",
+      name: "Folder per bridge",
+      icon: "📂",
+      content: "Create a separate subfolder for each bridge program (Blender, Godot, Houdini, etc.) under the project root. Place all generated assets and files for that program inside its respective folder.",
     },
     {
-      label: "Organized by asset type",
-      prompt: "Organize project files by asset type: models/, textures/, scripts/, scenes/, audio/, and exports/. Each bridge should output to the appropriate asset type folder.",
+      id: "_fallback_asset_type",
+      name: "Organized by asset type",
+      icon: "🗂️",
+      content: "Organize project files by asset type: models/, textures/, scripts/, scenes/, audio/, and exports/. Each bridge should output to the appropriate asset type folder.",
     },
     {
-      label: "Pipeline stages",
-      prompt: "Organize files by pipeline stage: 01_concept/, 02_modeling/, 03_texturing/, 04_rigging/, 05_animation/, 06_lighting/, 07_rendering/, 08_compositing/. Each stage maps to the appropriate bridge program.",
+      id: "_fallback_pipeline",
+      name: "Pipeline stages",
+      icon: "🔄",
+      content: "Organize files by pipeline stage: 01_concept/, 02_modeling/, 03_texturing/, 04_rigging/, 05_animation/, 06_lighting/, 07_rendering/, 08_compositing/. Each stage maps to the appropriate bridge program.",
     },
     {
-      label: "Version controlled",
-      prompt: "Use a versioned folder structure: keep a _latest/ folder with the most recent outputs and a _versions/ folder with timestamped snapshots. Agents should always output to _latest/ and archive previous versions before overwriting.",
+      id: "_fallback_versioned",
+      name: "Version controlled",
+      icon: "📋",
+      content: "Use a versioned folder structure: keep a _latest/ folder with the most recent outputs and a _versions/ folder with timestamped snapshots. Agents should always output to _latest/ and archive previous versions before overwriting.",
     },
   ];
+
+  let promptPresets = $state<Array<{ id: string; name: string; icon: string; content: string }>>(
+    [...FALLBACK_PRESETS],
+  );
+
+  // Load project presets from server, fall back to hardcoded defaults
+  $effect(() => {
+    if (!connection.isConnected) return;
+    if (!connection.sessionToken && !connection.apiKey) return;
+
+    api.templates.list("project").then((res: any) => {
+      const templates = Array.isArray(res) ? res : Array.isArray(res?.templates) ? res.templates : [];
+      if (templates.length === 0) return; // keep fallback
+      promptPresets = templates.map((t: any) => ({
+        id: t.id ?? "",
+        name: t.name ?? "",
+        icon: t.icon ?? "",
+        content: t.content ?? "",
+      }));
+    }).catch(() => {
+      // keep fallback presets on error
+    });
+  });
 
   let projects = $state<Project[]>([]);
   let error = $state("");
@@ -265,11 +297,11 @@
     projectToDelete = null;
   }
 
-  function applyPreset(preset: { label: string; prompt: string }) {
+  function applyPreset(preset: { name: string; content: string }) {
     if (form.prompt && !form.prompt.endsWith("\n")) {
       form.prompt += "\n\n";
     }
-    form.prompt += preset.prompt;
+    form.prompt += preset.content;
   }
 
   // Multiparm helpers
@@ -402,9 +434,9 @@
           Project Prompt
           <div class="preset-bar">
             <span class="preset-label">Presets:</span>
-            {#each PROMPT_PRESETS as preset}
-              <button type="button" class="preset-chip" onclick={() => applyPreset(preset)} title={preset.prompt}>
-                {preset.label}
+            {#each promptPresets as preset (preset.id)}
+              <button type="button" class="preset-chip" onclick={() => applyPreset(preset)} title={preset.content}>
+                {#if preset.icon}{preset.icon} {/if}{preset.name}
               </button>
             {/each}
           </div>
