@@ -66,6 +66,7 @@ describe("Job creation", () => {
       {
         prompt: "Target blender if needed.",
         agentConfigId,
+        mode: "agentic" as const,
         priority: "normal",
         coordinationMode: "server",
         files: [],

@@ -5,6 +5,7 @@ import type {
   JobStatus,
   JobPriority,
   JobOutcomeRating,
+  JobMode,
   CoordinationMode,
   FileChange,
   CommandResult,
@@ -58,6 +59,11 @@ interface JobRow {
   retry_after: string | null;
   expires_at: string | null;
   session_id: string | null;
+  mode: string;
+  task_spec: string | null;
+  task_progress: number | null;
+  task_status_text: string | null;
+  task_ref: string | null;
   created_at: string;
   started_at: string | null;
   completed_at: string | null;
@@ -149,6 +155,11 @@ function rowToJob(row: JobRow): Job {
     retryAfter: row.retry_after ?? undefined,
     expiresAt: row.expires_at ?? undefined,
     sessionId: row.session_id ?? undefined,
+    mode: (row.mode as JobMode) ?? "agentic",
+    taskSpec: row.task_spec ? JSON.parse(row.task_spec) : undefined,
+    taskProgress: row.task_progress ?? undefined,
+    taskStatusText: row.task_status_text ?? undefined,
+    taskRef: row.task_ref ?? undefined,
     createdAt: row.created_at,
     startedAt: row.started_at ?? undefined,
     completedAt: row.completed_at ?? undefined,
@@ -200,11 +211,13 @@ export class JobsRepo {
   private pauseStmt;
   private setSessionIdStmt;
   private guideStmt;
+  private updateTaskProgressStmt;
+  private nextTaskRefStmt;
 
   constructor(private db: Database) {
     this.insertStmt = db.prepare(
-      `INSERT INTO jobs (id, status, priority, coordination_mode, name, prompt, editor_context, files, runtime_options, context_items, agent_config_id, requested_agent_config_id, actual_agent_config_id, actual_model, routing_reason, bridge_id, bridge_program, worker_name, target_worker_name, project_id, submitted_by, parent_job_id, used_bridges, outcome_rating, outcome_notes, outcome_marked_at, outcome_marked_by, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO jobs (id, status, priority, coordination_mode, name, prompt, editor_context, files, runtime_options, context_items, agent_config_id, requested_agent_config_id, actual_agent_config_id, actual_model, routing_reason, bridge_id, bridge_program, worker_name, target_worker_name, project_id, submitted_by, parent_job_id, used_bridges, outcome_rating, outcome_notes, outcome_marked_at, outcome_marked_by, mode, task_spec, task_ref, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     this.getByIdStmt = db.prepare(`SELECT * FROM jobs WHERE id = ? AND deleted_at IS NULL`);
     this.listByStatusStmt = db.prepare(
@@ -384,6 +397,15 @@ export class JobsRepo {
     this.getChildJobsStmt = db.prepare(
       `SELECT * FROM jobs WHERE parent_job_id = ? AND deleted_at IS NULL`,
     );
+    // Task job progress updates
+    this.updateTaskProgressStmt = db.prepare(
+      `UPDATE jobs SET task_progress = ?, task_status_text = ? WHERE id = ? AND mode = 'task'`,
+    );
+    // Next task ref counter — finds max existing T<N> for a given parent job and returns N+1
+    this.nextTaskRefStmt = db.prepare(
+      `SELECT COALESCE(MAX(CAST(SUBSTR(task_ref, 2) AS INTEGER)), 0) + 1 as next_ref
+       FROM jobs WHERE parent_job_id = ? AND task_ref IS NOT NULL`,
+    );
   }
 
   create(
@@ -407,6 +429,14 @@ export class JobsRepo {
     const runtimeOptions = normalizeJobRuntimeOptions(input.runtimeOptions);
     // Bridge usage is execution-derived. Do not seed usedBridges from submit-time routing hints.
     const initialBridges = "[]";
+    // Assign stable #T<N> reference for tracked task jobs
+    const mode = input.mode ?? "agentic";
+    let taskRef: string | null = null;
+    if (mode === "task" && input.track !== false && parentJobId) {
+      const row = this.nextTaskRefStmt.get(parentJobId) as { next_ref: number } | null;
+      taskRef = `T${row?.next_ref ?? 1}`;
+    }
+
     this.insertStmt.run(
       id,
       initialStatus,
@@ -435,6 +465,9 @@ export class JobsRepo {
       null,
       null,
       null,
+      mode,
+      input.taskSpec ? JSON.stringify(input.taskSpec) : null,
+      taskRef,
       now,
     );
     return this.getById(id)!;
@@ -595,6 +628,18 @@ export class JobsRepo {
   addUsedBridge(jobId: string, program: string): boolean {
     const result = this.addUsedBridgeStmt.run(program, program, program, jobId);
     return result.changes > 0;
+  }
+
+  /** Update task progress for a non-agentic task job. */
+  updateTaskProgress(jobId: string, percent: number | null, statusText?: string): boolean {
+    const result = this.updateTaskProgressStmt.run(percent, statusText ?? null, jobId);
+    return result.changes > 0;
+  }
+
+  /** Get the next #T<N> reference number for a parent job's task children. */
+  getNextTaskRef(parentJobId: string): string {
+    const row = this.nextTaskRefStmt.get(parentJobId) as { next_ref: number } | null;
+    return `T${row?.next_ref ?? 1}`;
   }
 
   /** Update token usage metrics on a completed/failed job. */

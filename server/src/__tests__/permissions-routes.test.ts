@@ -163,6 +163,7 @@ describe("permission-gated routes", () => {
       {
         prompt: "Build a prop pipeline helper",
         agentConfigId: agent.id,
+        mode: "agentic" as const,
         priority: "normal",
         files: [],
         contextItems: [],

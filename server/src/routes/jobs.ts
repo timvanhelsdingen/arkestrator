@@ -1649,6 +1649,7 @@ export function createJobRoutes(
         const created = jobsRepo.create(
           {
             name: oldJob.name,
+            mode: "agentic" as const,
             prompt: oldJob.prompt,
             priority: oldJob.priority,
             agentConfigId: oldJob.agentConfigId,

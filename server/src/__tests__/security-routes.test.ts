@@ -186,6 +186,7 @@ describe("security route hardening", () => {
     const job = ctx.jobsRepo.create({
       prompt: "queued",
       agentConfigId: agent.id,
+      mode: "agentic" as const,
       priority: "normal",
       editorContext: { projectRoot: "/tmp/demo" },
       files: [],
@@ -235,6 +236,7 @@ describe("security route hardening", () => {
     const job = ctx.jobsRepo.create({
       prompt: "running job",
       agentConfigId: agent.id,
+      mode: "agentic" as const,
       priority: "normal",
       editorContext: { projectRoot: "/tmp/demo" },
       files: [],
@@ -287,6 +289,7 @@ describe("security route hardening", () => {
     const job = ctx.jobsRepo.create({
       prompt: "running job",
       agentConfigId: agent.id,
+      mode: "agentic" as const,
       priority: "normal",
       editorContext: { projectRoot: "/tmp/demo" },
       files: [],
@@ -340,6 +343,7 @@ describe("security route hardening", () => {
     const queued = ctx.jobsRepo.create({
       prompt: "queued job",
       agentConfigId: agent.id,
+      mode: "agentic" as const,
       priority: "normal",
       editorContext: { projectRoot: "/tmp/demo" },
       files: [],
@@ -349,6 +353,7 @@ describe("security route hardening", () => {
     const running = ctx.jobsRepo.create({
       prompt: "running job",
       agentConfigId: agent.id,
+      mode: "agentic" as const,
       priority: "normal",
       editorContext: { projectRoot: "/tmp/demo" },
       files: [],
@@ -359,6 +364,7 @@ describe("security route hardening", () => {
     const completed = ctx.jobsRepo.create({
       prompt: "completed job",
       agentConfigId: agent.id,
+      mode: "agentic" as const,
       priority: "normal",
       editorContext: { projectRoot: "/tmp/demo" },
       files: [],
@@ -408,6 +414,7 @@ describe("security route hardening", () => {
       name: "root-top",
       prompt: "root",
       agentConfigId: agent.id,
+      mode: "agentic" as const,
       priority: "normal",
       editorContext: { projectRoot: "/tmp/demo" },
       files: [],
@@ -422,6 +429,7 @@ describe("security route hardening", () => {
         name: "child-a",
         prompt: "child-a",
         agentConfigId: agent.id,
+        mode: "agentic" as const,
         priority: "normal",
         editorContext: { projectRoot: "/tmp/demo" },
         files: [],
@@ -443,6 +451,7 @@ describe("security route hardening", () => {
         name: "child-b",
         prompt: "child-b",
         agentConfigId: agent.id,
+        mode: "agentic" as const,
         priority: "normal",
         editorContext: { projectRoot: "/tmp/demo" },
         files: [],
@@ -513,6 +522,7 @@ describe("security route hardening", () => {
     const job = ctx.jobsRepo.create({
       prompt: "failed job",
       agentConfigId: agent.id,
+      mode: "agentic" as const,
       priority: "normal",
       editorContext: { projectRoot: "/tmp/demo" },
       files: [],
@@ -559,6 +569,7 @@ describe("security route hardening", () => {
     const job = ctx.jobsRepo.create({
       prompt: "finished",
       agentConfigId: agent.id,
+      mode: "agentic" as const,
       priority: "normal",
       editorContext: { projectRoot: "/tmp/demo" },
       files: [],
@@ -611,6 +622,7 @@ describe("security route hardening", () => {
     const job = ctx.jobsRepo.create({
       prompt: "finished",
       agentConfigId: agent.id,
+      mode: "agentic" as const,
       priority: "normal",
       editorContext: { projectRoot: "/tmp/demo" },
       files: [],
@@ -686,6 +698,7 @@ describe("security route hardening", () => {
     const root = ctx.jobsRepo.create({
       prompt: "Build scene and delegate texture generation",
       agentConfigId: agent.id,
+      mode: "agentic" as const,
       priority: "normal",
       editorContext: { projectRoot: "/tmp/demo" },
       files: [],
@@ -701,6 +714,7 @@ describe("security route hardening", () => {
       {
         prompt: "Generate texture set",
         agentConfigId: agent.id,
+        mode: "agentic" as const,
         priority: "normal",
         editorContext: { projectRoot: "/tmp/demo" },
         files: [],

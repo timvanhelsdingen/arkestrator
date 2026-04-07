@@ -141,6 +141,7 @@ describe("jobs route bridge-program inference", () => {
     const parent = ctx.jobsRepo.create({
       prompt: "orchestrate follow-up work",
       agentConfigId: cfg.id,
+      mode: "agentic" as const,
       priority: "normal",
       editorContext: { projectRoot: "/tmp/demo" },
       files: [],

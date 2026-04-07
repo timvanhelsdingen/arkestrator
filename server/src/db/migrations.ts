@@ -421,6 +421,12 @@ const COLUMN_ADDITIONS = [
   `CREATE INDEX IF NOT EXISTS idx_handoff_project ON handoff_notes(project_path)`,
   `CREATE INDEX IF NOT EXISTS idx_handoff_parent ON handoff_notes(parent_job_id)`,
   `CREATE INDEX IF NOT EXISTS idx_handoff_created ON handoff_notes(created_at DESC)`,
+  // Non-agentic task jobs: mode distinguishes agentic (AI agent) from task (direct execution)
+  `ALTER TABLE jobs ADD COLUMN mode TEXT NOT NULL DEFAULT 'agentic' CHECK(mode IN ('agentic', 'task'))`,
+  `ALTER TABLE jobs ADD COLUMN task_spec TEXT`,
+  `ALTER TABLE jobs ADD COLUMN task_progress REAL`,
+  `ALTER TABLE jobs ADD COLUMN task_status_text TEXT`,
+  `ALTER TABLE jobs ADD COLUMN task_ref TEXT`,
 ];
 
 // Reset any jobs stuck in 'running' state (server crashed while they were active)

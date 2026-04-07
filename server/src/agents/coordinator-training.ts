@@ -937,6 +937,7 @@ export function queueCoordinatorTrainingJob(
   const promptSummary = parsePromptSummary(trainingPrompt, 180);
   const jobInput: JobSubmit = {
     name: `[Coordinator] Train ${normalizedProgram} Script (${trigger})`,
+    mode: "agentic" as const,
     prompt: promptSummary
       ? `Coordinator training job for ${normalizedProgram}. apply=${apply}. objective=${promptSummary}`
       : `Coordinator training job for ${normalizedProgram}. apply=${apply}.`,
@@ -1118,6 +1119,7 @@ export function queueCoordinatorTrainingJob(
 
             const analysisInput: JobSubmit = {
               name: `[Coordinator] Analyze ${normalizedProgram} training sources`,
+              mode: "agentic" as const,
               prompt: buildTrainingAgenticAnalyzePrompt(normalizedProgram, resolvedSourcePaths, trainingPrompt, analysisMode, trainingLevel, allOnlinePrograms),
               agentConfigId,
               priority: "normal",

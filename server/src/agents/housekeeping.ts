@@ -109,6 +109,7 @@ export function queueHousekeepingJob(
   const job = deps.jobsRepo.create(
     {
       prompt,
+      mode: "agentic" as const,
       agentConfigId: agent.id,
       priority: "low",
       coordinationMode: "server",

@@ -1093,6 +1093,7 @@ export async function executeLocalAgenticToolCall(
     const created = deps.jobsRepo.create(
       {
         prompt: fullPrompt,
+        mode: "agentic" as const,
         agentConfigId: configId,
         priority,
         coordinationMode: "server",

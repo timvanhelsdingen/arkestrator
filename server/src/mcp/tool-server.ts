@@ -203,6 +203,23 @@ export function createMcpServer(deps: McpDeps): McpServer {
     };
   }
 
+  /**
+   * Resolve a #T<N> task reference to a job UUID.
+   * Accepts: "#T1", "T1", or a raw UUID (returned as-is).
+   */
+  function resolveTaskRef(ref: string, deps: McpDeps): string {
+    // Strip leading # if present
+    const cleaned = ref.startsWith("#") ? ref.slice(1) : ref;
+    // Check if it matches T<number> pattern
+    const match = cleaned.match(/^T(\d+)$/i);
+    if (!match || !deps.callerJobId) return ref; // Return as-is (assume UUID)
+
+    // Look up child jobs of the caller with this task_ref
+    const children = deps.jobsRepo.getChildJobs(deps.callerJobId);
+    const taskJob = children.find((j: any) => j.taskRef === cleaned.toUpperCase());
+    return taskJob?.id ?? ref;
+  }
+
   // ─── Bridge command tools ──────────────────────────────────────────────────
 
   // Tool: client_api_request
@@ -967,6 +984,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
       const job = deps.jobsRepo.create(
         {
           prompt: fullPrompt,
+          mode: "agentic" as const,
           agentConfigId: configId,
           priority: priority ?? "normal",
           coordinationMode: "server",
@@ -1026,14 +1044,16 @@ export function createMcpServer(deps: McpDeps): McpServer {
   // Tool: get_job_status
   server.tool(
     "get_job_status",
-    "Check the current status of a job. Poll this to know when a sub-job has finished " +
+    "Check the current status of a job or task. Poll this to know when a sub-job has finished " +
       "so you can proceed with dependent work or verify results. " +
+      "Accepts a job UUID or a #T<N> task reference (e.g., '#T1'). " +
       "Status values: queued | running | completed | failed | cancelled | paused.",
     {
-      job_id: z.string().describe("The job ID returned by create_job"),
+      job_id: z.string().describe("Job UUID or #T<N> task reference (e.g., '#T1', 'T1', or a UUID)"),
     },
     async ({ job_id }) => {
-      const job = deps.jobsRepo.getById(job_id);
+      const resolvedId = resolveTaskRef(job_id, deps);
+      const job = deps.jobsRepo.getById(resolvedId);
       if (!job) {
         return {
           content: [{ type: "text" as const, text: `Job not found: ${job_id}` }],
@@ -1044,11 +1064,15 @@ export function createMcpServer(deps: McpDeps): McpServer {
       const result: Record<string, any> = {
         job_id: job.id,
         status: job.status,
+        mode: job.mode ?? "agentic",
         created_at: job.createdAt,
         started_at: job.startedAt ?? null,
         completed_at: job.completedAt ?? null,
       };
 
+      if (job.taskRef) result.task_ref = `#${job.taskRef}`;
+      if (job.taskProgress != null) result.progress = job.taskProgress;
+      if (job.taskStatusText) result.status_text = job.taskStatusText;
       if (job.error) result.error = job.error;
 
       if (job.status === "completed") {
@@ -1148,6 +1172,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
           const job = deps.jobsRepo.create(
             {
               prompt: fullPrompt,
+              mode: "agentic" as const,
               agentConfigId: defaultConfigId,
               priority: "normal",
               coordinationMode: "server",
@@ -1189,17 +1214,18 @@ export function createMcpServer(deps: McpDeps): McpServer {
   // Tool: poll_jobs (batch status check)
   server.tool(
     "poll_jobs",
-    "Check status of multiple jobs at once. Use after create_jobs to wait for all sub-jobs. " +
-      "Returns status for each job. When all are completed/failed, you can proceed.",
+    "Check status of multiple jobs/tasks at once. Use after create_jobs or create_tasks to wait for completion. " +
+      "Accepts job UUIDs or #T<N> task references. Returns status for each. When all are completed/failed, you can proceed.",
     {
-      job_ids: z.array(z.string()).min(1).max(50).describe("Job IDs to check"),
+      job_ids: z.array(z.string()).min(1).max(50).describe("Job UUIDs or #T<N> task references to check"),
     },
     async ({ job_ids }) => {
       const results: Array<Record<string, any>> = [];
       let allDone = true;
 
       for (const id of job_ids) {
-        const job = deps.jobsRepo.getById(id);
+        const resolvedId = resolveTaskRef(id, deps);
+        const job = deps.jobsRepo.getById(resolvedId);
         if (!job) {
           results.push({ job_id: id, status: "not_found" });
           continue;
@@ -1211,6 +1237,9 @@ export function createMcpServer(deps: McpDeps): McpServer {
           started_at: job.startedAt ?? null,
           completed_at: job.completedAt ?? null,
         };
+        if (job.taskRef) entry.task_ref = `#${job.taskRef}`;
+        if (job.taskProgress != null) entry.progress = job.taskProgress;
+        if (job.taskStatusText) entry.status_text = job.taskStatusText;
         if (job.error) entry.error = job.error;
         if (job.status === "completed" && job.logs) {
           const logLines = job.logs.split("\n").filter((l: string) => l.trim());
@@ -1367,6 +1396,222 @@ export function createMcpServer(deps: McpDeps): McpServer {
             null,
             2,
           ),
+        }],
+      };
+    },
+  );
+
+  // Tool: create_task — non-agentic task job
+  server.tool(
+    "create_task",
+    "Create a non-agentic task job that runs directly on a bridge or worker without spawning an AI agent. " +
+      "Use for renders, simulations, exports, batch processing — anything that doesn't need AI reasoning. " +
+      "Tasks save tokens by skipping the AI agent entirely. Can target specific machines or DCC programs. " +
+      "Returns a job ID (and #T ref if tracked) — monitor with get_job_status / poll_jobs. " +
+      "RENDER FARM: Use create_tasks (batch) to split work across multiple machines.",
+    {
+      name: z.string().describe("Short display name (e.g., 'Render frames 1-100')"),
+      execution_type: z.enum(["bridge_command", "worker_local", "worker_headless"]).describe(
+        "How to execute: bridge_command (send to live DCC bridge), worker_local (shell/python on worker), worker_headless (headless DCC CLI)",
+      ),
+      target_program: z.string().optional().describe(
+        'DCC program for bridge_command/worker_headless: "blender", "godot", "houdini", etc.',
+      ),
+      commands: z.array(z.object({
+        language: z.string().describe('Scripting language: "python", "gdscript", etc.'),
+        script: z.string().describe("Script code to execute"),
+        description: z.string().optional().describe("What this command does"),
+      })).optional().describe("Commands for bridge_command/worker_headless execution"),
+      command: z.string().optional().describe("Shell command or Python script for worker_local execution"),
+      local_mode: z.enum(["shell", "python"]).optional().describe("Execution mode for worker_local (default: shell)"),
+      cwd: z.string().optional().describe("Working directory override"),
+      target_worker: z.string().optional().describe("Route to specific machine by worker name"),
+      timeout_ms: z.number().optional().describe("Max runtime in milliseconds (default: 600000 = 10 min)"),
+      priority: z.enum(["low", "normal", "high", "critical"]).optional().describe("Queue priority (default: normal)"),
+      depends_on_job_ids: z.array(z.string()).optional().describe("Job IDs that must complete first"),
+      track: z.boolean().optional().default(true).describe(
+        "Assign a stable #T<N> reference for monitoring. Default: true.",
+      ),
+    },
+    async ({ name, execution_type, target_program, commands, command, local_mode, cwd, target_worker, timeout_ms, priority, depends_on_job_ids, track }) => {
+      const denied = checkPermission("submitJobs");
+      if (denied) return denied;
+
+      // Resolve a dummy agent config ID (task jobs don't use it, but the column is NOT NULL)
+      const configs = deps.agentsRepo.list();
+      const fallbackConfigId = configs[0]?.id;
+      if (!fallbackConfigId) {
+        return {
+          content: [{ type: "text" as const, text: "No agent configs available. Create one in the Arkestrator client first." }],
+          isError: true,
+        };
+      }
+
+      const job = deps.jobsRepo.create(
+        {
+          mode: "task",
+          name,
+          prompt: `[Task] ${name}`,
+          agentConfigId: fallbackConfigId,
+          priority: priority ?? "normal",
+          coordinationMode: "server",
+          files: [],
+          contextItems: [],
+          startPaused: false,
+          targetWorkerName: target_worker,
+          taskSpec: {
+            executionType: execution_type,
+            targetProgram: target_program,
+            commands,
+            command,
+            localMode: local_mode,
+            cwd,
+            timeoutMs: timeout_ms ?? 600_000,
+            label: name,
+          },
+          track: track !== false,
+        },
+        undefined,          // bridgeId
+        target_program,     // bridgeProgram
+        undefined,          // workerName
+        target_worker,      // targetWorkerName
+        undefined,          // submittedBy
+        deps.callerJobId,   // parentJobId
+      );
+
+      if (depends_on_job_ids?.length) {
+        for (const depId of depends_on_job_ids) {
+          try { deps.depsRepo.add(job.id, depId); } catch { /* skip invalid */ }
+        }
+      }
+
+      const freshJob = deps.jobsRepo.getById(job.id);
+      if (freshJob) {
+        deps.hub.broadcastToType("client", {
+          type: "job_updated",
+          id: newId(),
+          payload: { job: freshJob },
+        });
+      }
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({
+            job_id: job.id,
+            task_ref: freshJob?.taskRef ? `#${freshJob.taskRef}` : null,
+            status: job.status,
+            execution_type,
+            target_program: target_program ?? null,
+            target_worker: target_worker ?? null,
+            depends_on: depends_on_job_ids ?? [],
+            message: freshJob?.taskRef
+              ? `Task ${freshJob.taskRef} queued. Monitor with get_job_status or reference as #${freshJob.taskRef}.`
+              : "Task queued. Monitor with get_job_status.",
+          }, null, 2),
+        }],
+      };
+    },
+  );
+
+  // Tool: create_tasks — batch non-agentic task creation for distributed execution
+  server.tool(
+    "create_tasks",
+    "Create multiple non-agentic task jobs for parallel distributed execution (render farm pattern). " +
+      "Splits work across available machines. Each task runs independently. " +
+      "Returns all job IDs and #T refs. Poll with poll_jobs to monitor completion.",
+    {
+      tasks: z.array(z.object({
+        name: z.string().describe("Short display name"),
+        execution_type: z.enum(["bridge_command", "worker_local", "worker_headless"]),
+        target_program: z.string().optional(),
+        commands: z.array(z.object({
+          language: z.string(),
+          script: z.string(),
+          description: z.string().optional(),
+        })).optional(),
+        command: z.string().optional(),
+        local_mode: z.enum(["shell", "python"]).optional(),
+        cwd: z.string().optional(),
+        target_worker: z.string().optional(),
+        timeout_ms: z.number().optional(),
+      })).min(1).max(50).describe("Array of task specifications"),
+      priority: z.enum(["low", "normal", "high", "critical"]).optional(),
+      track: z.boolean().optional().default(true),
+    },
+    async ({ tasks, priority, track }) => {
+      const denied = checkPermission("submitJobs");
+      if (denied) return denied;
+
+      const configs = deps.agentsRepo.list();
+      const fallbackConfigId = configs[0]?.id;
+      if (!fallbackConfigId) {
+        return {
+          content: [{ type: "text" as const, text: "No agent configs available." }],
+          isError: true,
+        };
+      }
+
+      const results: Array<{ job_id: string; task_ref: string | null; name: string; status: string }> = [];
+
+      for (const task of tasks) {
+        const job = deps.jobsRepo.create(
+          {
+            mode: "task",
+            name: task.name,
+            prompt: `[Task] ${task.name}`,
+            agentConfigId: fallbackConfigId,
+            priority: priority ?? "normal",
+            coordinationMode: "server",
+            files: [],
+            contextItems: [],
+            startPaused: false,
+            targetWorkerName: task.target_worker,
+            taskSpec: {
+              executionType: task.execution_type,
+              targetProgram: task.target_program,
+              commands: task.commands,
+              command: task.command,
+              localMode: task.local_mode,
+              cwd: task.cwd,
+              timeoutMs: task.timeout_ms ?? 600_000,
+              label: task.name,
+            },
+            track: track !== false,
+          },
+          undefined,
+          task.target_program,
+          undefined,
+          task.target_worker,
+          undefined,
+          deps.callerJobId,
+        );
+
+        const freshJob = deps.jobsRepo.getById(job.id);
+        if (freshJob) {
+          deps.hub.broadcastToType("client", {
+            type: "job_updated",
+            id: newId(),
+            payload: { job: freshJob },
+          });
+        }
+
+        results.push({
+          job_id: job.id,
+          task_ref: freshJob?.taskRef ? `#${freshJob.taskRef}` : null,
+          name: task.name,
+          status: job.status,
+        });
+      }
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({
+            created: results.length,
+            tasks: results,
+            message: `${results.length} task(s) queued for distributed execution.`,
+          }, null, 2),
         }],
       };
     },

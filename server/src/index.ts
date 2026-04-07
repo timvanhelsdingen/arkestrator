@@ -686,7 +686,11 @@ async function main() {
   const skillWatcher = new SkillWatcher(config.skillsDir, skillsRepo, skillIndex);
   skillWatcher.start();
 
-  // 8b. Create worker loop
+  // 8b. Create task executor for non-agentic task jobs
+  const { TaskExecutor } = await import("./agents/task-executor.js");
+  const taskExecutor = new TaskExecutor({ hub, jobsRepo, headlessProgramsRepo, resourceLeaseManager });
+
+  // 8c. Create worker loop
   const worker = new WorkerLoop({
     scheduler,
     processTracker,
@@ -711,6 +715,7 @@ async function main() {
     hub,
     resourceLeaseManager,
     localLlmGate,
+    taskExecutor,
     maxConcurrent: config.maxConcurrentAgents,
     pollIntervalMs: config.workerPollMs,
   });
@@ -739,6 +744,7 @@ async function main() {
     skillStore,
     skillIndex,
     skillEffectivenessRepo,
+    taskExecutor,
   };
 
   // 10. Start server with Bun.serve (handles both HTTP and WebSocket)
