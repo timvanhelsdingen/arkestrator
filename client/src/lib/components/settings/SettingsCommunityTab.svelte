@@ -51,9 +51,9 @@
   async function openGitHubAuth() {
     const baseUrl = settings.baseUrl || "https://arkestrator.com";
     try {
-      await open(`${baseUrl}/auth/github`);
+      await open(`${baseUrl}/auth/github?from=desktop`);
     } catch {
-      window.open(`${baseUrl}/auth/github`, "_blank");
+      window.open(`${baseUrl}/auth/github?from=desktop`, "_blank");
     }
   }
 

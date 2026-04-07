@@ -109,6 +109,34 @@ async function communityRequestText(path: string): Promise<string> {
 }
 
 // ---------------------------------------------------------------------------
+// SKILL.md builder (server expects YAML frontmatter + body)
+// ---------------------------------------------------------------------------
+
+function buildSkillMd(skill: {
+  slug: string;
+  title: string;
+  program: string;
+  category: string;
+  description: string;
+  keywords?: string[];
+  content: string;
+}): string {
+  const kw = skill.keywords?.length ? `[${skill.keywords.join(", ")}]` : "[]";
+  return `---
+name: ${skill.slug}
+description: ${skill.description}
+metadata:
+  title: ${skill.title}
+  program: ${skill.program}
+  category: ${skill.category}
+  keywords: ${kw}
+---
+
+${skill.content}
+`;
+}
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -174,12 +202,14 @@ export const communityApi = {
     return communityRequestText(`/api/skills/${encodeURIComponent(id)}/download`);
   },
 
-  getPrograms(): Promise<string[]> {
-    return communityRequest("/api/skills/programs");
+  async getPrograms(): Promise<string[]> {
+    const res = await communityRequest<{ programs: string[] } | string[]>("/api/skills/programs");
+    return Array.isArray(res) ? res : res.programs ?? [];
   },
 
-  getCategories(): Promise<string[]> {
-    return communityRequest("/api/skills/categories");
+  async getCategories(): Promise<string[]> {
+    const res = await communityRequest<{ categories: string[] } | string[]>("/api/skills/categories");
+    return Array.isArray(res) ? res : res.categories ?? [];
   },
 
   publish(skill: {
@@ -191,16 +221,30 @@ export const communityApi = {
     keywords?: string[];
     content: string;
   }): Promise<{ id: string }> {
+    // Server expects raw SKILL.md with YAML frontmatter, not JSON
+    const md = buildSkillMd(skill);
     return communityRequest("/api/skills", {
       method: "POST",
-      body: JSON.stringify(skill),
+      headers: { "Content-Type": "text/markdown" },
+      body: md,
     });
   },
 
-  updatePublished(id: string, updates: Record<string, unknown>): Promise<void> {
+  updatePublished(id: string, skill: {
+    title?: string;
+    slug?: string;
+    program?: string;
+    category?: string;
+    description?: string;
+    keywords?: string[];
+    content?: string;
+  }): Promise<void> {
+    // Server expects raw SKILL.md with YAML frontmatter
+    const md = buildSkillMd(skill as Parameters<typeof buildSkillMd>[0]);
     return communityRequest(`/api/skills/${encodeURIComponent(id)}`, {
       method: "PUT",
-      body: JSON.stringify(updates),
+      headers: { "Content-Type": "text/markdown" },
+      body: md,
     });
   },
 
@@ -210,8 +254,12 @@ export const communityApi = {
     });
   },
 
-  me(): Promise<CommunityUser> {
-    return communityRequest("/api/auth/me");
+  async me(): Promise<CommunityUser> {
+    const res = await communityRequest<{ user: CommunityUser | null } | CommunityUser>("/api/auth/me");
+    // Server wraps in { user: ... } — unwrap it
+    const user = res && "user" in res ? res.user : res;
+    if (!user) throw new Error("Not authenticated");
+    return user as CommunityUser;
   },
 
   // Re-export settings helpers for convenience
