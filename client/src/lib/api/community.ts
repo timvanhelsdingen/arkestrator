@@ -1,7 +1,18 @@
 /**
  * Community Skills API client — talks to arkestrator.com (or configured base URL).
  * Separate from rest.ts which targets the local Arkestrator server.
+ *
+ * Uses Tauri's HTTP plugin (fetch via Rust) to bypass CORS restrictions in the
+ * webview, falling back to native browser fetch in non-Tauri environments (dev).
  */
+
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+
+/** Use Tauri fetch when available (bypasses CORS), else native fetch. */
+const corsFetch: typeof globalThis.fetch =
+  typeof window !== "undefined" && "__TAURI__" in window
+    ? tauriFetch
+    : globalThis.fetch;
 
 const SETTINGS_KEY = "arkestrator-community-settings";
 
@@ -26,6 +37,11 @@ function defaultSettings(): CommunitySettings {
   return { enabled: true, baseUrl: DEFAULT_BASE_URL, authToken: "" };
 }
 
+/** Strip trailing slashes and common mis-suffixes like "/api" from the base URL. */
+function normalizeBaseUrl(raw: string): string {
+  return (raw || DEFAULT_BASE_URL).replace(/\/+$/, "").replace(/\/api$/i, "");
+}
+
 export function loadSettings(): CommunitySettings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
@@ -33,7 +49,7 @@ export function loadSettings(): CommunitySettings {
     const parsed = JSON.parse(raw);
     return {
       enabled: parsed.enabled !== false,
-      baseUrl: (parsed.baseUrl || DEFAULT_BASE_URL).replace(/\/+$/, ""),
+      baseUrl: normalizeBaseUrl(parsed.baseUrl),
       authToken: parsed.authToken || "",
     };
   } catch {
@@ -44,7 +60,7 @@ export function loadSettings(): CommunitySettings {
 export function saveSettings(settings: CommunitySettings): void {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify({
     enabled: settings.enabled,
-    baseUrl: (settings.baseUrl || DEFAULT_BASE_URL).replace(/\/+$/, ""),
+    baseUrl: normalizeBaseUrl(settings.baseUrl),
     authToken: settings.authToken,
   }));
 }
@@ -72,7 +88,7 @@ async function communityRequest<T = unknown>(
     delete headers["Content-Type"];
   }
 
-  const res = await fetch(url, {
+  const res = await corsFetch(url, {
     ...options,
     headers: { ...headers, ...(options.headers as Record<string, string>) },
   });
@@ -101,7 +117,7 @@ async function communityRequestText(path: string): Promise<string> {
   if (settings.authToken) {
     headers["Authorization"] = `Bearer ${settings.authToken}`;
   }
-  const res = await fetch(url, { headers });
+  const res = await corsFetch(url, { headers });
   if (!res.ok) {
     throw new Error(`${res.status}: Failed to download skill`);
   }
