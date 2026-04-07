@@ -1,0 +1,19 @@
+# Maintainer: Tim van Helsdingen <tim@arkestrator.dev>
+pkgname=arkestrator-bin
+pkgver=0.1.116
+pkgrel=1
+pkgdesc="Hub-and-spoke system for managing AI agent tasks across DCC apps"
+arch=('x86_64')
+url="https://github.com/timvanhelsdingen/arkestrator"
+license=('MIT')
+depends=('webkit2gtk-4.1' 'gtk3' 'libayatana-appindicator')
+provides=('arkestrator')
+conflicts=('arkestrator')
+source=("${pkgname}-${pkgver}.deb::https://github.com/timvanhelsdingen/arkestrator/releases/download/v${pkgver}/arkestrator_${pkgver}_amd64.deb")
+# Update sha256sums when publishing: makepkg -g >> PKGBUILD
+sha256sums=('SKIP')
+
+package() {
+  # Extract the deb data archive
+  bsdtar -xf data.tar.* -C "${pkgdir}/"
+}

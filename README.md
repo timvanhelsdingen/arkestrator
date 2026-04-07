@@ -110,9 +110,27 @@ Download from [GitHub Releases](https://github.com/timvanhelsdingen/arkestrator/
 
 The desktop app bundles the server. Install, launch, and you're running.
 
+### Linux Package Repos
+
+Add the Arkestrator repo to your system for automatic updates via your package manager:
+
+```bash
+# Auto-detect distro and add repo
+curl -fsSL https://timvanhelsdingen.github.io/arkestrator/install.sh | sudo bash
+```
+
+Or manually:
+
+| Distro | Command |
+|---|---|
+| Fedora / RHEL | `sudo dnf config-manager addrepo --from-repofile=https://timvanhelsdingen.github.io/arkestrator/arkestrator.repo` |
+| Debian / Ubuntu | See [setup instructions](https://timvanhelsdingen.github.io/arkestrator/) |
+| Arch (AUR) | `yay -S arkestrator-bin` |
+
+After adding the repo, install with `dnf install arkestrator`, `apt install arkestrator`, etc. Updates arrive automatically with your system updates.
+
 ### Other Options
 
-- **Linux quick install:** `curl -fsSL https://raw.githubusercontent.com/timvanhelsdingen/arkestrator/main/install.sh | bash`
 - **Docker:** `docker pull ghcr.io/timvanhelsdingen/arkestrator:latest` — see [deployment docs](docs/deployment-vps-caddy.md)
 - **Build from source:** requires Node.js 20+, pnpm, Bun, Rust — see [installation docs](docs/installation.md)
 
