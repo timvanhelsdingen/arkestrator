@@ -3026,7 +3026,7 @@
     font-size: 9px; font-weight: 700; min-width: 14px; height: 14px; padding: 0 3px;
   }
   .community-toolbar { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
-  .community-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+  .community-grid { display: flex; flex-direction: column; }
   .community-error {
     background: rgba(244, 71, 71, 0.1); border: 1px solid var(--status-failed); border-radius: var(--radius-sm);
     padding: 8px 12px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;
