@@ -3,6 +3,9 @@
 ## Purpose
 Central hub. Receives jobs via REST+WS, queues them in SQLite, spawns AI CLI tools as subprocesses, streams results back to bridges+clients. Manages all state.
 
+## Recent Updates (2026-04-07)
+- Task job agent guidance (2026-04-07): `src/agents/engines.ts` — `DEFAULT_ORCHESTRATOR_PROMPT` now includes a "Task Jobs (Non-Agentic Execution)" section teaching agents when and how to use `create_task` for deterministic operations (renders, caches, sims, exports). Tool Reference updated with `create_task`, `create_tasks`, `poll_jobs`. `packages/protocol/src/local-agentic.ts` — removed `get_job_status` from `LOCAL_AGENTIC_DELEGATION_TOOLS` so agents can always monitor task job status without needing delegation-gated prompts.
+
 ## Recent Updates (2026-04-06)
 - Real-time file_path policy enforcement (2026-04-06): Three-layer protection for file_path policies:
   1. **Stream interception** (`src/agents/stream-json-parser.ts`): New `FilePathPolicyChecker` callback checks `Write`, `Edit`, `NotebookEdit` tool calls' file paths against blocked policies in real time. Kills agent process before the tool executes. New `getToolFilePath()` helper extracts paths from tool inputs.

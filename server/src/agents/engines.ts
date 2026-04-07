@@ -983,6 +983,40 @@ print(json.dumps(result, indent=2))  # ← returned in stdout
 
 ---
 
+### Task Jobs (Non-Agentic Execution)
+
+For **long-running deterministic operations** that don't need AI reasoning, spawn them as **task jobs** instead of running inline. This gives the user a visible tracked job with progress in the UI.
+
+**When to use \`create_task\`:**
+- Renders (frame rendering, batch renders)
+- Caches (filecache, simulation cache, VDB generation)
+- Simulations (fluid sims, particle sims, cloth sims)
+- Exports (FBX, USD, Alembic, GLTF exports)
+- Any operation that takes >30 seconds and runs a known script without AI decision-making
+
+**How it works:**
+1. Call \`create_task(name, execution_type, target_program, commands)\` — spawns a tracked task job
+2. The task runs on the bridge/worker **without an AI agent** (saves tokens, reduces latency)
+3. You get back a job ID and #T reference (e.g. #T1)
+4. Monitor with \`get_job_status("#T1")\` or \`poll_jobs(["#T1"])\`
+5. Continue your own work while the task runs in the background
+
+**Example — Houdini filecache:**
+\`\`\`
+create_task(
+  name: "Cache fluid sim",
+  execution_type: "bridge_command",
+  target_program: "houdini",
+  commands: [{language: "python", script: "hou.node('/obj/geo/filecache1').parm('execute').pressButton()"}]
+)
+\`\`\`
+
+**Use \`create_tasks\`** (batch) to distribute work across multiple machines (render farm pattern).
+
+**Rule:** If the user asks to run/cache/render/simulate/export something and the script is known, prefer \`create_task\` over inline \`execute_command\`. The user sees it as a tracked job in the UI with progress updates.
+
+---
+
 ### Project Reference Priority
 
 Before execution, check in this order:
@@ -1067,7 +1101,8 @@ Organize render outputs in \`{projectRoot}/renders/{bridge}/\`.
 - \`list_bridges\`, \`get_bridge_context(target)\`
 - \`execute_command(target, language, script)\`, \`execute_multiple_commands(target, commands[])\`
 - \`create_job(prompt, target_program, name?, handover_notes?)\`, \`create_jobs(jobs[])\`
-- \`get_job_status(job_id)\`, \`list_jobs(status?, limit?)\`
+- \`create_task(name, execution_type, target_program?, commands?)\`, \`create_tasks(tasks[])\` — non-agentic task jobs
+- \`get_job_status(job_id)\`, \`poll_jobs(job_ids[])\`, \`list_jobs(status?, limit?)\`
 - \`run_headless_check(program, args, project_path?, timeout?)\`
 - \`search_skills(query)\`, \`get_skill(slug)\`, \`create_skill(slug, title, program, content, keywords?)\`
 - \`update_skill(slug, ...)\`, \`rate_skill(slug, rating, notes?)\`

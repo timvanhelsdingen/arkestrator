@@ -350,7 +350,6 @@ export const LOCAL_AGENTIC_DEFAULTS = {
 export const LOCAL_AGENTIC_DELEGATION_TOOLS = new Set<string>([
   "list_agent_configs",
   "create_job",
-  "get_job_status",
   "list_jobs",
 ]);
 
