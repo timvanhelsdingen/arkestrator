@@ -22,6 +22,7 @@
     autoFetch: boolean;
     enabled: boolean;
     locked: boolean;
+    appVersion: string | null;
   }
 
   interface EffectivenessStats {

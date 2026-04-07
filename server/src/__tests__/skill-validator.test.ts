@@ -103,6 +103,7 @@ describe("skill-validator", () => {
       enabled: true,
       locked: false,
       version: 1,
+      appVersion: null,
       createdAt: "2024-01-01",
       updatedAt: "2024-01-01",
       ...overrides,

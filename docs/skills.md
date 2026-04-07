@@ -22,6 +22,7 @@ A skill record looks like this:
 | `enabled`      | boolean    | Active/disabled toggle                                 |
 | `version`      | number     | Incremented on content updates                         |
 | `locked`       | boolean    | When true, prevents agent edits (housekeeping/training skip this skill) |
+| `appVersion`   | string\|null | Arkestrator version that created/last updated the skill (for compatibility filtering) |
 
 ## How Skills Are Injected
 
@@ -249,10 +250,10 @@ This is useful for curated skills you don't want agents to modify, such as caref
 When a skill's content, keywords, or description change, the current state is snapshotted to `skill_versions` before the update:
 
 ```
-skill_versions (id, skill_id, version, content, keywords, description, created_at)
+skill_versions (id, skill_id, version, content, keywords, description, app_version, created_at)
 ```
 
-The skill's `version` counter increments with each content change. Previous versions can be listed and rolled back through the API or admin panel. Rollback creates a new version entry (the pre-rollback state) before restoring the target version's content. Individual versions can also be deleted.
+The skill's `version` counter increments with each content change. Each update stamps the current Arkestrator `app_version` on both the skill and the version snapshot, enabling compatibility filtering if breaking changes are introduced in future versions. Previous versions can be listed and rolled back through the API or admin panel. Rollback creates a new version entry (the pre-rollback state) before restoring the target version's content. Individual versions can also be deleted.
 
 The desktop client provides a **version dropdown selector** in the skill detail view for browsing and restoring previous versions.
 

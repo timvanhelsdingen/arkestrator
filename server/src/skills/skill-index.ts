@@ -182,6 +182,7 @@ export interface SkillSummary {
   autoFetch: boolean;
   enabled: boolean;
   locked: boolean;
+  appVersion: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -429,6 +430,7 @@ export class SkillIndex {
         autoFetch: s.autoFetch,
         enabled: s.enabled,
         locked: s.locked,
+        appVersion: s.appVersion,
       }));
   }
 

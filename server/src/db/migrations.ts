@@ -427,6 +427,9 @@ const COLUMN_ADDITIONS = [
   `ALTER TABLE jobs ADD COLUMN task_progress REAL`,
   `ALTER TABLE jobs ADD COLUMN task_status_text TEXT`,
   `ALTER TABLE jobs ADD COLUMN task_ref TEXT`,
+  // Track which app version created/updated each skill for compatibility filtering
+  `ALTER TABLE skills ADD COLUMN app_version TEXT`,
+  `ALTER TABLE skill_versions ADD COLUMN app_version TEXT`,
 ];
 
 // Reset any jobs stuck in 'running' state (server crashed while they were active)

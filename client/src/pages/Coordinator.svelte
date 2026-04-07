@@ -228,6 +228,7 @@
     autoFetch?: boolean;
     enabled?: boolean;
     locked?: boolean;
+    appVersion?: string | null;
   }
   let serverSkills = $state<SkillEntry[]>([]);
   let skillsLoading = $state(false);

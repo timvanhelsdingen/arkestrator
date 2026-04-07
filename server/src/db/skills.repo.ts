@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { newId } from "../utils/id.js";
+import { SERVER_VERSION } from "../utils/version.js";
 
 /**
  * Skill record as stored in the DB.
@@ -24,6 +25,7 @@ export interface Skill {
   enabled: boolean;
   locked: boolean;
   version: number;
+  appVersion: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -35,6 +37,7 @@ export interface SkillVersion {
   content: string;
   keywords: string[];
   description: string;
+  appVersion: string | null;
   createdAt: string;
 }
 
@@ -58,6 +61,7 @@ interface SkillRow {
   enabled: number;
   locked: number;
   version: number;
+  app_version: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -122,6 +126,7 @@ function rowToSkill(row: SkillRow): Skill {
     enabled: row.enabled === 1,
     locked: row.locked === 1,
     version: row.version ?? 1,
+    appVersion: row.app_version ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -164,18 +169,19 @@ export class SkillsRepo {
       "SELECT * FROM skills WHERE slug = ? AND program = ? LIMIT 1",
     );
     this.insertStmt = db.prepare(`
-      INSERT INTO skills (id, name, slug, program, category, title, description, keywords, content, playbooks, related_skills, source, source_path, priority, auto_fetch, enabled, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO skills (id, name, slug, program, category, title, description, keywords, content, playbooks, related_skills, source, source_path, priority, auto_fetch, enabled, app_version, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     this.upsertStmt = db.prepare(`
-      INSERT INTO skills (id, name, slug, program, category, title, description, keywords, content, playbooks, related_skills, source, source_path, priority, auto_fetch, enabled, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO skills (id, name, slug, program, category, title, description, keywords, content, playbooks, related_skills, source, source_path, priority, auto_fetch, enabled, app_version, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(slug, program) DO UPDATE SET
         name = excluded.name, category = excluded.category, title = excluded.title,
         description = excluded.description, keywords = excluded.keywords, content = excluded.content,
         playbooks = excluded.playbooks, related_skills = excluded.related_skills,
         source = excluded.source, source_path = excluded.source_path, priority = excluded.priority,
-        auto_fetch = excluded.auto_fetch, enabled = excluded.enabled, updated_at = excluded.updated_at
+        auto_fetch = excluded.auto_fetch, enabled = excluded.enabled, app_version = excluded.app_version,
+        updated_at = excluded.updated_at
     `);
     this.deleteBySlugStmt = db.prepare("DELETE FROM skills WHERE slug = ?");
     this.deleteBySlugAndProgramStmt = db.prepare(
@@ -224,7 +230,7 @@ export class SkillsRepo {
       JSON.stringify(input.playbooks ?? []), JSON.stringify(input.relatedSkills ?? []),
       src, input.sourcePath ?? null, input.priority ?? 50,
       (input.autoFetch ?? false) ? 1 : 0, (input.enabled ?? true) ? 1 : 0,
-      now, now,
+      SERVER_VERSION, now, now,
     );
     return this.get(input.slug, program)!;
   }
@@ -259,15 +265,16 @@ export class SkillsRepo {
     if (contentChanged || keywordsChanged || descriptionChanged) {
       try {
         this.db.prepare(
-          `INSERT OR IGNORE INTO skill_versions (id, skill_id, version, content, keywords, description, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT OR IGNORE INTO skill_versions (id, skill_id, version, content, keywords, description, app_version, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         ).run(
           newId(), existing.id, existing.version, existing.content,
           JSON.stringify(existing.keywords), existing.description,
-          new Date().toISOString(),
+          existing.appVersion, new Date().toISOString(),
         );
-        // Increment version
+        // Increment version and stamp current app version
         sets.push("version = version + 1");
+        sets.push("app_version = ?"); values.push(SERVER_VERSION);
       } catch {
         // skill_versions table may not exist on older DBs — proceed without snapshotting
       }
@@ -324,7 +331,7 @@ export class SkillsRepo {
       JSON.stringify(input.playbooks ?? []), JSON.stringify(input.relatedSkills ?? []),
       input.source ?? "user", input.sourcePath ?? null, input.priority ?? 50,
       (input.autoFetch ?? false) ? 1 : 0, (input.enabled ?? true) ? 1 : 0,
-      now, now,
+      SERVER_VERSION, now, now,
     );
     return this.get(input.slug, program)!;
   }
@@ -361,6 +368,7 @@ export class SkillsRepo {
         content: string;
         keywords: string;
         description: string;
+        app_version: string | null;
         created_at: string;
       }>;
       return rows.map((row) => ({
@@ -370,6 +378,7 @@ export class SkillsRepo {
         content: row.content,
         keywords: (() => { try { return JSON.parse(row.keywords); } catch { return []; } })(),
         description: row.description,
+        appVersion: row.app_version ?? null,
         createdAt: row.created_at,
       }));
     } catch {
@@ -391,14 +400,14 @@ export class SkillsRepo {
       if (!current) return null;
 
       this.db.prepare(
-        `INSERT OR IGNORE INTO skill_versions (id, skill_id, version, content, keywords, description, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      ).run(newId(), skillId, current.version, current.content, current.keywords, current.description, now);
+        `INSERT OR IGNORE INTO skill_versions (id, skill_id, version, content, keywords, description, app_version, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(newId(), skillId, current.version, current.content, current.keywords, current.description, current.app_version, now);
 
-      // Restore content from the target version
+      // Restore content from the target version, stamp current app version
       this.db.prepare(
-        `UPDATE skills SET content = ?, keywords = ?, description = ?, version = version + 1, updated_at = ? WHERE id = ?`,
-      ).run(versionRow.content, versionRow.keywords, versionRow.description, now, skillId);
+        `UPDATE skills SET content = ?, keywords = ?, description = ?, version = version + 1, app_version = ?, updated_at = ? WHERE id = ?`,
+      ).run(versionRow.content, versionRow.keywords, versionRow.description, SERVER_VERSION, now, skillId);
 
       const restored = this.db.prepare("SELECT * FROM skills WHERE id = ?").get(skillId) as SkillRow | null;
       return restored ? rowToSkill(restored) : null;
