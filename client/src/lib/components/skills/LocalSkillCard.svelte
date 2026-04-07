@@ -1,34 +1,48 @@
 <script lang="ts">
-  import type { CommunitySkillSummary } from "../../api/community";
-  import type { InstalledCommunitySkill } from "../../stores/communitySkills.svelte";
+  import type { SkillEntry, SkillEffectiveness } from "../../types/skills";
   import { programColor } from "../../utils/programColor";
 
   let {
     skill,
-    installed,
-    hasUpdate = false,
-    busy = false,
+    effectiveness,
+    selected = false,
+    canManage = false,
+    communityEnabled = false,
+    onselect,
     onview,
-    oninstall,
-    ontoggle,
-    onupdate,
-    onuninstall,
+    onedit,
+    ondelete,
+    onshare,
   }: {
-    skill: CommunitySkillSummary;
-    installed?: InstalledCommunitySkill;
-    hasUpdate?: boolean;
-    busy?: boolean;
-    onview: () => void;
-    oninstall?: () => void;
-    ontoggle?: () => void;
-    onupdate?: () => void;
-    onuninstall?: () => void;
+    skill: SkillEntry;
+    effectiveness?: SkillEffectiveness | null;
+    selected?: boolean;
+    canManage?: boolean;
+    communityEnabled?: boolean;
+    onselect?: () => void;
+    onview?: () => void;
+    onedit?: () => void;
+    ondelete?: () => void;
+    onshare?: () => void;
   } = $props();
+
+  const ratedCount = $derived(
+    effectiveness ? effectiveness.totalUsed - (effectiveness.pendingOutcomes ?? 0) : 0
+  );
+  const successPct = $derived(
+    ratedCount > 0 ? Math.round((effectiveness?.successRate ?? 0) * 100) : null
+  );
 </script>
 
-<div class="skill-card" class:installed={!!installed}>
+<div class="skill-card" class:selected>
   <div class="card-header">
+    {#if onselect}
+      <input type="checkbox" checked={selected} onchange={onselect} class="card-checkbox" />
+    {/if}
     <button class="card-title" onclick={onview}>{skill.title}</button>
+    {#if skill.locked}
+      <span class="lock-icon" title="Locked">&#128274;</span>
+    {/if}
   </div>
 
   <div class="card-badges">
@@ -38,9 +52,6 @@
     {#if skill.category}
       <span class="badge category-badge">{skill.category}</span>
     {/if}
-    {#if hasUpdate}
-      <span class="badge update-badge">Update</span>
-    {/if}
   </div>
 
   {#if skill.description}
@@ -48,40 +59,31 @@
   {/if}
 
   <div class="card-meta">
-    <span class="meta-author" title={skill.author?.username || "Unknown"}>
-      {#if skill.author?.avatar_url}
-        <img class="avatar" src={skill.author.avatar_url} alt="" />
-      {:else}
-        <span class="avatar-fallback">{(skill.author?.username || "?")[0].toUpperCase()}</span>
+    {#if skill.source}
+      <span class="meta-item" title="Source">{skill.source}</span>
+    {/if}
+    {#if effectiveness}
+      <span class="meta-item" title="Total uses">
+        {effectiveness.totalUsed} use{effectiveness.totalUsed !== 1 ? "s" : ""}
+      </span>
+      {#if successPct !== null}
+        <span class="badge success-badge {successPct >= 70 ? 'success' : successPct >= 40 ? 'warn' : 'bad'}">
+          {successPct}%
+        </span>
+      {:else if effectiveness.totalUsed > 0}
+        <span class="meta-item muted" title="{effectiveness.pendingOutcomes} pending">pending</span>
       {/if}
-      {skill.author?.username || "Unknown"}
-    </span>
-    <span class="meta-item">v{skill.version}</span>
-    <span class="meta-item">&#8681; {skill.downloads ?? 0}</span>
+    {/if}
   </div>
 
   <div class="card-actions">
     <button class="btn btn-sm" onclick={onview}>View</button>
-    {#if !installed}
-      {#if oninstall}
-        <button class="btn btn-sm btn-accent" onclick={oninstall} disabled={busy}>
-          {busy ? "Installing..." : "Install"}
-        </button>
-      {/if}
-    {:else}
-      {#if ontoggle}
-        <button class="btn btn-sm" class:btn-enabled={installed.enabled} onclick={ontoggle}>
-          {installed.enabled ? "Disable" : "Enable"}
-        </button>
-      {/if}
-      {#if hasUpdate && onupdate}
-        <button class="btn btn-sm btn-accent" onclick={onupdate} disabled={busy}>
-          {busy ? "Updating..." : "Update"}
-        </button>
-      {/if}
-      {#if onuninstall}
-        <button class="btn btn-sm btn-danger" onclick={onuninstall}>Uninstall</button>
-      {/if}
+    {#if canManage}
+      <button class="btn btn-sm" onclick={onedit} disabled={skill.locked} title={skill.locked ? "Skill is locked" : ""}>Edit</button>
+      <button class="btn btn-sm btn-danger" onclick={ondelete}>Delete</button>
+    {/if}
+    {#if communityEnabled && onshare}
+      <button class="btn btn-sm" onclick={onshare} title="Share to community">Share</button>
     {/if}
   </div>
 </div>
@@ -101,8 +103,8 @@
     border-color: var(--border, rgba(255,255,255,0.12));
     background: var(--bg-hover, rgba(255,255,255,0.04));
   }
-  .skill-card.installed {
-    border-left: 3px solid var(--status-completed);
+  .skill-card.selected {
+    border-color: var(--accent);
   }
 
   .card-header {
@@ -110,6 +112,9 @@
     align-items: center;
     gap: 6px;
     min-width: 0;
+  }
+  .card-checkbox {
+    flex-shrink: 0;
   }
   .card-title {
     flex: 1;
@@ -128,6 +133,11 @@
   }
   .card-title:hover {
     color: var(--accent);
+  }
+  .lock-icon {
+    flex-shrink: 0;
+    font-size: 12px;
+    opacity: 0.5;
   }
 
   .card-badges {
@@ -148,9 +158,6 @@
   .category-badge {
     background: var(--bg-subtle, rgba(255,255,255,0.06));
     color: var(--text-secondary);
-  }
-  .update-badge {
-    background: var(--status-running);
   }
 
   .card-desc {
@@ -175,31 +182,20 @@
     padding-top: 4px;
     border-top: 1px solid var(--border-light, rgba(255,255,255,0.04));
   }
-  .meta-author {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  }
-  .avatar {
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-  }
-  .avatar-fallback {
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    background: var(--bg-active);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 8px;
-    font-weight: 700;
-    color: var(--text-secondary);
-  }
   .meta-item {
     white-space: nowrap;
   }
+  .meta-item.muted {
+    opacity: 0.6;
+  }
+  .success-badge {
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+  .success-badge.success { color: #4ec9b0; background: rgba(78, 201, 176, 0.12); }
+  .success-badge.warn { color: #e2b93d; background: rgba(226, 185, 61, 0.12); }
+  .success-badge.bad { color: #e05252; background: rgba(224, 82, 82, 0.12); }
 
   .card-actions {
     display: flex;
@@ -223,19 +219,6 @@
   .btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
-  }
-  .btn-accent {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: #fff;
-  }
-  .btn-accent:hover {
-    background: var(--accent-hover);
-    border-color: var(--accent-hover);
-  }
-  .btn-enabled {
-    border-color: var(--status-completed);
-    color: var(--status-completed);
   }
   .btn-danger {
     color: var(--status-failed);
