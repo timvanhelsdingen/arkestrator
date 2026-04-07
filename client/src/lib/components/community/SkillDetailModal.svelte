@@ -28,6 +28,23 @@
 
   let busy = $derived(communitySkills.installingIds.has(skill.id));
 
+  // Parse related-skills from SKILL.md content
+  let relatedSkills = $derived.by(() => {
+    if (!detail?.content) return [];
+    const fmMatch = detail.content.match(/^---\s*\n([\s\S]*?)\n---/);
+    if (!fmMatch) return [];
+    const fm = fmMatch[1];
+    const inlineMatch = fm.match(/related-skills:\s*\[([^\]]*)\]/);
+    if (inlineMatch) {
+      return inlineMatch[1].split(",").map((s: string) => s.trim()).filter(Boolean);
+    }
+    const listMatch = fm.match(/related-skills:\s*\n((?:\s+-\s+.*\n?)*)/);
+    if (listMatch) {
+      return listMatch[1].split("\n").map((l: string) => l.replace(/^\s*-\s*/, "").trim()).filter(Boolean);
+    }
+    return [];
+  });
+
   function handleOverlayClick(e: MouseEvent) {
     if (e.target === e.currentTarget) onclose();
   }
@@ -91,6 +108,17 @@
 
         <p class="description">{detail.description || "No description"}</p>
 
+        {#if relatedSkills.length > 0}
+          <div class="deps-section">
+            <h4>Dependencies ({relatedSkills.length})</h4>
+            <div class="deps-list">
+              {#each relatedSkills as depSlug}
+                <span class="dep-chip">{depSlug}</span>
+              {/each}
+            </div>
+          </div>
+        {/if}
+
         <div class="content-section">
           <h4>SKILL.md Preview</h4>
           <pre class="skill-content">{detail.content}</pre>
@@ -115,7 +143,13 @@
         {/if}
       {:else if oninstall}
         <button class="btn btn-accent" onclick={oninstall} disabled={busy}>
-          {busy ? "Installing..." : "Install"}
+          {#if busy}
+            Installing...
+          {:else if relatedSkills.length > 0}
+            Install with {relatedSkills.length} dep{relatedSkills.length === 1 ? "" : "s"}
+          {:else}
+            Install
+          {/if}
         </button>
       {/if}
       <button class="btn" onclick={onclose}>Close</button>
@@ -224,6 +258,27 @@
     color: var(--text-secondary);
     line-height: 1.5;
     margin: 0 0 12px;
+  }
+  .deps-section {
+    margin-bottom: 12px;
+  }
+  .deps-section h4 {
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+    margin: 0 0 6px;
+  }
+  .deps-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .dep-chip {
+    background: var(--bg-active);
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+    font-size: 11px;
+    font-family: var(--font-mono);
+    color: var(--text-secondary);
   }
   .content-section h4 {
     font-size: var(--font-size-sm);
