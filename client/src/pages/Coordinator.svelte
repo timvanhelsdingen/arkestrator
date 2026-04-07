@@ -8,6 +8,8 @@
   import SkillCard from "../lib/components/community/SkillCard.svelte";
   import SkillDetailModal from "../lib/components/community/SkillDetailModal.svelte";
   import PublishModal from "../lib/components/community/PublishModal.svelte";
+  import LocalSkillCard from "../lib/components/skills/LocalSkillCard.svelte";
+  import type { SkillEntry, SkillEffectiveness } from "../lib/types/skills";
 
   type ScopeTab = "server" | "training" | "maintenance";
   type AnalyzeStatus = "queued" | "running" | "completed" | "failed";
@@ -210,29 +212,9 @@
   let selectedProjectRawSaving = $state(false);
 
   // Skills
-  interface SkillEntry {
-    id: string;
-    slug: string;
-    name?: string;
-    program: string;
-    category: string;
-    title: string;
-    description?: string;
-    keywords?: string[];
-    content?: string;
-    playbooks?: string[];
-    relatedSkills?: string[];
-    source?: string;
-    sourcePath?: string | null;
-    priority?: number;
-    autoFetch?: boolean;
-    enabled?: boolean;
-    locked?: boolean;
-    appVersion?: string | null;
-  }
   let serverSkills = $state<SkillEntry[]>([]);
   let skillsLoading = $state(false);
-  let skillEffectiveness = $state<Record<string, { totalUsed: number; successRate: number; pendingOutcomes: number; goodOutcomes: number; averageOutcomes: number; poorOutcomes: number }>>({});
+  let skillEffectiveness = $state<Record<string, SkillEffectiveness>>({});
   let skillsFilter = $state("");
   let skillFilterCategory = $state("");
   let skillFilterSource = $state("");
@@ -1760,6 +1742,20 @@
         {#if skillsView === "local"}
         <p class="desc">Skills loaded on the server that customize coordinator behavior per bridge.</p>
         <div class="skill-toolbar">
+          <label class="select-all-checkbox" title="Select all">
+            <input type="checkbox"
+              checked={filteredSkills.length > 0 && filteredSkills.every(s => selectedSkillKeys.has(skillKey(s)))}
+              onchange={(e) => {
+                const next = new Set(selectedSkillKeys);
+                if ((e.target as HTMLInputElement).checked) {
+                  filteredSkills.forEach(s => next.add(skillKey(s)));
+                } else {
+                  filteredSkills.forEach(s => next.delete(skillKey(s)));
+                }
+                selectedSkillKeys = next;
+              }}
+            />
+          </label>
           <select class="skill-filter-select" bind:value={skillFilterCategory}>
             <option value="">All Categories</option>
             {#each skillCategories as cat}
@@ -1841,76 +1837,35 @@
           </div>
         {/if}
 
-        <table class="skill-table">
-          <thead><tr>
-            <th><input type="checkbox"
-              checked={filteredSkills.length > 0 && filteredSkills.every(s => selectedSkillKeys.has(skillKey(s)))}
-              onchange={(e) => {
-                const next = new Set(selectedSkillKeys);
-                if ((e.target as HTMLInputElement).checked) {
-                  filteredSkills.forEach(s => next.add(skillKey(s)));
-                } else {
-                  filteredSkills.forEach(s => next.delete(skillKey(s)));
-                }
-                selectedSkillKeys = next;
-              }}
-            /></th>
-            <th>Slug</th><th>Title</th><th>Bridge</th><th>Category</th><th>Source</th><th>Uses</th><th>Success</th><th style="width:24px"></th><th>Actions</th></tr></thead>
-          <tbody>
-            {#if skillsLoading}
-              <tr><td colspan="10" class="muted">Loading...</td></tr>
-            {:else if filteredSkills.length === 0}
-              <tr><td colspan="10" class="muted">
-                {#if serverSkills.length === 0}No skills loaded. <button class="btn-link" onclick={pullAllSkills}>Pull from Bridge Repo</button>{:else}No match.{/if}
-              </td></tr>
-            {:else}
-              {#each filteredSkills as skill}
-                {@const eff = skillEffectiveness[skill.id]}
-
-                {@const key = skillKey(skill)}
-                <tr>
-                  <td><input type="checkbox"
-                    checked={selectedSkillKeys.has(key)}
-                    onchange={() => {
-                      const next = new Set(selectedSkillKeys);
-                      if (next.has(key)) next.delete(key); else next.add(key);
-                      selectedSkillKeys = next;
-                    }}
-                  /></td>
-                  <td class="mono">{skill.slug}</td>
-                  <td>{skill.title}</td>
-                  <td><span class="badge">{skill.program}</span></td>
-                  <td><span class="badge">{skill.category}</span></td>
-                  <td class="muted">{skill.source ?? ""}</td>
-                  <td class="mono">
-                      {eff?.totalUsed ?? "-"}{eff && eff.pendingOutcomes > 0 ? ` (${eff.totalUsed - eff.pendingOutcomes} rated)` : ""}
-                  </td>
-                  <td>
-                    {#if eff && (eff.totalUsed - (eff.pendingOutcomes ?? 0)) > 0}
-                      {@const pct = Math.round(eff.successRate * 100)}
-                      <span class="badge {pct >= 70 ? 'success' : pct >= 40 ? 'warn' : 'bad'}">{pct}%</span>
-                    {:else if eff && eff.totalUsed > 0}
-                      <span class="muted" title="{eff.pendingOutcomes} pending">pending</span>
-                    {:else}
-                      <span class="muted">-</span>
-                    {/if}
-                  </td>
-                  <td style="text-align:center">{#if skill.locked}<span title="Locked">&#128274;</span>{/if}</td>
-                  <td class="actions">
-                    <button class="btn-sm" onclick={() => viewSkill(skill.slug, skill.program)}>View</button>
-                    {#if canManage}
-                      <button class="btn-sm" onclick={() => editSkillFromTable(skill.slug, skill.program)} disabled={skill.locked} title={skill.locked ? "Skill is locked" : ""}>Edit</button>
-                      <button class="btn-sm danger" onclick={() => deleteSkill(skill.slug, skill.program)}>Delete</button>
-                    {/if}
-                    {#if communityEnabled}
-                      <button class="btn-sm" onclick={() => publishSkillFromRow(skill)} title="Share to community">Share</button>
-                    {/if}
-                  </td>
-                </tr>
-              {/each}
-            {/if}
-          </tbody>
-        </table>
+        {#if skillsLoading}
+          <p class="muted" style="text-align:center; padding: 16px;">Loading...</p>
+        {:else if filteredSkills.length === 0}
+          <p class="muted" style="text-align:center; padding: 16px;">
+            {#if serverSkills.length === 0}No skills loaded. <button class="btn-link" onclick={pullAllSkills}>Pull from Bridge Repo</button>{:else}No match.{/if}
+          </p>
+        {:else}
+          <div class="skill-card-grid">
+            {#each filteredSkills as skill (skill.id)}
+              {@const key = skillKey(skill)}
+              <LocalSkillCard
+                {skill}
+                effectiveness={skillEffectiveness[skill.id] ?? null}
+                selected={selectedSkillKeys.has(key)}
+                {canManage}
+                {communityEnabled}
+                onselect={() => {
+                  const next = new Set(selectedSkillKeys);
+                  if (next.has(key)) next.delete(key); else next.add(key);
+                  selectedSkillKeys = next;
+                }}
+                onview={() => viewSkill(skill.slug, skill.program)}
+                onedit={() => editSkillFromTable(skill.slug, skill.program)}
+                ondelete={() => deleteSkill(skill.slug, skill.program)}
+                onshare={() => publishSkillFromRow(skill)}
+              />
+            {/each}
+          </div>
+        {/if}
         <p class="mini">{filteredSkills.length} skill{filteredSkills.length !== 1 ? "s" : ""}</p>
 
         {:else}
@@ -1964,7 +1919,7 @@
             </div>
           {/if}
 
-          <div class="community-grid">
+          <div class="skill-card-grid">
             {#each communitySkills.skills as skill (skill.id)}
               {@const installed = communitySkills.getInstalled(skill.id)}
               <SkillCard
@@ -2942,15 +2897,16 @@
   .skill-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
   .skill-filter-select { padding: 5px 8px; font-size: var(--font-size-sm); background: var(--bg-deep, rgba(0,0,0,0.2)); color: var(--text-primary); border: 1px solid var(--border); border-radius: var(--radius-sm, 4px); min-width: 120px; }
   .skill-search { flex: 1; min-width: 160px; padding: 6px 8px; font-size: var(--font-size-sm); }
-  .skill-table { width: 100%; border-collapse: collapse; font-size: var(--font-size-sm); }
-  .skill-table th { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); font-weight: 600; }
-  .skill-table td { padding: 6px 8px; border-bottom: 1px solid var(--border-light, rgba(255,255,255,0.06)); }
-  .skill-table .mono { font-family: var(--font-mono); font-size: 0.85em; }
-  .skill-table .badge { display: inline-block; padding: 2px 6px; border-radius: 3px; background: var(--bg-subtle, rgba(255,255,255,0.06)); font-size: 0.85em; }
-  .skill-table .badge.success { color: #4ec9b0; background: rgba(78, 201, 176, 0.12); }
-  .skill-table .badge.warn { color: #e2b93d; background: rgba(226, 185, 61, 0.12); }
-  .skill-table .badge.bad { color: #e05252; background: rgba(224, 82, 82, 0.12); }
-  .skill-table .actions { display: flex; gap: 4px; }
+  .skill-card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+    gap: 12px;
+  }
+  .select-all-checkbox {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+  }
   .btn-sm { font-size: 0.8em; padding: 2px 8px; cursor: pointer; background: var(--bg-subtle, rgba(255,255,255,0.08)); border: 1px solid var(--border); border-radius: 3px; color: inherit; }
   .btn-sm:hover { background: var(--bg-hover, rgba(255,255,255,0.12)); }
   .btn-sm.danger { color: var(--danger, #e55); }
@@ -3026,7 +2982,6 @@
     font-size: 9px; font-weight: 700; min-width: 14px; height: 14px; padding: 0 3px;
   }
   .community-toolbar { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
-  .community-grid { display: flex; flex-direction: column; }
   .community-error {
     background: rgba(244, 71, 71, 0.1); border: 1px solid var(--status-failed); border-radius: var(--radius-sm);
     padding: 8px 12px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;
