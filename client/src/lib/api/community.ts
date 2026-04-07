@@ -149,9 +149,13 @@ function buildSkillMd(skill: {
   category: string;
   description: string;
   keywords?: string[];
+  relatedSkills?: string[];
   content: string;
 }): string {
   const kw = skill.keywords?.length ? `[${skill.keywords.join(", ")}]` : "[]";
+  const rs = skill.relatedSkills?.length
+    ? `\n  related-skills: [${skill.relatedSkills.join(", ")}]`
+    : "";
   return `---
 name: ${skill.slug}
 description: ${skill.description}
@@ -159,7 +163,7 @@ metadata:
   title: ${skill.title}
   program: ${skill.program}
   category: ${skill.category}
-  keywords: ${kw}
+  keywords: ${kw}${rs}
 ---
 
 ${skill.content}
@@ -249,6 +253,7 @@ export const communityApi = {
     category: string;
     description: string;
     keywords?: string[];
+    relatedSkills?: string[];
     content: string;
   }): Promise<{ id: string }> {
     // Server expects raw SKILL.md with YAML frontmatter, not JSON
@@ -267,6 +272,7 @@ export const communityApi = {
     category?: string;
     description?: string;
     keywords?: string[];
+    relatedSkills?: string[];
     content?: string;
   }): Promise<void> {
     // Server expects raw SKILL.md with YAML frontmatter

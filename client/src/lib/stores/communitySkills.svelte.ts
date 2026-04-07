@@ -200,7 +200,7 @@ class CommunitySkillsState {
   // Install / Uninstall
   // ---------------------------------------------------------------------------
 
-  async install(communityId: string): Promise<void> {
+  async install(communityId: string, includeDeps = true): Promise<void> {
     if (this.installingIds.has(communityId)) return;
     this.installingIds = new Set([...this.installingIds, communityId]);
     try {
@@ -210,10 +210,11 @@ class CommunitySkillsState {
       // Server handles fetching from community API and creating the skill
       const result = await api.skills.installCommunity(communityId, baseUrl);
 
-      // Fetch version info for manifest (lightweight call)
+      // Fetch full detail for version info and dependency resolution
       let version = 1;
+      let detail: CommunitySkillDetail | null = null;
       try {
-        const detail = await communityApi.getSkill(communityId);
+        detail = await communityApi.getSkill(communityId);
         version = detail.version;
       } catch { /* non-critical */ }
 
@@ -230,7 +231,18 @@ class CommunitySkillsState {
         },
       };
       this._saveManifest();
-      toast.success(`Installed "${result.skill?.title || result.slug}" (disabled by default)`);
+
+      // Resolve and install dependencies
+      let depCount = 0;
+      if (includeDeps && detail) {
+        depCount = await this._installDeps(detail, new Set([communityId]));
+      }
+
+      const title = result.skill?.title || result.slug;
+      const msg = depCount > 0
+        ? `Installed "${title}" + ${depCount} dependenc${depCount === 1 ? "y" : "ies"} (disabled by default)`
+        : `Installed "${title}" (disabled by default)`;
+      toast.success(msg);
     } catch (err: any) {
       toast.error(`Install failed: ${err?.message}`);
     } finally {
@@ -238,6 +250,103 @@ class CommunitySkillsState {
       next.delete(communityId);
       this.installingIds = next;
     }
+  }
+
+  /**
+   * Recursively install dependencies for a community skill.
+   * Parses `related-skills` from the downloaded SKILL.md content,
+   * searches community by slug, and installs each missing dependency.
+   */
+  private async _installDeps(
+    detail: CommunitySkillDetail,
+    visited: Set<string>,
+  ): Promise<number> {
+    // Parse related-skills from the SKILL.md content (YAML frontmatter)
+    const relatedSlugs = this._parseRelatedSkills(detail.content);
+    if (relatedSlugs.length === 0) return 0;
+
+    let installed = 0;
+    for (const depSlug of relatedSlugs) {
+      try {
+        // Search community for this slug
+        const searchResult = await communityApi.search({
+          query: depSlug,
+          program: detail.program,
+          limit: 10,
+        });
+
+        // Find exact slug match (prefer same program, then any)
+        let match = searchResult.skills.find(
+          (s) => s.slug === depSlug && s.program === detail.program,
+        );
+        if (!match) {
+          match = searchResult.skills.find((s) => s.slug === depSlug);
+        }
+        if (!match || visited.has(match.id)) continue;
+        if (this.isInstalled(match.id)) continue;
+
+        visited.add(match.id);
+
+        // Install this dependency
+        const settings = loadSettings();
+        const baseUrl = settings.baseUrl || undefined;
+        const result = await api.skills.installCommunity(match.id, baseUrl);
+
+        // Track in manifest
+        this._manifest = {
+          ...this._manifest,
+          [match.id]: {
+            communityId: match.id,
+            localSlug: result.slug,
+            localProgram: result.program,
+            installedVersion: match.version,
+            enabled: false,
+            installedAt: new Date().toISOString(),
+          },
+        };
+        this._saveManifest();
+        installed++;
+
+        // Recursively install this dependency's own dependencies
+        try {
+          const depDetail = await communityApi.getSkill(match.id);
+          installed += await this._installDeps(depDetail, visited);
+        } catch { /* non-critical — dep installed, its sub-deps are best-effort */ }
+      } catch {
+        // Dependency not found on community or install failed — skip silently
+      }
+    }
+    return installed;
+  }
+
+  /**
+   * Parse `related-skills` from SKILL.md content (YAML frontmatter).
+   * Handles both array format and inline format.
+   */
+  private _parseRelatedSkills(content: string): string[] {
+    if (!content) return [];
+    // Match YAML frontmatter
+    const fmMatch = content.match(/^---\s*\n([\s\S]*?)\n---/);
+    if (!fmMatch) return [];
+    const fm = fmMatch[1];
+
+    // Match related-skills line(s)
+    // Format: related-skills: [slug1, slug2] or related-skills:\n  - slug1\n  - slug2
+    const inlineMatch = fm.match(/related-skills:\s*\[([^\]]*)\]/);
+    if (inlineMatch) {
+      return inlineMatch[1].split(",").map((s) => s.trim()).filter(Boolean);
+    }
+
+    // YAML list format
+    const listMatch = fm.match(/related-skills:\s*\n((?:\s+-\s+.*\n?)*)/);
+    if (listMatch) {
+      return listMatch[1]
+        .split("\n")
+        .map((line) => line.replace(/^\s*-\s*/, "").trim())
+        .filter(Boolean);
+    }
+
+    return [];
   }
 
   async uninstall(communityId: string): Promise<void> {

@@ -429,6 +429,7 @@ Skills are modular instruction snippets that customize how the coordinator agent
 - `src/skills/skill-materializer.ts` — Materializes all enabled skills from DB for the index
 - `src/skills/skill-registry.ts` — Fetches skill registry from GitHub bridge repos, pulls coordinator scripts + skills
 - `src/skills/skill-validator.ts` — Skill content validation: regex checks, contradiction detection across existing skills
+- `src/skills/skill-deps.ts` — Dependency resolver: `resolveDependencies(rootSlug, rootProgram, lookupFn)` walks `relatedSkills` recursively with cycle detection (visited set). Returns flat deduplicated `Skill[]` of transitive dependencies. Slug resolution prefers same-program, then "global", then first match.
 - `src/routes/skills.ts` — REST API: list, get, create, update, delete, search, pull-all, pull/:program, registry, install, refresh-index, validate, preview, `/:slug/versions`, `/:slug/rollback`, `/:slug/effectiveness`, `/:slug/playbook-content`, `POST /batch-effectiveness`, `GET/PUT /ranking-config`, `POST /ranking-config/reset`. Accepts `coordinatorPlaybooksDir` dependency. Create/Update schemas include `playbooks` and `relatedSkills` fields.
 
 ### Auto-Pull Behavior

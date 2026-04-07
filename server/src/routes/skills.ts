@@ -541,6 +541,7 @@ export function createSkillsRoutes(
     const slugs = Array.isArray(body?.slugs) ? body.slugs as string[] : undefined;
     const program = typeof body?.program === "string" ? body.program : undefined;
     const category = typeof body?.category === "string" ? body.category : undefined;
+    const includeDeps = body?.includeDeps !== false; // default true
 
     let skills = skillIndex.list({ program: program || undefined, category: category || undefined });
     if (slugs && slugs.length > 0) {
@@ -550,6 +551,28 @@ export function createSkillsRoutes(
 
     if (skills.length === 0) {
       return errorResponse(c, 404, "No skills match the given criteria", "NOT_FOUND");
+    }
+
+    // Resolve dependencies if requested
+    if (includeDeps) {
+      const { resolveDependencies } = await import("../skills/skill-deps.js");
+      const lookupFn = (slug: string, preferProgram?: string) =>
+        skillsRepo.get(slug, preferProgram ?? undefined);
+      const seen = new Set(skills.map(s => `${s.slug}::${s.program}`));
+      const extraDeps: typeof skills = [];
+      for (const s of skills) {
+        const deps = resolveDependencies(s.slug, s.program, lookupFn);
+        for (const dep of deps) {
+          const k = `${dep.slug}::${dep.program}`;
+          if (!seen.has(k)) {
+            seen.add(k);
+            extraDeps.push(dep);
+          }
+        }
+      }
+      if (extraDeps.length > 0) {
+        skills = [...skills, ...extraDeps];
+      }
     }
 
     const { zipSync, strToU8 } = await import("fflate");
