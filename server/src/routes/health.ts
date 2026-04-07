@@ -1,27 +1,9 @@
 import { Hono } from "hono";
-import { readFileSync } from "fs";
-import { resolve, dirname } from "path";
-import { fileURLToPath } from "url";
+
+export { SERVER_VERSION } from "../utils/version.js";
+import { SERVER_VERSION } from "../utils/version.js";
 
 const startTime = Date.now();
-
-/**
- * Server version — read from package.json so it stays in sync
- * with `pnpm version:bump` automatically.
- */
-function loadServerVersion(): string {
-  try {
-    const dir = dirname(fileURLToPath(import.meta.url));
-    const pkg = JSON.parse(
-      readFileSync(resolve(dir, "../../package.json"), "utf-8"),
-    );
-    return pkg.version ?? "0.0.0";
-  } catch {
-    return "0.0.0";
-  }
-}
-
-export const SERVER_VERSION = loadServerVersion();
 
 /**
  * Protocol version (integer). Increment when the WS/REST protocol changes

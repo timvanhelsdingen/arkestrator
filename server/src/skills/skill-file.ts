@@ -96,6 +96,9 @@ export function skillToSkillFile(skill: Skill, effectiveness?: SkillEffectivenes
   if (skill.relatedSkills?.length > 0) metadata["related-skills"] = skill.relatedSkills;
   if (skill.playbooks?.length > 0) metadata["playbook-files"] = skill.playbooks;
 
+  // App version that last touched this skill
+  if (skill.appVersion) metadata["app-version"] = skill.appVersion;
+
   // Effectiveness data (optional, portable)
   if (effectiveness) metadata.effectiveness = effectiveness;
 
@@ -130,6 +133,7 @@ export function skillFileToSkillFields(parsed: ParsedSkillFile): {
   priority: number;
   autoFetch: boolean;
   enabled: boolean;
+  appVersion: string | null;
 } {
   const meta = (parsed.frontmatter.metadata ?? {}) as Record<string, any>;
 
@@ -148,6 +152,7 @@ export function skillFileToSkillFields(parsed: ParsedSkillFile): {
     priority: typeof meta.priority === "number" ? meta.priority : 50,
     autoFetch: meta["auto-fetch"] === true,
     enabled: meta.enabled !== false,
+    appVersion: (meta["app-version"] as string) || null,
   };
 }
 
