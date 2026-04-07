@@ -937,10 +937,11 @@ export const api = {
   },
 
   skills: {
-    list: (program?: string, category?: string) => {
+    list: (program?: string, category?: string, includeDisabled = true) => {
       const params = new URLSearchParams();
       if (program) params.set("program", program);
       if (category) params.set("category", category);
+      if (includeDisabled) params.set("includeDisabled", "true");
       const qs = params.toString();
       return request(`/api/skills${qs ? `?${qs}` : ""}`);
     },
@@ -983,6 +984,11 @@ export const api = {
         method: "DELETE",
       });
     },
+    installCommunity: (communityId: string, communityBaseUrl?: string) =>
+      request("/api/skills/install-community", {
+        method: "POST",
+        body: JSON.stringify({ communityId, communityBaseUrl }),
+      }) as Promise<{ skill: any; communityId: string; slug: string; program: string }>,
     registry: () => request("/api/skills/registry"),
     pullAll: () => request("/api/skills/pull-all", { method: "POST" }),
     pullProgram: (program: string) =>

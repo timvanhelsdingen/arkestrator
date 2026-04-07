@@ -16,6 +16,14 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    proxy: {
+      // Proxy community API requests to avoid CORS in browser-only dev mode
+      "/community-api": {
+        target: "https://arkestrator.com",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/community-api/, "/api"),
+      },
+    },
   },
   define: {
     __DEV_SERVER_DIR__: JSON.stringify(

@@ -1245,11 +1245,12 @@ export const api = {
   },
 
   skills: {
-    list: (program?: string, category?: string, source?: string) => {
+    list: (program?: string, category?: string, source?: string, includeDisabled = true) => {
       const params = new URLSearchParams();
       if (program) params.set("program", program);
       if (category) params.set("category", category);
       if (source) params.set("source", source);
+      if (includeDisabled) params.set("includeDisabled", "true");
       const qs = params.toString();
       return request(`/api/skills${qs ? `?${qs}` : ""}`) as Promise<any>;
     },
