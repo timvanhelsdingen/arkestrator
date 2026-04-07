@@ -50,6 +50,7 @@ export interface HandlerDeps {
   skillStore?: import("../skills/skill-store.js").SkillStore;
   skillIndex?: import("../skills/skill-index.js").SkillIndex;
   skillEffectivenessRepo?: import("../db/skill-effectiveness.repo.js").SkillEffectivenessRepo;
+  taskExecutor?: import("../agents/task-executor.js").TaskExecutor;
 }
 
 function send(ws: ServerWebSocket<WsData>, message: object) {
@@ -332,6 +333,9 @@ export function handleMessage(
         }
         break;
       }
+      case "task_progress":
+        handleTaskProgress(ws, msg as any, deps);
+        break;
       default:
         errorReply(ws, "UNKNOWN_TYPE", `Unhandled message type: ${(msg as { type: string }).type}`);
     }
@@ -719,6 +723,12 @@ function handleBridgeCommandResult(
     outputs: Array.isArray(msg.payload.outputs) ? msg.payload.outputs : undefined,
   };
 
+  // Check if this is a result for a pending task job
+  if (msg.payload.correlationId && deps.taskExecutor?.has(msg.payload.correlationId)) {
+    deps.taskExecutor.handleResult(msg.payload.correlationId, msg.payload.success, resultPayload);
+    return;
+  }
+
   // Check if this is a response to a pending REST API command
   if (msg.payload.correlationId) {
     const resolved = deps.hub.resolvePendingCommand(msg.payload.correlationId, resultPayload);
@@ -815,6 +825,12 @@ function handleWorkerHeadlessResult(
     machineId: ws.data.machineId,
   };
 
+  // Check if this is a result for a pending task job
+  if (msg.payload.correlationId && deps.taskExecutor?.has(msg.payload.correlationId)) {
+    deps.taskExecutor.handleResult(msg.payload.correlationId, msg.payload.success, resultPayload);
+    return;
+  }
+
   if (msg.payload.correlationId) {
     const resolved = deps.hub.resolvePendingCommand(msg.payload.correlationId, resultPayload);
     if (resolved) {
@@ -868,6 +884,12 @@ function handleWorkerLocalResult(
     workerName: ws.data.workerName,
     machineId: ws.data.machineId,
   };
+
+  // Check if this is a result for a pending task job
+  if (msg.payload.correlationId && deps.taskExecutor?.has(msg.payload.correlationId)) {
+    deps.taskExecutor.handleResult(msg.payload.correlationId, msg.payload.success, resultPayload);
+    return;
+  }
 
   if (msg.payload.correlationId) {
     const resolved = deps.hub.resolvePendingCommand(msg.payload.correlationId, resultPayload);
@@ -1075,4 +1097,15 @@ function handleBridgeEditorContext(
   });
 
   logger.info("handler", `Bridge editor context from ${ws.data.id} (${ws.data.program})`);
+}
+
+// --- Task Progress Handler ---
+
+function handleTaskProgress(
+  ws: ServerWebSocket<WsData>,
+  msg: { id: string; payload: { jobId: string; percent: number | null; statusText?: string; metadata?: Record<string, unknown> } },
+  deps: HandlerDeps,
+) {
+  if (!deps.taskExecutor) return;
+  deps.taskExecutor.handleProgress(msg.payload.jobId, msg.payload.percent, msg.payload.statusText);
 }

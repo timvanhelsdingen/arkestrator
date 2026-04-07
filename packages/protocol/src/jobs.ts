@@ -9,6 +9,37 @@ import {
   ContextItem,
 } from "./common.js";
 import { WorkspaceMode, CommandResult } from "./projects.js";
+
+// --- Job Mode ---
+
+export const JobMode = z.enum(["agentic", "task"]);
+export type JobMode = z.infer<typeof JobMode>;
+
+// --- Task Spec (for non-agentic task jobs) ---
+
+export const TaskExecutionType = z.enum(["bridge_command", "worker_local", "worker_headless"]);
+export type TaskExecutionType = z.infer<typeof TaskExecutionType>;
+
+export const TaskSpec = z.object({
+  /** How to execute this task */
+  executionType: TaskExecutionType,
+  /** Target program for bridge_command / worker_headless (e.g. "blender", "houdini") */
+  targetProgram: z.string().optional(),
+  /** Commands to execute (for bridge_command and worker_headless) */
+  commands: z.array(CommandResult).optional(),
+  /** Shell/python command string (for worker_local) */
+  command: z.string().optional(),
+  /** Execution mode for worker_local */
+  localMode: z.enum(["shell", "python"]).optional(),
+  /** Working directory override */
+  cwd: z.string().optional(),
+  /** Max runtime in milliseconds (default: 10 minutes) */
+  timeoutMs: z.number().int().positive().default(600_000),
+  /** Optional label for progress display (e.g., "Rendering frames 1-100") */
+  label: z.string().optional(),
+});
+export type TaskSpec = z.infer<typeof TaskSpec>;
+
 export const AgentConfigTarget = z.union([z.string().uuid(), z.literal("auto")]);
 export type AgentConfigTarget = z.infer<typeof AgentConfigTarget>;
 
@@ -66,6 +97,8 @@ export const Job = z.object({
   id: z.string().uuid(),
   status: JobStatus,
   priority: JobPriority,
+  /** Job execution mode: "agentic" spawns an AI agent, "task" executes directly on bridge/worker */
+  mode: JobMode.default("agentic"),
   /** Optional short display name for the job */
   name: z.string().optional(),
   prompt: z.string(),
@@ -150,10 +183,20 @@ export const Job = z.object({
   outcomeMarkedBy: z.string().uuid().optional(),
   /** Claude CLI session ID for pause/resume support. */
   sessionId: z.string().optional(),
+  /** Task specification for non-agentic task jobs (mode="task"). */
+  taskSpec: TaskSpec.optional(),
+  /** Current task progress percentage (0-100), null for indeterminate. */
+  taskProgress: z.number().min(0).max(100).nullable().optional(),
+  /** Human-readable task status text (e.g., "Rendering frame 42/100"). */
+  taskStatusText: z.string().optional(),
+  /** Stable task reference (e.g., "T1", "T2") for #T<N> agent references. */
+  taskRef: z.string().optional(),
 });
 export type Job = z.infer<typeof Job>;
 
 export const JobSubmit = z.object({
+  /** Job execution mode: "agentic" spawns an AI agent, "task" executes directly on bridge/worker */
+  mode: JobMode.default("agentic"),
   /** Optional short display name for the job */
   name: z.string().optional(),
   prompt: z.string(),
@@ -182,5 +225,9 @@ export const JobSubmit = z.object({
    * (for example offline/headless bridge selections from client UI).
    */
   bridgeProgram: z.string().optional(),
+  /** Task specification for non-agentic task jobs (mode="task"). Required when mode is "task". */
+  taskSpec: TaskSpec.optional(),
+  /** If true, assigns a stable #T<N> reference for agent tracking. Default true for task jobs. */
+  track: z.boolean().optional(),
 });
 export type JobSubmit = z.infer<typeof JobSubmit>;

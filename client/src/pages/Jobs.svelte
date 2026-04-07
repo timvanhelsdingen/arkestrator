@@ -1277,6 +1277,11 @@
             <span class="dep-connector"></span>
           {/if}
           <span class="status-dot status-dot-{job.status}" title={job.status}></span>
+          {#if job.mode === "task"}
+            <span class="job-chip job-chip-task" title={job.taskRef ? `#${job.taskRef}` : "Task"}>
+              {job.taskRef ? `#${job.taskRef}` : "task"}
+            </span>
+          {/if}
           {#if job.usedBridges?.length}
             {#each job.usedBridges as prog}
               <span class="source-icon source-{prog}" title={prog}>{programIcon(prog)}</span>
@@ -1482,7 +1487,26 @@
       {/if}
       <div class="detail-meta">
         <div><strong>ID:</strong> <code class="detail-id">{job.id}</code></div>
-        <div><strong>Status:</strong> <Badge text={job.status} variant={job.status} /></div>
+        <div><strong>Status:</strong> <Badge text={job.status} variant={job.status} />
+          {#if job.mode === "task"}
+            <Badge text="Task" variant="task" />
+          {/if}
+        </div>
+        {#if job.taskRef}
+          <div><strong>Task Ref:</strong> <code class="detail-id">#{job.taskRef}</code></div>
+        {/if}
+        {#if job.mode === "task" && job.taskProgress != null}
+          <div class="task-progress-row">
+            <strong>Progress:</strong>
+            <div class="task-progress-bar">
+              <div class="task-progress-fill" style="width: {job.taskProgress}%"></div>
+            </div>
+            <span class="task-progress-pct">{Math.round(job.taskProgress)}%</span>
+          </div>
+          {#if job.taskStatusText}
+            <div><strong>Task Status:</strong> {job.taskStatusText}</div>
+          {/if}
+        {/if}
         <div><strong>Priority:</strong> <Badge text={job.priority} variant={job.priority} /></div>
         {#if job.name}
           <div><strong>Name:</strong> {job.name}</div>
@@ -1983,6 +2007,13 @@
     color: #8ec5ff;
     border-color: rgba(59, 130, 246, 0.28);
   }
+  .job-chip-task {
+    background: rgba(168, 85, 247, 0.14);
+    color: #c4a5ff;
+    border-color: rgba(168, 85, 247, 0.28);
+    font-family: var(--font-mono, monospace);
+    font-weight: 600;
+  }
   .collapse-toggle {
     all: unset;
     cursor: pointer;
@@ -2201,6 +2232,31 @@
     gap: 12px;
     margin-bottom: 16px;
     font-size: var(--font-size-sm);
+  }
+  .task-progress-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+  }
+  .task-progress-bar {
+    flex: 1;
+    height: 6px;
+    background: var(--bg-surface);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .task-progress-fill {
+    height: 100%;
+    background: var(--accent, #a855f7);
+    border-radius: 3px;
+    transition: width 0.3s ease;
+  }
+  .task-progress-pct {
+    font-family: var(--font-mono, monospace);
+    font-size: 11px;
+    min-width: 3ch;
+    text-align: right;
   }
   .outcome-section {
     margin-bottom: 16px;

@@ -18,6 +18,7 @@ import type { SkillsRepo } from "../db/skills.repo.js";
 import type { WorkerResourceLeaseManager } from "../agents/resource-control.js";
 import type { LocalLlmGate } from "../agents/local-llm-gate.js";
 import { spawnAgent } from "../agents/spawner.js";
+import type { TaskExecutor } from "../agents/task-executor.js";
 import { applyRuntimeOptionsToConfig } from "../agents/runtime-options.js";
 import { getToolRestrictions, checkConcurrentLimit, resolveProcessPriority } from "../policies/enforcer.js";
 import { newId } from "../utils/id.js";
@@ -45,6 +46,7 @@ export interface WorkerDeps {
   routingOutcomesRepo?: import("../db/routing-outcomes.repo.js").RoutingOutcomesRepo;
   resourceLeaseManager: WorkerResourceLeaseManager;
   localLlmGate: LocalLlmGate;
+  taskExecutor: TaskExecutor;
   hub: WebSocketHub;
   config: Config;
   syncManager: SyncManager;
@@ -108,7 +110,7 @@ export class WorkerLoop {
     if (!job) return { ok: false, error: "Job not found" };
     if (job.status !== "queued") return { ok: false, error: `Job is ${job.status}, not queued` };
 
-    const running = this.deps.processTracker.count;
+    const running = this.deps.processTracker.count + this.deps.taskExecutor.count;
     if (running >= this.deps.maxConcurrent) {
       return {
         ok: false,
@@ -138,11 +140,15 @@ export class WorkerLoop {
     if (!claimed) return { ok: false, error: "Failed to claim job (may have already started)" };
 
     // Immediately notify all clients that this job is now running.
-    // spawnAgent() also calls broadcastJobUpdated but only after the process
-    // is successfully spawned, which can be seconds later (file scanning, CLI
-    // wrapper setup, etc.). Without this early broadcast the client shows
-    // 'queued' indefinitely while the job is already claimed as 'running'.
     this.broadcastJobUpdated(job.id);
+
+    // --- Task jobs: direct execution, no AI agent subprocess ---
+    if (job.mode === "task" && job.taskSpec) {
+      this.deps.taskExecutor.dispatch(job);
+      return { ok: true };
+    }
+
+    // --- Agentic jobs: spawn AI agent subprocess ---
 
     // Eagerly acquire the local LLM gate so subsequent tick() calls see
     // this worker's GPU as busy. The gate is released inside spawnAgent()
@@ -310,7 +316,7 @@ export class WorkerLoop {
         }
       }
 
-      const running = this.deps.processTracker.count;
+      const running = this.deps.processTracker.count + this.deps.taskExecutor.count;
       const availableSlots = this.deps.maxConcurrent - running;
 
       // Periodic diagnostic logging (every 10 seconds)

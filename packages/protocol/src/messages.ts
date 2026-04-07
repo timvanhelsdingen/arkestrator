@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { JobSubmit, Job } from "./jobs.js";
+import { JobSubmit, Job, JobMode } from "./jobs.js";
 import {
   JobIntervention,
   JobInterventionCreate,
@@ -687,6 +687,23 @@ export const ClientHeadlessCapabilitiesMessage = makeMessage(
 );
 export type ClientHeadlessCapabilitiesMessage = z.infer<typeof ClientHeadlessCapabilitiesMessage>;
 
+// --- Task Progress (bridge/worker -> server -> client) ---
+
+/** Bridge or worker reports incremental progress for a non-agentic task job. */
+export const TaskProgressMessage = makeMessage(
+  "task_progress",
+  z.object({
+    jobId: z.string().uuid(),
+    /** 0-100 percentage, or null if indeterminate */
+    percent: z.number().min(0).max(100).nullable(),
+    /** Human-readable status (e.g., "Rendering frame 42/100") */
+    statusText: z.string().optional(),
+    /** Optional structured data (frame number, ETA, etc.) */
+    metadata: z.record(z.string(), z.unknown()).optional(),
+  }),
+);
+export type TaskProgressMessage = z.infer<typeof TaskProgressMessage>;
+
 // --- Error ---
 
 export const ErrorMessage = makeMessage(
@@ -753,6 +770,7 @@ export const Message = z.discriminatedUnion("type", [
   ClientHeadlessCapabilitiesMessage,
   TransferInitiateMessage,
   TransferProgressMessage,
+  TaskProgressMessage,
   ErrorMessage,
 ]);
 export type Message = z.infer<typeof Message>;

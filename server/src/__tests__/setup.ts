@@ -119,6 +119,7 @@ export function createTestJob(
     {
       prompt: overrides?.prompt ?? "Test prompt",
       agentConfigId,
+      mode: "agentic" as const,
       priority: (overrides?.priority as any) ?? "normal",
       coordinationMode: overrides?.coordinationMode ?? "server",
       startPaused: overrides?.startPaused,

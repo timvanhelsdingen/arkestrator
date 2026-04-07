@@ -3726,6 +3726,7 @@ export function createSettingsCoordinatorRoutes(deps: SettingsRouteDeps) {
     const now = new Date().toISOString();
     const jobInput: JobSubmit = {
       name: `[Coordinator] Analyze ${program} (${mode}): ${basename(path) || path}`,
+      mode: "agentic" as const,
       prompt: mode === "ai"
         ? buildAiAnalyzePrompt(program, sourcePath, createIfMissing, overwritePrompt)
         : `Analyze coordinator source path for ${program}: ${path}`,

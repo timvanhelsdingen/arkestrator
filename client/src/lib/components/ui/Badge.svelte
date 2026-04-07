@@ -36,4 +36,5 @@
   .unreal { background: #a78bfa22; color: #a78bfa; }
   .fusion { background: #e8b83222; color: #e8b832; }
   .blocked { background: #5c4a1e; color: #e8c23a; }
+  .task { background: #a855f722; color: #c4a5ff; }
 </style>

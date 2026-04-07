@@ -1,5 +1,15 @@
 # Arkestrator
 
+## Non-Agentic Task Jobs (2026-04-07) ✅
+
+- **Task job mode**: Jobs now have `mode: "agentic" | "task"`. Task jobs execute commands directly on bridges/workers without spawning an AI agent — no tokens burned.
+- **TaskExecutor**: New `server/src/agents/task-executor.ts` dispatches task jobs via existing bridge_command, worker_local, and worker_headless pathways.
+- **MCP tools**: `create_task` and `create_tasks` let agents submit non-agentic work (renders, sims, exports). Batch version enables render-farm distribution across machines.
+- **#T<N> references**: Task jobs get stable `#T1`, `#T2` refs (monotonic, never reused) so agents can track them across turns. `get_job_status` and `poll_jobs` accept #T refs.
+- **Progress reporting**: `task_progress` WS message lets bridges report percentage + status text. Stored on job and displayed in UI.
+- **Client UI**: Task badge with #T ref in job list, progress bar in detail panel, "Task" status badge variant.
+- **Skill integration**: Skills can teach agents the `create_task` pattern (e.g., "background render" skill fires up distributed task jobs).
+
 ## Recent Update (2026-04-04)
 
 - **WebSocket max payload setting**: Configurable via admin System Settings (default 256MB). Bun's 16MB default was rejecting large file transfers.

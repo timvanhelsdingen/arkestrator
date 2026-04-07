@@ -4,6 +4,7 @@
 Primary user-facing desktop dashboard (Tauri v2 + Svelte 5). Users manage jobs, configure agents, view workers, manage projects. Connects to server via REST + WebSocket.
 
 ## Recent Updates (2026-04-07)
+- Non-agentic task job UI (2026-04-07): `pages/Jobs.svelte` — task-mode jobs (`mode === "task"`) show a `#T<N>` task badge (using new `task` Badge variant) in job list rows. Job detail panel displays a task progress bar (0-100%), task status text, and task ref. `lib/components/ui/Badge.svelte` adds `task` variant with distinct styling.
 - Community Skills integration (2026-04-07): Community skills browsing, installing, and publishing integrated into the existing Skills & Training page (`pages/Coordinator.svelte`) as a Local/Community view toggle in the Skills section. New `lib/api/community.ts` — standalone fetch client for the external community API at arkestrator.com (separate from local server `rest.ts`). Supports search, skill detail, download, publish, and auth. Settings persisted in localStorage (`arkestrator-community-settings`). Dev mode defaults API to `http://localhost:3000` via `__COMMUNITY_API_DEV_URL__` in `vite.config.ts`. New `lib/stores/communitySkills.svelte.ts` — reactive store managing browse state, installation manifest (localStorage `arkestrator-community-skills`), update detection, and install/uninstall/enable/disable/update actions. Skills installed via local server `POST /api/skills` with `enabled: false`. New `lib/components/community/SkillCard.svelte` — card component with title, author avatar, program badge, version, downloads, and install/toggle/update actions. New `lib/components/community/SkillDetailModal.svelte` — full detail modal with metadata grid, keywords, SKILL.md preview, and action buttons. New `lib/components/community/PublishModal.svelte` — publish flow with GitHub auth (opens browser via `@tauri-apps/plugin-shell`, token paste input) and local skill picker. New `lib/components/settings/SettingsCommunityTab.svelte` — community settings (enable/disable, API URL, GitHub account connection). `pages/Settings.svelte` adds Community tab. `pages/Coordinator.svelte` adds `skillsView` toggle (Local/Community), community search/filter/grid in Skills section, "Share" button on local skill rows for publishing, update badge indicator. Community modals (detail, publish) rendered from Coordinator page.
 
 ## Recent Updates (2026-04-04)
@@ -252,6 +253,7 @@ Primary user-facing desktop dashboard (Tauri v2 + Svelte 5). Users manage jobs, 
 | `client_job_cancel` | Cancel a client-dispatched job via `clientJobManager.handleCancel()` |
 | `file_deliver` | Write delivered files to disk via `fs_apply_file_changes` Tauri command |
 | `transfer_initiate` | Handle HTTP file transfer request from server — invokes `fs_download_file` or `fs_upload_file` Tauri commands and sends `transfer_progress` back to server |
+| `task_progress` | Update task job progress (percent, statusText) via `jobs.upsert()` |
 | `error` | Set `connection.lastError` |
 
 ## Components (`src/lib/components/`)
@@ -264,7 +266,7 @@ Primary user-facing desktop dashboard (Tauri v2 + Svelte 5). Users manage jobs, 
 - **chat/ChatInput.svelte local-model source note**: for `local-oss`, model suggestions default to server/worker catalog (`agents.localModels`) in server coordination mode, but switch to desktop-local Ollama models when client-side coordination is enabled so model selection aligns with local runtime expectations. Model discovery now passes `effectiveHost` derived from the selected agent config's `localModelHost` field so catalog queries target the correct endpoint (server-local or auto-discovered worker).
 - **chat/ChatContextPanel.svelte** - Resizable right sidebar (default 320px, drag handle on left edge, min 200px, max 500px, width persisted to localStorage) showing bridge editor state, open files, and context items in a two-level hierarchy: bridges are grouped by stable machine identity (`machineId` with `workerName` fallback) and labeled with the current machine name, with collapsible machine foldouts containing their bridge foldouts. Machine headers now use the same single-open accordion state pattern as bridge headers (`expanded === key ? null : key`). Panel buttons are explicit `type="button"` controls. "Clear" button per bridge sends `client_context_items_clear` WS message to the server (server-authoritative context removal). Inline `x` remove sends `client_context_item_remove` WS message. The full item row is now draggable for prompt insertion, while inline `rename` (client alias) and `x` remove remain hover actions.
 - **layout/StatusBar.svelte** - Connection status indicator plus client version/build marker
-- **ui/Badge.svelte** - Status/priority/program colored badges (includes `paused`, `comfyui`, `unity`, `unreal` variants)
+- **ui/Badge.svelte** - Status/priority/program colored badges (includes `paused`, `comfyui`, `unity`, `unreal`, `task` variants)
 - **ui/ConfirmDialog.svelte** - Reusable confirmation dialog with danger/default variants. Used for delete confirmations (jobs, bulk-delete, workers)
 - **ui/TotpSetupModal.svelte** - Multi-step 2FA setup modal: step 1 fetches TOTP secret and displays QR code (rendered via `qrcode` library) with manual secret fallback, step 2 verifies a TOTP code from the authenticator app, step 3 displays recovery codes for backup. Used by both Settings (voluntary enable) and Setup (forced enrollment).
 - **ui/Toast.svelte** - Fixed-position toast notifications (top-right, success/error/info)
@@ -289,7 +291,8 @@ Primary user-facing desktop dashboard (Tauri v2 + Svelte 5). Users manage jobs, 
 - `vite.config.ts`: injects `__CLIENT_VERSION__` plus `__CLIENT_BUILD__` (`<package version>+<git short sha>`) for visible in-app build display.
 
 ## Key UX Patterns
-- Job list: compact rows with status dot, program icon (G/B/H), name or truncated prompt, worker name, short ID, relative time
+- Job list: compact rows with status dot, program icon (G/B/H), name or truncated prompt, worker name, short ID, relative time. Task-mode jobs show a `#T<N>` task badge in the row.
+- Job detail panel: task-mode jobs display a progress bar (0-100%), task status text, and task ref (`#T<N>`) in the detail view
 - Job tree: dependency-based nesting (children indented under parents)
 - Resizable list panel (250px min, drag handle)
 - Multi-select with checkboxes, bulk delete

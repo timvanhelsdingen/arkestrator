@@ -179,6 +179,7 @@ describe("bridge execution mode routing", () => {
       {
         prompt: "Use headless Blender and keep my current session untouched.",
         agentConfigId: createTestAgentConfig(ctx.agentsRepo).id,
+        mode: "agentic" as const,
         priority: "normal",
         coordinationMode: "server",
         files: [],

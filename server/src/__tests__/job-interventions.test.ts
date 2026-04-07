@@ -54,6 +54,7 @@ describe("job interventions", () => {
     const job = ctx.jobsRepo.create({
       prompt: "queued job",
       agentConfigId: config.id,
+      mode: "agentic" as const,
       priority: "normal",
       coordinationMode: "server",
       files: [],
@@ -107,6 +108,7 @@ describe("job interventions", () => {
     const job = ctx.jobsRepo.create({
       prompt: "queued job",
       agentConfigId: config.id,
+      mode: "agentic" as const,
       priority: "normal",
       coordinationMode: "server",
       files: [],
@@ -146,6 +148,7 @@ describe("job interventions", () => {
     const job = ctx.jobsRepo.create({
       prompt: "queued job",
       agentConfigId: config.id,
+      mode: "agentic" as const,
       priority: "normal",
       coordinationMode: "server",
       files: [],
@@ -182,6 +185,7 @@ describe("job interventions", () => {
     const job = ctx.jobsRepo.create({
       prompt: "running job",
       agentConfigId: config.id,
+      mode: "agentic" as const,
       priority: "normal",
       coordinationMode: "server",
       files: [],
@@ -226,6 +230,7 @@ describe("job interventions", () => {
     const job = ctx.jobsRepo.create({
       prompt: "running job",
       agentConfigId: config.id,
+      mode: "agentic" as const,
       priority: "normal",
       coordinationMode: "server",
       files: [],
@@ -306,6 +311,7 @@ describe("job interventions", () => {
     const job = ctx.jobsRepo.create({
       prompt: "running job",
       agentConfigId: config.id,
+      mode: "agentic" as const,
       priority: "normal",
       coordinationMode: "server",
       files: [],
