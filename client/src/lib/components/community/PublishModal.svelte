@@ -54,10 +54,10 @@
   async function openGitHubAuth() {
     const baseUrl = settings.baseUrl || "https://arkestrator.com";
     try {
-      await open(`${baseUrl}/auth/github`);
+      await open(`${baseUrl}/auth/github?from=desktop`);
     } catch {
       // Fallback to window.open if Tauri shell not available
-      window.open(`${baseUrl}/auth/github`, "_blank");
+      window.open(`${baseUrl}/auth/github?from=desktop`, "_blank");
     }
   }
 

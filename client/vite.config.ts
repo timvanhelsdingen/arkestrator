@@ -23,6 +23,6 @@ export default defineConfig({
     ),
     __CLIENT_VERSION__: JSON.stringify(clientVersion),
     __CLIENT_BUILD__: JSON.stringify(clientVersion),
-    __COMMUNITY_API_DEV_URL__: JSON.stringify("http://localhost:3000"),
+    __COMMUNITY_API_DEV_URL__: JSON.stringify(""),
   },
 });
