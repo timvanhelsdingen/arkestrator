@@ -194,3 +194,188 @@ jobs:
               release_id: ${{ needs.create-release.outputs.release_id }},
               draft: false
             });
+
+  # ─── 5. Update Linux package repositories (APT + RPM on gh-pages) ──
+  update-repos:
+    needs: [create-release, publish-release]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout gh-pages branch
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          fetch-depth: 0
+        # If gh-pages doesn't exist yet, create an orphan branch
+        continue-on-error: true
+
+      - name: Create gh-pages branch if needed
+        run: |
+          if [ ! -f .git/HEAD ] || ! git rev-parse --verify gh-pages 2>/dev/null; then
+            git init
+            git checkout --orphan gh-pages
+            git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          fi
+
+      - name: Install repo tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev createrepo-c
+
+      - name: Import GPG key
+        run: |
+          echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
+          GPG_KEY_ID=$(gpg --list-secret-keys --keyid-format long 2>/dev/null | grep sec | head -1 | awk '{print $2}' | cut -d'/' -f2)
+          echo "GPG_KEY_ID=${GPG_KEY_ID}" >> "$GITHUB_ENV"
+
+      - name: Export public GPG key
+        run: |
+          gpg --armor --export "$GPG_KEY_ID" > gpg-key.asc
+
+      - name: Copy install files from main branch
+        run: |
+          git fetch origin main
+          git checkout origin/main -- install/install.sh install/arkestrator.repo
+          cp install/install.sh install.sh
+          cp install/arkestrator.repo arkestrator.repo
+          chmod +x install.sh
+          rm -rf install
+
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ needs.create-release.outputs.version }}"
+          mkdir -p /tmp/assets
+          gh release download "v${VERSION}" \
+            --repo "${{ github.repository }}" \
+            --pattern "*.deb" \
+            --dir /tmp/assets || true
+          gh release download "v${VERSION}" \
+            --repo "${{ github.repository }}" \
+            --pattern "*.rpm" \
+            --dir /tmp/assets || true
+
+          echo "Downloaded assets:"
+          ls -la /tmp/assets/
+
+      # ─── APT repository ──────────────────────────────────────────────
+      - name: Build APT repo
+        run: |
+          mkdir -p apt/pool apt/dists/stable/main/binary-amd64
+
+          # Copy new .deb files (keep old versions for history)
+          cp /tmp/assets/*.deb apt/pool/ 2>/dev/null || echo "No .deb files found"
+
+          # Generate Packages index
+          cd apt
+          dpkg-scanpackages --multiversion pool > dists/stable/main/binary-amd64/Packages
+          gzip -9c dists/stable/main/binary-amd64/Packages > dists/stable/main/binary-amd64/Packages.gz
+
+          # Generate Release file
+          cd dists/stable
+          cat > Release <<'EOF'
+          Origin: Arkestrator
+          Label: Arkestrator
+          Suite: stable
+          Codename: stable
+          Architectures: amd64
+          Components: main
+          Description: Arkestrator package repository
+          EOF
+          sed -i 's/^          //' Release
+
+          # Add checksums
+          {
+            echo "SHA256:"
+            for f in main/binary-amd64/Packages main/binary-amd64/Packages.gz; do
+              if [ -f "$f" ]; then
+                SIZE=$(wc -c < "$f")
+                HASH=$(sha256sum "$f" | cut -d' ' -f1)
+                printf " %s %s %s\n" "$HASH" "$SIZE" "$f"
+              fi
+            done
+          } >> Release
+
+          cd "$GITHUB_WORKSPACE"
+
+      - name: Sign APT repo
+        run: |
+          cd apt/dists/stable
+          gpg --batch --yes --pinentry-mode loopback \
+            --passphrase "${{ secrets.GPG_PASSPHRASE }}" \
+            --default-key "$GPG_KEY_ID" \
+            -abs -o Release.gpg Release
+          gpg --batch --yes --pinentry-mode loopback \
+            --passphrase "${{ secrets.GPG_PASSPHRASE }}" \
+            --default-key "$GPG_KEY_ID" \
+            --clearsign -o InRelease Release
+
+      # ─── RPM repository ──────────────────────────────────────────────
+      - name: Build RPM repo
+        run: |
+          mkdir -p rpm/packages
+
+          # Copy new .rpm files
+          cp /tmp/assets/*.rpm rpm/packages/ 2>/dev/null || echo "No .rpm files found"
+
+          # Generate repodata
+          createrepo_c rpm
+
+      - name: Sign RPM repo
+        run: |
+          gpg --batch --yes --pinentry-mode loopback \
+            --passphrase "${{ secrets.GPG_PASSPHRASE }}" \
+            --default-key "$GPG_KEY_ID" \
+            -abs -o rpm/repodata/repomd.xml.asc rpm/repodata/repomd.xml
+
+      # ─── Publish ──────────────────────────────────────────────────────
+      - name: Generate index page
+        run: |
+          cat > index.html <<'HEREDOC'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <title>Arkestrator Linux Packages</title>
+            <style>
+              body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; line-height: 1.6; color: #e0e0e0; background: #1a1a2e; }
+              h1 { color: #e94560; }
+              h2 { color: #e94560; border-bottom: 2px solid #16213e; padding-bottom: .3rem; }
+              code, pre { background: #16213e; padding: .2em .4em; border-radius: 4px; font-size: .9em; }
+              pre { padding: 1em; overflow-x: auto; }
+              a { color: #e94560; }
+            </style>
+          </head>
+          <body>
+            <h1>Arkestrator Linux Packages</h1>
+            <p>Install Arkestrator on your Linux system using your package manager.</p>
+
+            <h2>Quick Install (auto-detects distro)</h2>
+            <pre>curl -fsSL https://timvanhelsdingen.github.io/arkestrator/install.sh | sudo bash</pre>
+
+            <h2>Fedora / RHEL / CentOS (dnf/yum)</h2>
+            <pre>sudo dnf config-manager addrepo --from-repofile=https://timvanhelsdingen.github.io/arkestrator/arkestrator.repo
+          sudo dnf install arkestrator</pre>
+
+            <h2>Debian / Ubuntu (apt)</h2>
+            <pre>curl -fsSL https://timvanhelsdingen.github.io/arkestrator/gpg-key.asc | sudo gpg --dearmor -o /usr/share/keyrings/arkestrator.gpg
+          echo "deb [signed-by=/usr/share/keyrings/arkestrator.gpg] https://timvanhelsdingen.github.io/arkestrator/apt stable main" | sudo tee /etc/apt/sources.list.d/arkestrator.list
+          sudo apt update && sudo apt install arkestrator</pre>
+
+            <h2>Arch Linux (AUR)</h2>
+            <pre>yay -S arkestrator-bin</pre>
+            <p>Or manually: <code>git clone https://aur.archlinux.org/arkestrator-bin.git && cd arkestrator-bin && makepkg -si</code></p>
+          </body>
+          </html>
+          HEREDOC
+          sed -i 's/^          //' index.html
+
+      - name: Commit and push to gh-pages
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && echo "No changes to commit" && exit 0
+          git commit -m "Update repos for v${{ needs.create-release.outputs.version }}"
+          git push origin gh-pages
