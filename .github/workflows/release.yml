@@ -218,7 +218,7 @@ jobs:
       - name: Install repo tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y dpkg-dev createrepo-c
+          sudo apt-get install -y dpkg-dev createrepo-c rpm
 
       - name: Import GPG key
         run: |
@@ -256,6 +256,25 @@ jobs:
 
           echo "Downloaded assets:"
           ls -la /tmp/assets/
+
+      - name: Sign RPM packages
+        run: |
+          # Configure RPM macros for GPG signing
+          cat > ~/.rpmmacros <<EOF
+          %_gpg_name $GPG_KEY_ID
+          %_gpg_sign_cmd_extra_args --batch --pinentry-mode loopback --passphrase "${{ secrets.GPG_PASSPHRASE }}"
+          %__gpg_sign_cmd %{__gpg} gpg --batch --pinentry-mode loopback --passphrase "${{ secrets.GPG_PASSPHRASE }}" --no-verbose --no-armor %{?_gpg_digest_algo:--digest-algo %{_gpg_digest_algo}} --no-secmem-warning -u "%{_gpg_name}" -sbo %{__signature_filename} --digest-algo sha256 %{__plaintext_filename}
+          EOF
+          sed -i 's/^          //' ~/.rpmmacros
+
+          for rpm_file in /tmp/assets/*.rpm; do
+            if [ -f "$rpm_file" ]; then
+              echo "Signing $rpm_file..."
+              rpm --addsign "$rpm_file"
+              echo "Verifying signature..."
+              rpm -K "$rpm_file"
+            fi
+          done
 
       # ─── APT repository ──────────────────────────────────────────────
       - name: Build APT repo
