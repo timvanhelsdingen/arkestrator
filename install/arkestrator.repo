@@ -1,0 +1,6 @@
+[arkestrator]
+name=Arkestrator
+baseurl=https://timvanhelsdingen.github.io/arkestrator/rpm
+enabled=1
+gpgcheck=1
+gpgkey=https://timvanhelsdingen.github.io/arkestrator/gpg-key.asc
