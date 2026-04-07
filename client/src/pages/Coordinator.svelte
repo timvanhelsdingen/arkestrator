@@ -3,6 +3,11 @@
   import { connection } from "../lib/stores/connection.svelte";
   import { getLocalWorkerName } from "../lib/api/ws";
   import { api } from "../lib/api/rest";
+  import { communitySkills } from "../lib/stores/communitySkills.svelte";
+  import { loadSettings as loadCommunitySettings } from "../lib/api/community";
+  import SkillCard from "../lib/components/community/SkillCard.svelte";
+  import SkillDetailModal from "../lib/components/community/SkillDetailModal.svelte";
+  import PublishModal from "../lib/components/community/PublishModal.svelte";
 
   type ScopeTab = "server" | "training" | "maintenance";
   type AnalyzeStatus = "queued" | "running" | "completed" | "failed";
@@ -264,6 +269,29 @@
   let skillsPulling = $state(false);
   let selectedSkillKeys = $state(new Set<string>());
   let importSkillInput = $state<HTMLInputElement | undefined>(undefined);
+
+  // Community skills integration
+  type SkillsView = "local" | "community";
+  let skillsView = $state<SkillsView>("local");
+  let communitySearchTimer: ReturnType<typeof setTimeout> | undefined;
+  let communityEnabled = $derived(loadCommunitySettings().enabled);
+  let communityInitialized = false;
+
+  function switchToSkillsView(view: SkillsView) {
+    skillsView = view;
+    if (view === "community" && !communityInitialized) {
+      communityInitialized = true;
+      communitySkills.loadFilters();
+      communitySkills.search();
+      communitySkills.checkForUpdates();
+    }
+  }
+
+  async function publishSkillFromRow(skill: SkillEntry) {
+    // Load full skill content if not already loaded, then open publish modal
+    // with the skill pre-selected
+    communitySkills.publishModalOpen = true;
+  }
 
   function skillKey(s: any): string {
     return (s.program || "global") + ":" + s.slug;
@@ -1701,9 +1729,26 @@
         </section>
       {/if}
 
-      <!-- Server Skills -->
+      <!-- Skills -->
       <section class="panel">
-        <h3>Server Skills</h3>
+        <div class="skills-header">
+          <h3>Skills</h3>
+          {#if communityEnabled}
+            <div class="skills-view-toggle">
+              <button class="view-btn" class:active={skillsView === "local"} onclick={() => switchToSkillsView("local")}>
+                Local
+              </button>
+              <button class="view-btn" class:active={skillsView === "community"} onclick={() => switchToSkillsView("community")}>
+                Community
+                {#if communitySkills.updateCount > 0}
+                  <span class="update-dot">{communitySkills.updateCount}</span>
+                {/if}
+              </button>
+            </div>
+          {/if}
+        </div>
+
+        {#if skillsView === "local"}
         <p class="desc">Skills loaded on the server that customize coordinator behavior per bridge.</p>
         <div class="skill-toolbar">
           <select class="skill-filter-select" bind:value={skillFilterCategory}>
@@ -1843,6 +1888,9 @@
                       <button class="btn-sm" onclick={() => editSkillFromTable(skill.slug, skill.program)} disabled={skill.locked} title={skill.locked ? "Skill is locked" : ""}>Edit</button>
                       <button class="btn-sm danger" onclick={() => deleteSkill(skill.slug, skill.program)}>Delete</button>
                     {/if}
+                    {#if communityEnabled}
+                      <button class="btn-sm" onclick={() => publishSkillFromRow(skill)} title="Share to community">Share</button>
+                    {/if}
                   </td>
                 </tr>
               {/each}
@@ -1850,7 +1898,111 @@
           </tbody>
         </table>
         <p class="mini">{filteredSkills.length} skill{filteredSkills.length !== 1 ? "s" : ""}</p>
+
+        {:else}
+          <!-- Community view -->
+          <div class="community-toolbar">
+            <input
+              type="text"
+              class="skill-search"
+              placeholder="Search community skills..."
+              value={communitySkills.searchQuery}
+              oninput={(e) => {
+                communitySkills.searchQuery = (e.target as HTMLInputElement).value;
+                clearTimeout(communitySearchTimer);
+                communitySearchTimer = setTimeout(() => communitySkills.search(), 300);
+              }}
+            />
+            <select class="skill-filter-select" value={communitySkills.programFilter} onchange={(e) => { communitySkills.programFilter = (e.target as HTMLSelectElement).value; communitySkills.search(); }}>
+              <option value="">All Programs</option>
+              {#each communitySkills.programs as p}
+                <option value={p}>{p}</option>
+              {/each}
+            </select>
+            <select class="skill-filter-select" value={communitySkills.categoryFilter} onchange={(e) => { communitySkills.categoryFilter = (e.target as HTMLSelectElement).value; communitySkills.search(); }}>
+              <option value="">All Categories</option>
+              {#each communitySkills.categories as c}
+                <option value={c}>{c}</option>
+              {/each}
+            </select>
+            <button
+              class="btn secondary"
+              onclick={() => communitySkills.checkForUpdates()}
+              disabled={communitySkills.checkingUpdates}
+            >
+              {communitySkills.checkingUpdates ? "Checking..." : "Check Updates"}
+              {#if communitySkills.updateCount > 0}
+                <span class="update-dot">{communitySkills.updateCount}</span>
+              {/if}
+            </button>
+            <button class="btn" onclick={() => { communitySkills.publishModalOpen = true; }}>
+              Publish
+            </button>
+          </div>
+
+          {#if communitySkills.error}
+            <div class="community-error">
+              <span>{communitySkills.error}</span>
+              <button class="btn-sm" onclick={() => communitySkills.search()}>Retry</button>
+            </div>
+          {/if}
+
+          <div class="community-grid">
+            {#each communitySkills.skills as skill (skill.id)}
+              {@const installed = communitySkills.getInstalled(skill.id)}
+              <SkillCard
+                {skill}
+                {installed}
+                hasUpdate={communitySkills.hasUpdate(skill.id)}
+                busy={communitySkills.installingIds.has(skill.id)}
+                onview={() => communitySkills.viewDetail(skill)}
+                oninstall={() => communitySkills.install(skill.id)}
+                ontoggle={() => communitySkills.toggleEnabled(skill.id)}
+                onupdate={() => communitySkills.updateSkill(skill.id)}
+                onuninstall={() => communitySkills.uninstall(skill.id)}
+              />
+            {/each}
+          </div>
+
+          {#if communitySkills.loading}
+            <p class="muted" style="text-align:center; padding: 16px;">Loading...</p>
+          {/if}
+
+          {#if !communitySkills.loading && communitySkills.skills.length === 0 && !communitySkills.error}
+            <p class="muted" style="text-align:center; padding: 16px;">No community skills found.</p>
+          {/if}
+
+          {#if communitySkills.hasMore && !communitySkills.loading}
+            <div style="text-align:center; padding: 12px;">
+              <button class="btn secondary" onclick={() => communitySkills.loadMore()}>Load More</button>
+            </div>
+          {/if}
+
+          {#if communitySkills.installedCount > 0}
+            <p class="mini">{communitySkills.installedCount} installed &middot; {communitySkills.updateCount} update{communitySkills.updateCount !== 1 ? "s" : ""} available</p>
+          {/if}
+        {/if}
       </section>
+
+      <!-- Community modals (rendered outside the section for z-index) -->
+      {#if communitySkills.selectedSkill}
+        <SkillDetailModal
+          skill={communitySkills.selectedSkill}
+          detail={communitySkills.selectedDetail}
+          loading={communitySkills.detailLoading}
+          installed={communitySkills.getInstalled(communitySkills.selectedSkill.id)}
+          hasUpdate={communitySkills.hasUpdate(communitySkills.selectedSkill.id)}
+          onclose={() => communitySkills.closeDetail()}
+          oninstall={() => communitySkills.install(communitySkills.selectedSkill!.id)}
+          onuninstall={() => communitySkills.uninstall(communitySkills.selectedSkill!.id)}
+          ontoggle={() => communitySkills.toggleEnabled(communitySkills.selectedSkill!.id)}
+          onupdate={() => communitySkills.updateSkill(communitySkills.selectedSkill!.id)}
+        />
+      {/if}
+      {#if communitySkills.publishModalOpen}
+        <PublishModal onclose={() => { communitySkills.publishModalOpen = false; }} />
+      {/if}
+
     {:else if scopeTab === "training"}
       <section class="panel training-dashboard-panel">
         <h3>Training</h3>
@@ -2836,4 +2988,28 @@
   .skill-version-selector { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
   .skill-version-selector select { font-size: var(--font-size-sm); padding: 3px 6px; background: var(--bg-deep, rgba(0,0,0,0.2)); color: var(--text-primary); border: 1px solid var(--border); border-radius: var(--radius-sm, 4px); }
   .restore-btn { background: var(--accent, #4e9ce6) !important; color: #fff !important; font-weight: 600; }
+
+  /* Community skills integration */
+  .skills-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .skills-header h3 { margin-bottom: 0; }
+  .skills-view-toggle { display: flex; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+  .view-btn {
+    padding: 4px 12px; font-size: 11px; background: var(--bg-surface); color: var(--text-secondary);
+    border: none; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; gap: 4px;
+  }
+  .view-btn:not(:last-child) { border-right: 1px solid var(--border); }
+  .view-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .view-btn.active { background: var(--accent); color: #fff; }
+  .update-dot {
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--status-running); color: #fff; border-radius: 10px;
+    font-size: 9px; font-weight: 700; min-width: 14px; height: 14px; padding: 0 3px;
+  }
+  .community-toolbar { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+  .community-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+  .community-error {
+    background: rgba(244, 71, 71, 0.1); border: 1px solid var(--status-failed); border-radius: var(--radius-sm);
+    padding: 8px 12px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;
+    font-size: var(--font-size-sm); color: var(--status-failed);
+  }
 </style>
