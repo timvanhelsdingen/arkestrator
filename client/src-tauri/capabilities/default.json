@@ -23,6 +23,19 @@
     "shell:allow-stdin-write",
     "shell:allow-kill",
     "shell:allow-open",
+    "http:default",
+    {
+      "identifier": "http:allow-fetch",
+      "allow": [
+        { "url": "https://arkestrator.com/*" }
+      ]
+    },
+    {
+      "identifier": "http:allow-fetch-send",
+      "allow": [
+        { "url": "https://arkestrator.com/*" }
+      ]
+    },
     {
       "identifier": "shell:allow-execute",
       "allow": [
