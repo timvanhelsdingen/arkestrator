@@ -404,13 +404,14 @@ export class SkillIndex {
   }
 
   /** Return all skills matching filters (lightweight summaries). */
-  list(opts?: { program?: string; category?: string }): SkillSummary[] {
+  list(opts?: { program?: string; category?: string; includeDisabled?: boolean }): SkillSummary[] {
     this.ensureFresh();
     return this.skills
       .filter((s) => {
         if (opts?.program && s.program !== opts.program && s.program !== "global") return false;
         if (opts?.category && s.category !== opts.category) return false;
-        return s.enabled;
+        if (!opts?.includeDisabled && !s.enabled) return false;
+        return true;
       })
       .map((s) => ({
         id: s.id,

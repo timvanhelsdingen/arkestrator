@@ -188,7 +188,8 @@ export function createSkillsRoutes(
 
     const program = c.req.query("program");
     const category = c.req.query("category") as any;
-    const allSkills = skillIndex.list({ program: program || undefined, category: category || undefined });
+    const includeDisabled = c.req.query("includeDisabled") === "true";
+    const allSkills = skillIndex.list({ program: program || undefined, category: category || undefined, includeDisabled });
 
     // When filtering by a specific program, split global skills into their own group
     if (program) {
@@ -403,6 +404,96 @@ export function createSkillsRoutes(
       return c.json({ skill }, 201);
     } catch (err: any) {
       return errorResponse(c, 500, err?.message ?? "Failed to install skill", "INTERNAL_ERROR");
+    }
+  });
+
+  // POST /install-community — install a skill from the community (arkestrator.com)
+  router.post("/install-community", async (c) => {
+    const auth = await requireWriteAccess(c);
+    if (!auth) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return errorResponse(c, 400, "Invalid JSON body", "BAD_REQUEST");
+    }
+
+    const parsed = z.object({
+      communityId: z.string().min(1),
+      communityBaseUrl: z.string().url().optional(),
+    }).safeParse(body);
+    if (!parsed.success) {
+      return errorResponse(c, 400, parsed.error.message, "VALIDATION_ERROR");
+    }
+
+    const { communityId, communityBaseUrl } = parsed.data;
+    const baseUrl = (communityBaseUrl || "https://arkestrator.com").replace(/\/+$/, "");
+
+    // Fetch skill detail from community API
+    let detail: any;
+    try {
+      const res = await fetch(`${baseUrl}/api/skills/${encodeURIComponent(communityId)}`);
+      if (!res.ok) return errorResponse(c, 502, `Community API error: ${res.status}`, "UPSTREAM_ERROR");
+      detail = await res.json();
+    } catch (err: any) {
+      return errorResponse(c, 502, `Failed to reach community API: ${err?.message}`, "UPSTREAM_ERROR");
+    }
+
+    // Fetch SKILL.md content
+    let content: string;
+    try {
+      const res = await fetch(`${baseUrl}/api/skills/${encodeURIComponent(communityId)}/download`);
+      if (!res.ok) return errorResponse(c, 502, `Failed to download skill content: ${res.status}`, "UPSTREAM_ERROR");
+      content = await res.text();
+    } catch (err: any) {
+      return errorResponse(c, 502, `Failed to download skill content: ${err?.message}`, "UPSTREAM_ERROR");
+    }
+
+    let slug = detail.slug || communityId;
+    const program = detail.program || "global";
+
+    // Map community category to valid server categories
+    const VALID_CATEGORIES = ["coordinator", "bridge", "training", "playbook", "verification", "project", "project-reference", "housekeeping", "custom"];
+    const category = VALID_CATEGORIES.includes(detail.category) ? detail.category : "custom";
+
+    // Create on local server
+    try {
+      const skillInput = {
+        name: slug,
+        slug,
+        program,
+        category,
+        title: detail.title || slug,
+        description: detail.description || "",
+        keywords: detail.keywords || [],
+        content,
+        enabled: false,
+      };
+
+      let skill: any;
+      try {
+        skill = skillStore
+          ? await skillStore.create(skillInput, "community")
+          : skillsRepo.create(skillInput, "community");
+      } catch (err: any) {
+        // Handle slug collision — retry with suffix
+        if (String(err?.message).includes("UNIQUE") || String(err?.message).toLowerCase().includes("exists")) {
+          slug = `${slug}-community`;
+          skillInput.name = slug;
+          skillInput.slug = slug;
+          skill = skillStore
+            ? await skillStore.create(skillInput, "community")
+            : skillsRepo.create(skillInput, "community");
+        } else {
+          throw err;
+        }
+      }
+
+      if (!skillStore) skillIndex.refresh();
+      return c.json({ skill, communityId, slug, program }, 201);
+    } catch (err: any) {
+      return errorResponse(c, 500, err?.message ?? "Failed to install community skill", "INTERNAL_ERROR");
     }
   });
 

@@ -8,20 +8,24 @@
 
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 
+const isTauri =
+  typeof window !== "undefined" && "__TAURI__" in window;
+
 /** Use Tauri fetch when available (bypasses CORS), else native fetch. */
-const corsFetch: typeof globalThis.fetch =
-  typeof window !== "undefined" && "__TAURI__" in window
-    ? tauriFetch
-    : globalThis.fetch;
+const corsFetch: typeof globalThis.fetch = isTauri
+  ? tauriFetch
+  : globalThis.fetch;
 
 const SETTINGS_KEY = "arkestrator-community-settings";
 
-declare const __COMMUNITY_API_DEV_URL__: string | undefined;
+const DEFAULT_BASE_URL = "https://arkestrator.com";
 
-const DEFAULT_BASE_URL =
-  typeof __COMMUNITY_API_DEV_URL__ !== "undefined" && __COMMUNITY_API_DEV_URL__
-    ? __COMMUNITY_API_DEV_URL__
-    : "https://arkestrator.com";
+/**
+ * In browser dev mode (no Tauri), rewrite community API URLs to go through the
+ * Vite proxy at /community-api, avoiding CORS issues.  In Tauri (dev or prod)
+ * the request goes straight to arkestrator.com via the Rust HTTP plugin.
+ */
+const isDevBrowser = !isTauri && import.meta.env.DEV;
 
 // ---------------------------------------------------------------------------
 // Settings persistence
@@ -69,12 +73,22 @@ export function saveSettings(settings: CommunitySettings): void {
 // Core request wrapper
 // ---------------------------------------------------------------------------
 
+/** Resolve the final URL for a community API path. */
+function resolveUrl(baseUrl: string, path: string): string {
+  // In browser dev mode, proxy through Vite to avoid CORS.
+  // path is like "/api/skills" — rewrite to "/community-api/skills".
+  if (isDevBrowser && (baseUrl === DEFAULT_BASE_URL || !baseUrl)) {
+    return path.replace(/^\/api/, "/community-api");
+  }
+  return `${baseUrl}${path}`;
+}
+
 async function communityRequest<T = unknown>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
   const settings = loadSettings();
-  const url = `${settings.baseUrl}${path}`;
+  const url = resolveUrl(settings.baseUrl, path);
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -112,7 +126,7 @@ async function communityRequest<T = unknown>(
 
 async function communityRequestText(path: string): Promise<string> {
   const settings = loadSettings();
-  const url = `${settings.baseUrl}${path}`;
+  const url = resolveUrl(settings.baseUrl, path);
   const headers: Record<string, string> = {};
   if (settings.authToken) {
     headers["Authorization"] = `Bearer ${settings.authToken}`;

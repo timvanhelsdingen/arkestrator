@@ -61,6 +61,7 @@ class CommunitySkillsState {
 
   // Publish state
   publishModalOpen = $state(false);
+  publishPreselect = $state<{ slug: string; program: string }[] | null>(null);
 
   // Installing/uninstalling tracking
   installingIds = $state<Set<string>>(new Set());
@@ -203,62 +204,33 @@ class CommunitySkillsState {
     if (this.installingIds.has(communityId)) return;
     this.installingIds = new Set([...this.installingIds, communityId]);
     try {
-      // Fetch full detail and SKILL.md content
-      const [detail, content] = await Promise.all([
-        communityApi.getSkill(communityId),
-        communityApi.downloadSkill(communityId),
-      ]);
+      const settings = loadSettings();
+      const baseUrl = settings.baseUrl || undefined;
 
-      let slug = detail.slug;
-      const program = detail.program || "global";
+      // Server handles fetching from community API and creating the skill
+      const result = await api.skills.installCommunity(communityId, baseUrl);
 
-      // Create on local server (disabled by default)
+      // Fetch version info for manifest (lightweight call)
+      let version = 1;
       try {
-        await api.skills.create({
-          name: slug,
-          slug,
-          program,
-          category: detail.category || "custom",
-          title: detail.title,
-          description: detail.description,
-          keywords: detail.keywords,
-          content,
-          enabled: false,
-        });
-      } catch (err: any) {
-        // Handle slug collision — retry with suffix
-        if (String(err?.message).includes("409") || String(err?.message).toLowerCase().includes("exists")) {
-          slug = `${slug}-community`;
-          await api.skills.create({
-            name: slug,
-            slug,
-            program,
-            category: detail.category || "custom",
-            title: detail.title,
-            description: detail.description,
-            keywords: detail.keywords,
-            content,
-            enabled: false,
-          });
-        } else {
-          throw err;
-        }
-      }
+        const detail = await communityApi.getSkill(communityId);
+        version = detail.version;
+      } catch { /* non-critical */ }
 
-      // Add to manifest
+      // Track in local manifest
       this._manifest = {
         ...this._manifest,
         [communityId]: {
           communityId,
-          localSlug: slug,
-          localProgram: program,
-          installedVersion: detail.version,
+          localSlug: result.slug,
+          localProgram: result.program,
+          installedVersion: version,
           enabled: false,
           installedAt: new Date().toISOString(),
         },
       };
       this._saveManifest();
-      toast.success(`Installed "${detail.title}" (disabled by default)`);
+      toast.success(`Installed "${result.skill?.title || result.slug}" (disabled by default)`);
     } catch (err: any) {
       toast.error(`Install failed: ${err?.message}`);
     } finally {
@@ -273,21 +245,22 @@ class CommunitySkillsState {
     if (!entry) return;
     try {
       await api.skills.delete(entry.localSlug, entry.localProgram);
-      const next = { ...this._manifest };
-      delete next[communityId];
-      this._manifest = next;
-      this._saveManifest();
-
-      // Clean up updates tracking
-      if (communityId in this.updatesAvailable) {
-        const upd = { ...this.updatesAvailable };
-        delete upd[communityId];
-        this.updatesAvailable = upd;
-      }
-      toast.info("Skill uninstalled");
-    } catch (err: any) {
-      toast.error(`Uninstall failed: ${err?.message}`);
+    } catch {
+      // Skill may already be deleted locally — that's fine, proceed with manifest cleanup
     }
+
+    const next = { ...this._manifest };
+    delete next[communityId];
+    this._manifest = next;
+    this._saveManifest();
+
+    // Clean up updates tracking
+    if (communityId in this.updatesAvailable) {
+      const upd = { ...this.updatesAvailable };
+      delete upd[communityId];
+      this.updatesAvailable = upd;
+    }
+    toast.info("Skill uninstalled");
   }
 
   // ---------------------------------------------------------------------------

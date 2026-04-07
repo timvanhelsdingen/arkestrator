@@ -15,9 +15,10 @@ export interface SkillMaterializerConfig {
 }
 
 /**
- * Materialize all enabled skills from the DB into a flat Skill[].
- * Runs synchronously — intended for startup and periodic refresh.
+ * Materialize all skills from the DB into a flat Skill[].
+ * Includes disabled skills so they can appear in management UIs.
+ * The skill index's list() method filters by enabled status when needed.
  */
 export function materializeSkills(config: SkillMaterializerConfig): Skill[] {
-  return config.skillsRepo.listAll({ enabled: true });
+  return config.skillsRepo.listAll();
 }

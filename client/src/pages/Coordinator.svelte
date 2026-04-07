@@ -288,9 +288,17 @@
     }
   }
 
-  async function publishSkillFromRow(skill: SkillEntry) {
-    // Load full skill content if not already loaded, then open publish modal
-    // with the skill pre-selected
+  function publishSkillFromRow(skill: SkillEntry) {
+    communitySkills.publishPreselect = [{ slug: skill.slug, program: skill.program || "global" }];
+    communitySkills.publishModalOpen = true;
+  }
+
+  function publishSelectedSkills() {
+    const preselect = [...selectedSkillKeys].map(k => {
+      const parts = k.split(":");
+      return { program: parts[0], slug: parts.slice(1).join(":") };
+    });
+    communitySkills.publishPreselect = preselect;
     communitySkills.publishModalOpen = true;
   }
 
@@ -1771,6 +1779,11 @@
           <button class="btn secondary" onclick={exportSelectedSkills}>
             {selectedSkillKeys.size > 0 ? `Export Selected (${selectedSkillKeys.size})` : "Export All"}
           </button>
+          {#if communityEnabled && selectedSkillKeys.size > 0}
+            <button class="btn secondary" onclick={publishSelectedSkills}>
+              Share Selected ({selectedSkillKeys.size})
+            </button>
+          {/if}
           <button class="btn secondary" onclick={() => importSkillInput?.click()}>
             Import
           </button>
@@ -1936,7 +1949,10 @@
                 <span class="update-dot">{communitySkills.updateCount}</span>
               {/if}
             </button>
-            <button class="btn" onclick={() => { communitySkills.publishModalOpen = true; }}>
+            <button class="btn secondary" onclick={() => communitySkills.search()} disabled={communitySkills.loading}>
+              {communitySkills.loading ? "Loading..." : "Refresh"}
+            </button>
+            <button class="btn" onclick={() => { communitySkills.publishPreselect = null; communitySkills.publishModalOpen = true; }}>
               Publish
             </button>
           </div>
@@ -2001,7 +2017,10 @@
         />
       {/if}
       {#if communitySkills.publishModalOpen}
-        <PublishModal onclose={() => { communitySkills.publishModalOpen = false; }} />
+        <PublishModal
+          preselect={communitySkills.publishPreselect}
+          onclose={() => { communitySkills.publishModalOpen = false; communitySkills.publishPreselect = null; }}
+        />
       {/if}
 
     {:else if scopeTab === "training"}

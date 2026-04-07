@@ -4,7 +4,10 @@
   import { toast } from "../../stores/toast.svelte";
   import { open } from "@tauri-apps/plugin-shell";
 
-  let { onclose }: { onclose: () => void } = $props();
+  let { onclose, preselect }: {
+    onclose: () => void;
+    preselect?: { slug: string; program: string }[] | null;
+  } = $props();
 
   let settings = $state(loadSettings());
   let hasToken = $derived(!!settings.authToken);
@@ -17,10 +20,14 @@
   // Local skills for selection
   let localSkills = $state<any[]>([]);
   let loadingSkills = $state(false);
-  let selectedSlug = $state("");
-  let selectedProgram = $state("");
+  let selectedSlug = $state(preselect?.[0]?.slug ?? "");
+  let selectedProgram = $state(preselect?.[0]?.program ?? "");
 
-  // Publish state
+  // Batch publish state
+  const isBatch = preselect && preselect.length > 1;
+  let batchIndex = $state(0);
+  let batchDone = $state(0);
+  let batchErrors = $state<string[]>([]);
   let publishing = $state(false);
 
   // Load user info if token exists
@@ -74,25 +81,52 @@
     communityUser = null;
   }
 
+  async function publishOne(skill: any) {
+    await communityApi.publish({
+      title: skill.title,
+      slug: skill.slug,
+      program: skill.program || "global",
+      category: skill.category || "custom",
+      description: skill.description || "",
+      keywords: skill.keywords || [],
+      content: skill.content || "",
+    });
+  }
+
   async function publish() {
-    if (!selectedSkill) return;
-    publishing = true;
-    try {
-      await communityApi.publish({
-        title: selectedSkill.title,
-        slug: selectedSkill.slug,
-        program: selectedSkill.program || "global",
-        category: selectedSkill.category || "custom",
-        description: selectedSkill.description || "",
-        keywords: selectedSkill.keywords || [],
-        content: selectedSkill.content || "",
-      });
-      toast.success(`Published "${selectedSkill.title}" to community!`);
-      onclose();
-    } catch (err: any) {
-      toast.error(`Publish failed: ${err?.message}`);
-    } finally {
+    if (isBatch) {
+      // Batch publish all preselected skills
+      publishing = true;
+      batchDone = 0;
+      batchErrors = [];
+      for (let i = 0; i < preselect!.length; i++) {
+        batchIndex = i;
+        const ps = preselect![i];
+        const skill = localSkills.find((s: any) => s.slug === ps.slug && s.program === ps.program);
+        if (!skill) { batchErrors.push(`${ps.program}/${ps.slug}: not found`); continue; }
+        try {
+          await publishOne(skill);
+          batchDone++;
+        } catch (err: any) {
+          batchErrors.push(`${skill.title}: ${err?.message}`);
+        }
+      }
       publishing = false;
+      if (batchDone > 0) toast.success(`Published ${batchDone} skill${batchDone > 1 ? "s" : ""} to community`);
+      if (batchErrors.length) toast.error(`${batchErrors.length} failed`);
+      else onclose();
+    } else {
+      if (!selectedSkill) return;
+      publishing = true;
+      try {
+        await publishOne(selectedSkill);
+        toast.success(`Published "${selectedSkill.title}" to community!`);
+        onclose();
+      } catch (err: any) {
+        toast.error(`Publish failed: ${err?.message}`);
+      } finally {
+        publishing = false;
+      }
     }
   }
 
@@ -154,35 +188,64 @@
         </div>
 
         <div class="publish-section">
-          <label class="field-label">
-            Select a local skill to publish
-            <select bind:value={selectedSlug} class="skill-select">
-              <option value="">-- Choose a skill --</option>
-              {#each localSkills as s}
-                <option value={s.slug}>{s.title} ({s.program}/{s.slug})</option>
+          {#if isBatch}
+            <p class="field-label">Publish {preselect!.length} skills to community:</p>
+            <div class="batch-list">
+              {#each preselect! as ps, i}
+                <div class="batch-item" class:done={publishing && i < batchIndex} class:active={publishing && i === batchIndex}>
+                  <span>{ps.program}/{ps.slug}</span>
+                  {#if batchErrors.find(e => e.startsWith(ps.program + "/" + ps.slug))}
+                    <span class="batch-err">failed</span>
+                  {/if}
+                </div>
               {/each}
-            </select>
-          </label>
-
-          {#if selectedSkill}
-            <div class="preview">
-              <div class="preview-row"><span class="pv-label">Title</span><span>{selectedSkill.title}</span></div>
-              <div class="preview-row"><span class="pv-label">Program</span><span>{selectedSkill.program}</span></div>
-              <div class="preview-row"><span class="pv-label">Category</span><span>{selectedSkill.category}</span></div>
-              <div class="preview-row"><span class="pv-label">Description</span><span>{selectedSkill.description || "—"}</span></div>
             </div>
+            {#if batchErrors.length && !publishing}
+              <div class="batch-errors">
+                {#each batchErrors as err}
+                  <p class="batch-err-msg">{err}</p>
+                {/each}
+              </div>
+            {/if}
+          {:else}
+            {#if preselect?.length === 1}
+              <p class="field-label">Skill to publish:</p>
+            {:else}
+              <label class="field-label">
+                Select a local skill to publish
+                <select bind:value={selectedSlug} class="skill-select">
+                  <option value="">-- Choose a skill --</option>
+                  {#each localSkills as s}
+                    <option value={s.slug}>{s.title} ({s.program}/{s.slug})</option>
+                  {/each}
+                </select>
+              </label>
+            {/if}
+
+            {#if selectedSkill}
+              <div class="preview">
+                <div class="preview-row"><span class="pv-label">Title</span><span>{selectedSkill.title}</span></div>
+                <div class="preview-row"><span class="pv-label">Program</span><span>{selectedSkill.program}</span></div>
+                <div class="preview-row"><span class="pv-label">Category</span><span>{selectedSkill.category}</span></div>
+                <div class="preview-row"><span class="pv-label">Description</span><span>{selectedSkill.description || "—"}</span></div>
+              </div>
+            {/if}
           {/if}
         </div>
       {/if}
     </div>
 
     <div class="modal-actions">
-      {#if hasToken && selectedSkill}
+      {#if hasToken && (selectedSkill || isBatch)}
         <button class="btn btn-accent" onclick={publish} disabled={publishing}>
-          {publishing ? "Publishing..." : "Publish"}
+          {#if publishing}
+            {isBatch ? `Publishing ${batchIndex + 1}/${preselect!.length}...` : "Publishing..."}
+          {:else}
+            {isBatch ? `Publish ${preselect!.length} Skills` : "Publish"}
+          {/if}
         </button>
       {/if}
-      <button class="btn" onclick={onclose}>Cancel</button>
+      <button class="btn" onclick={onclose}>{batchDone > 0 && !publishing ? "Close" : "Cancel"}</button>
     </div>
   </div>
 </div>
@@ -339,4 +402,26 @@
     padding: 3px 8px;
     font-size: 11px;
   }
+  .batch-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 8px;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+  .batch-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 8px;
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+    background: var(--bg-base);
+    border-radius: var(--radius-sm);
+  }
+  .batch-item.done { color: var(--status-completed); }
+  .batch-item.active { color: var(--text-primary); font-weight: 600; }
+  .batch-err { color: var(--status-failed); font-size: 11px; }
+  .batch-errors { margin-top: 8px; }
+  .batch-err-msg { font-size: 11px; color: var(--status-failed); margin: 2px 0; }
 </style>
