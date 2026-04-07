@@ -1,0 +1,29 @@
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA512
+
+Origin: Arkestrator
+Label: Arkestrator
+Suite: stable
+Codename: stable
+Architectures: amd64
+Components: main
+Description: Arkestrator package repository
+SHA256:
+ 792ad2dfe1ccc3f937010a9823428b99ccb4e6f4f275e62992c40354a59306cb 485 main/binary-amd64/Packages
+ 1f70602ef4044fa094c292c8a95273ec620e83a9edd8199f291d4c2b4770d708 377 main/binary-amd64/Packages.gz
+-----BEGIN PGP SIGNATURE-----
+
+iQIzBAEBCgAdFiEE8WNYSg3nk5HkN4ZW8/BIGOfSQn4FAmnU7/IACgkQ8/BIGOfS
+Qn6eJBAAiLLrEW7kDM02KwpVItj8XKtbmbZ30t+Bk9XOos0evaXCaPbgTYdkMKuL
+gJea3b/dpKxt88BFBvLIk+dkME4hqgW3bDW0c77GeS0ZfPAgc8nCTBJgBAbY8Yzx
+Z01OZWJfsTyYOSZnk+LCKjSwDg+Hx8/S2zS3e45cvb9fKInHWSpuhwWNHB3deDW9
+/u0c+zBwjV7kAFro1Ob64Ni7xS7xoRcY4sQYM4k4A43zN32CqNosBSuFRsVgwTdq
+sNEVCigXv6QnY493uNw1dpImrypmwttvSZnQ1gdIzD6Ec2KxSVd/tkq3M7LogtFV
+ssjvHxfz0R/CpI1A+Krl8eKUeLMIwbjYK/tWvkNQTvxkH93XGJDn6fbnLNb3gY2U
+htrHQ2DpNDp0fHE1RCjUHP6iUrwEnS8F/3NMqlH39hqiRx/ix5aIKOsddz8UiWgI
+gELWhKQ66VjNio13aM/KXGYhJAPmYQ05y4iHzpufyXFaoJP/ve72aBppsLwfprSk
+TmNC/C1zEPeGbf2uxnbghIpK7xPZoPNfhQDvRB0P9+cHstZ45zKKgVdQORtiAS/h
+0wlFr7RIwvFOm5A5tIetG94Cil3sVuBvIjfvy+8TDTpa6bMUUMgAMzDmXoaFLiIy
+MYajzR9Gy0RnDNg8njV3SJEIynpU9t7WEVZPDaWvKCxlxzK1YF0=
+=6oZ+
+-----END PGP SIGNATURE-----

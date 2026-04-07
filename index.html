@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Arkestrator Linux Packages</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; line-height: 1.6; color: #e0e0e0; background: #1a1a2e; }
+    h1 { color: #e94560; }
+    h2 { color: #e94560; border-bottom: 2px solid #16213e; padding-bottom: .3rem; }
+    code, pre { background: #16213e; padding: .2em .4em; border-radius: 4px; font-size: .9em; }
+    pre { padding: 1em; overflow-x: auto; }
+    a { color: #e94560; }
+  </style>
+</head>
+<body>
+  <h1>Arkestrator Linux Packages</h1>
+  <p>Install Arkestrator on your Linux system using your package manager.</p>
+
+  <h2>Quick Install (auto-detects distro)</h2>
+  <pre>curl -fsSL https://timvanhelsdingen.github.io/arkestrator/install.sh | sudo bash</pre>
+
+  <h2>Fedora / RHEL / CentOS (dnf/yum)</h2>
+  <pre>sudo dnf config-manager addrepo --from-repofile=https://timvanhelsdingen.github.io/arkestrator/arkestrator.repo
+sudo dnf install arkestrator</pre>
+
+  <h2>Debian / Ubuntu (apt)</h2>
+  <pre>curl -fsSL https://timvanhelsdingen.github.io/arkestrator/gpg-key.asc | sudo gpg --dearmor -o /usr/share/keyrings/arkestrator.gpg
+echo "deb [signed-by=/usr/share/keyrings/arkestrator.gpg] https://timvanhelsdingen.github.io/arkestrator/apt stable main" | sudo tee /etc/apt/sources.list.d/arkestrator.list
+sudo apt update && sudo apt install arkestrator</pre>
+
+  <h2>Arch Linux (AUR)</h2>
+  <pre>yay -S arkestrator-bin</pre>
+  <p>Or manually: <code>git clone https://aur.archlinux.org/arkestrator-bin.git && cd arkestrator-bin && makepkg -si</code></p>
+</body>
+</html>

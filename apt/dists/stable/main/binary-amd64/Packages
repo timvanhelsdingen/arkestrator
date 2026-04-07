@@ -1,0 +1,15 @@
+Package: arkestrator
+Version: 0.1.119
+Architecture: amd64
+Maintainer: Tim van Helsdingen
+Installed-Size: 120808
+Depends: libayatana-appindicator3-1, libwebkit2gtk-4.1-0, libgtk-3-0
+Filename: pool/Arkestrator_0.1.119_amd64.deb
+Size: 47266466
+MD5sum: 246abd4dbe715d805d03a87ab4da1c9b
+SHA1: 5106a172c3995bc65b6b25adc524f38d06e1dc12
+SHA256: 304c9b77eee6014d08a269914faca9dde21e036f102337b4f5a298d67d8cfd5f
+Priority: optional
+Description: AI agent orchestration for creative tools
+ (none)
+
