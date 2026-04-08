@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { existsSync } from "node:fs";
 import { stat } from "node:fs/promises";
+import { networkInterfaces } from "node:os";
 import {
   getAuthPrincipal,
   principalHasPermission,
@@ -15,6 +16,19 @@ import type { WebSocketHub } from "../ws/hub.js";
 import type { ApiKeysRepo } from "../db/apikeys.repo.js";
 import type { UsersRepo } from "../db/users.repo.js";
 import type { Config } from "../config.js";
+
+/** Get the server's LAN IP address (first non-internal IPv4). Falls back to localhost. */
+function getServerLanIp(): string {
+  const nets = networkInterfaces();
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name] ?? []) {
+      if (net.family === "IPv4" && !net.internal) {
+        return net.address;
+      }
+    }
+  }
+  return "localhost";
+}
 
 /**
  * HTTP streaming file transfer endpoints.
@@ -390,7 +404,8 @@ export function createTransfersRoutes(
 
   // --- Helper: notify target when files are ready for download ---
   async function notifyTarget(transferId: string, meta: any, p2pUrl?: string): Promise<void> {
-    const serverUrl = `${config.tlsCertPath ? "https" : "http"}://localhost:${config.port}`;
+    const serverHost = getServerLanIp();
+    const serverUrl = `${config.tlsCertPath ? "https" : "http"}://${serverHost}:${config.port}`;
     const downloadBaseUrl = `${serverUrl}/api/transfers/${transferId}/files`;
 
     const initiatePayload = {
