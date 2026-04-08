@@ -119,9 +119,9 @@
   let anyUnsaved = $derived(selectedCount > 0);
 </script>
 
-<h2>API Bridges</h2>
+<h2>API & MCP Bridges</h2>
 <p class="subtitle">
-  Connect external APIs for 3D generation, image processing, and more.
+  Connect external APIs and MCP servers for 3D generation, image processing, and more.
   These run server-side — no plugin installation needed.
 </p>
 

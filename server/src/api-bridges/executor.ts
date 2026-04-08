@@ -5,6 +5,7 @@ import type { WebSocketHub } from "../ws/hub.js";
 import type { ApiBridgeExecContext } from "./handler.js";
 import { getPresetHandler } from "./registry.js";
 import { CustomApiBridgeHandler } from "./custom-handler.js";
+import { McpBridgeHandler } from "./mcp-handler.js";
 import { newId } from "../utils/id.js";
 import { logger } from "../utils/logger.js";
 
@@ -51,16 +52,20 @@ export class ApiBridgeExecutor {
       return { ok: false, error: `API bridge "${spec.apiBridgeName}" is disabled` };
     }
 
+    // MCP bridges don't need API keys
+    const isMcp = !!bridgeConfig.mcpConfig;
     const apiKey = this.deps.apiBridgesRepo.getApiKey(bridgeConfig.id);
-    if (!apiKey && bridgeConfig.authType !== "none") {
+    if (!isMcp && !apiKey && bridgeConfig.authType !== "none") {
       this.failJob(job.id, `API bridge "${spec.apiBridgeName}" has no API key configured`);
       return { ok: false, error: "No API key configured" };
     }
 
-    // Resolve handler
-    const handler = bridgeConfig.type === "preset" && bridgeConfig.presetId
-      ? getPresetHandler(bridgeConfig.presetId)
-      : new CustomApiBridgeHandler();
+    // Resolve handler — MCP bridges use McpBridgeHandler
+    const handler = isMcp
+      ? new McpBridgeHandler()
+      : bridgeConfig.type === "preset" && bridgeConfig.presetId
+        ? getPresetHandler(bridgeConfig.presetId)
+        : new CustomApiBridgeHandler();
 
     if (!handler) {
       this.failJob(job.id, `No handler found for preset "${bridgeConfig.presetId}"`);

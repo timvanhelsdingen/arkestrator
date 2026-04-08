@@ -113,7 +113,7 @@ export class ComfyUiHandler implements ApiBridgeHandler {
       };
     }
 
-    const baseUrl = config.baseUrl.replace(/\/+$/, "");
+    const baseUrl = (config.baseUrl ?? "").replace(/\/+$/, "");
     const timeoutMs = typeof params.timeout_ms === "number" ? params.timeout_ms : 120_000;
     const pollIntervalMs = 800;
     const clientId = `arkestrator-${Math.random().toString(16).slice(2)}`;
@@ -249,7 +249,7 @@ export class ComfyUiHandler implements ApiBridgeHandler {
     path: string,
     action: string,
   ): Promise<ApiBridgeResult> {
-    const baseUrl = config.baseUrl.replace(/\/+$/, "");
+    const baseUrl = (config.baseUrl ?? "").replace(/\/+$/, "");
     const res = await fetch(`${baseUrl}${path}`);
     const data = await res.json().catch(() => null);
     return {
@@ -266,7 +266,7 @@ export class ComfyUiHandler implements ApiBridgeHandler {
     path: string,
     action: string,
   ): Promise<ApiBridgeResult> {
-    const baseUrl = config.baseUrl.replace(/\/+$/, "");
+    const baseUrl = (config.baseUrl ?? "").replace(/\/+$/, "");
     const res = await fetch(`${baseUrl}${path}`, { method: "POST" });
     const data = await res.json().catch(() => null);
     return {

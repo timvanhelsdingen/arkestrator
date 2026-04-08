@@ -33,5 +33,6 @@ export async function forceRefreshRemotePresets(): Promise<void> {
 // Re-export public API
 export { getPresetHandler, listPresets, listPresetIds, isKnownPreset } from "./registry.js";
 export { CustomApiBridgeHandler } from "./custom-handler.js";
+export { McpBridgeHandler } from "./mcp-handler.js";
 export { ApiBridgeExecutor } from "./executor.js";
 export type { ApiBridgeHandler, ApiBridgeExecContext } from "./handler.js";

@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
+import { McpConfig } from "@arkestrator/protocol";
 import type { ApiBridgesRepo } from "../db/api-bridges.repo.js";
 import type { UsersRepo } from "../db/users.repo.js";
 import type { ApiKeysRepo } from "../db/apikeys.repo.js";
@@ -11,7 +12,7 @@ const ApiBridgeCreateSchema = z.object({
   displayName: z.string().trim().min(1).max(128),
   type: z.enum(["preset", "custom"]),
   presetId: z.string().optional(),
-  baseUrl: z.string().url(),
+  baseUrl: z.string().url().optional(),
   authType: z.enum(["bearer", "header", "query", "none"]).default("bearer"),
   authHeader: z.string().default("Authorization"),
   authPrefix: z.string().default("Bearer "),
@@ -19,6 +20,7 @@ const ApiBridgeCreateSchema = z.object({
   endpoints: z.record(z.string(), z.any()).default({}),
   defaultOptions: z.record(z.string(), z.unknown()).default({}),
   pollConfig: z.any().optional(),
+  mcpConfig: McpConfig.optional(),
   enabled: z.boolean().default(true),
 });
 
@@ -98,6 +100,11 @@ export function createApiBridgeRoutes(
       });
     }
 
+    // baseUrl required for non-MCP bridges
+    if (!parsed.data.mcpConfig && !parsed.data.baseUrl) {
+      return errorResponse(c, 400, "baseUrl is required for non-MCP bridges", "VALIDATION_ERROR");
+    }
+
     if (apiBridgesRepo.nameExists(parsed.data.name)) {
       return errorResponse(c, 409, `Bridge name '${parsed.data.name}' already exists`, "CONFLICT");
     }
@@ -170,6 +177,23 @@ export function createApiBridgeRoutes(
     const bridge = apiBridgesRepo.getById(c.req.param("id"));
     if (!bridge) return errorResponse(c, 404, "Not found", "NOT_FOUND");
 
+    // MCP bridge test: connect and list tools
+    if (bridge.mcpConfig) {
+      try {
+        const { McpBridgeHandler } = await import("../api-bridges/mcp-handler.js");
+        const handler = new McpBridgeHandler();
+        const actions = await handler.getActionsForConfig(bridge.mcpConfig);
+        return c.json({
+          ok: true,
+          tools: actions.length,
+          toolNames: actions.map((a) => a.name),
+        });
+      } catch (err: any) {
+        return c.json({ ok: false, error: err.message ?? String(err) });
+      }
+    }
+
+    // REST API bridge test
     const apiKey = apiBridgesRepo.getApiKey(bridge.id);
     if (!apiKey && bridge.authType !== "none") {
       return c.json({ ok: false, error: "No API key configured" });
@@ -180,7 +204,7 @@ export function createApiBridgeRoutes(
       const headers = buildAuthHeaders(bridge, apiKey ?? "");
 
       // Simple connectivity test — hit the base URL
-      const response = await fetch(bridge.baseUrl, {
+      const response = await fetch(bridge.baseUrl!, {
         method: "GET",
         headers,
         signal: AbortSignal.timeout(10_000),
@@ -204,6 +228,17 @@ export function createApiBridgeRoutes(
 
     const bridge = apiBridgesRepo.getById(c.req.param("id"));
     if (!bridge) return errorResponse(c, 404, "Not found", "NOT_FOUND");
+
+    // MCP bridges: list tools dynamically
+    if (bridge.mcpConfig) {
+      try {
+        const { McpBridgeHandler } = await import("../api-bridges/mcp-handler.js");
+        const handler = new McpBridgeHandler();
+        return c.json(await handler.getActionsForConfig(bridge.mcpConfig));
+      } catch (err: any) {
+        return c.json([]);
+      }
+    }
 
     if (bridge.type === "preset" && bridge.presetId) {
       const { getPresetHandler } = await import("../api-bridges/index.js");

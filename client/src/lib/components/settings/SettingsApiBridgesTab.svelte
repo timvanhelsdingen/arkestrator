@@ -3,16 +3,26 @@
   import { api } from "../../api/rest";
   import Badge from "../ui/Badge.svelte";
 
+  interface McpConfig {
+    transport: "stdio" | "sse";
+    command?: string;
+    args?: string[];
+    env?: Record<string, string>;
+    url?: string;
+    headers?: Record<string, string>;
+  }
+
   interface ApiBridge {
     id: string;
     name: string;
     displayName: string;
     type: "preset" | "custom";
     presetId?: string;
-    baseUrl: string;
+    baseUrl?: string;
     authType: string;
     enabled: boolean;
     hasApiKey: boolean;
+    mcpConfig?: McpConfig;
     createdAt: string;
   }
 
@@ -44,6 +54,15 @@
   let formAuthType = $state("bearer");
   let formSaving = $state(false);
   let formError = $state("");
+
+  // MCP form state
+  let formBridgeMode = $state<"rest" | "mcp">("rest");
+  let formMcpTransport = $state<"stdio" | "sse">("stdio");
+  let formMcpCommand = $state("");
+  let formMcpArgs = $state("");
+  let formMcpEnv = $state("");
+  let formMcpUrl = $state("");
+  let formMcpHeaders = $state("");
 
   // Test state
   let testingId = $state<string | null>(null);
@@ -83,6 +102,13 @@
     formApiKey = "";
     formAuthType = "bearer";
     formError = "";
+    formBridgeMode = "rest";
+    formMcpTransport = "stdio";
+    formMcpCommand = "";
+    formMcpArgs = "";
+    formMcpEnv = "";
+    formMcpUrl = "";
+    formMcpHeaders = "";
     showForm = true;
 
     if (type === "preset" && presets.length > 0) {
@@ -107,11 +133,47 @@
     formPresetId = bridge.presetId ?? "";
     formName = bridge.name;
     formDisplayName = bridge.displayName;
-    formBaseUrl = bridge.baseUrl;
+    formBaseUrl = bridge.baseUrl ?? "";
     formApiKey = "";
     formAuthType = bridge.authType;
     formError = "";
+
+    // MCP state
+    if (bridge.mcpConfig) {
+      formBridgeMode = "mcp";
+      formMcpTransport = bridge.mcpConfig.transport;
+      formMcpCommand = bridge.mcpConfig.command ?? "";
+      formMcpArgs = (bridge.mcpConfig.args ?? []).join("\n");
+      formMcpEnv = bridge.mcpConfig.env
+        ? Object.entries(bridge.mcpConfig.env).map(([k, v]) => `${k}=${v}`).join("\n")
+        : "";
+      formMcpUrl = bridge.mcpConfig.url ?? "";
+      formMcpHeaders = bridge.mcpConfig.headers
+        ? Object.entries(bridge.mcpConfig.headers).map(([k, v]) => `${k}: ${v}`).join("\n")
+        : "";
+    } else {
+      formBridgeMode = "rest";
+      formMcpTransport = "stdio";
+      formMcpCommand = "";
+      formMcpArgs = "";
+      formMcpEnv = "";
+      formMcpUrl = "";
+      formMcpHeaders = "";
+    }
+
     showForm = true;
+  }
+
+  /** Parse newline-separated key=value pairs into a Record. */
+  function parseKeyValues(text: string, separator = "="): Record<string, string> {
+    const result: Record<string, string> = {};
+    for (const line of text.split("\n").map((l) => l.trim()).filter(Boolean)) {
+      const idx = line.indexOf(separator);
+      if (idx > 0) {
+        result[line.slice(0, idx).trim()] = line.slice(idx + separator.length).trim();
+      }
+    }
+    return result;
   }
 
   async function saveForm() {
@@ -122,12 +184,34 @@
         name: formName,
         displayName: formDisplayName,
         type: formType,
-        baseUrl: formBaseUrl,
         authType: formAuthType,
         enabled: true,
       };
+
+      if (formBridgeMode === "mcp" && formType === "custom") {
+        // MCP bridge — build mcpConfig, no baseUrl needed
+        const mcpConfig: Record<string, unknown> = { transport: formMcpTransport };
+        if (formMcpTransport === "stdio") {
+          mcpConfig.command = formMcpCommand;
+          const args = formMcpArgs.split("\n").map((a) => a.trim()).filter(Boolean);
+          if (args.length) mcpConfig.args = args;
+          const env = parseKeyValues(formMcpEnv);
+          if (Object.keys(env).length) mcpConfig.env = env;
+        } else {
+          mcpConfig.url = formMcpUrl;
+          const headers = parseKeyValues(formMcpHeaders, ":");
+          if (Object.keys(headers).length) mcpConfig.headers = headers;
+        }
+        data.mcpConfig = mcpConfig;
+        data.authType = "none";
+      } else {
+        // REST bridge
+        data.baseUrl = formBaseUrl;
+        data.mcpConfig = null; // clear MCP config if switching from MCP to REST
+        if (formApiKey) data.apiKey = formApiKey;
+      }
+
       if (formType === "preset") data.presetId = formPresetId;
-      if (formApiKey) data.apiKey = formApiKey;
 
       if (editingId) {
         await api.apiBridges.update(editingId, data);
@@ -195,14 +279,25 @@
       {#each bridges as bridge}
         <div class="bridge-item" class:disabled={!bridge.enabled}>
           <div class="bridge-item-left">
-            <Badge text={bridge.type === "preset" ? bridge.presetId ?? "preset" : "custom"} variant={bridge.type === "preset" ? "accent" : "default"} />
+            <Badge
+              text={bridge.mcpConfig ? "MCP" : bridge.type === "preset" ? bridge.presetId ?? "preset" : "CUSTOM"}
+              variant={bridge.mcpConfig ? "info" : bridge.type === "preset" ? "accent" : "default"}
+            />
             <div class="bridge-info">
               <span class="bridge-name">{bridge.displayName}</span>
-              <span class="bridge-url">{bridge.baseUrl}</span>
+              <span class="bridge-url">
+                {#if bridge.mcpConfig}
+                  {bridge.mcpConfig.transport === "stdio"
+                    ? `${bridge.mcpConfig.command} ${(bridge.mcpConfig.args ?? []).join(" ")}`
+                    : bridge.mcpConfig.url ?? ""}
+                {:else}
+                  {bridge.baseUrl ?? ""}
+                {/if}
+              </span>
             </div>
           </div>
           <div class="bridge-item-right">
-            {#if !bridge.hasApiKey && bridge.authType !== "none"}
+            {#if !bridge.mcpConfig && !bridge.hasApiKey && bridge.authType !== "none"}
               <span class="bridge-warning">No API key</span>
             {/if}
             <span class="bridge-state" class:enabled={bridge.enabled}>
@@ -237,7 +332,7 @@
       Add Preset Bridge
     </button>
     <button class="btn secondary" onclick={() => openAddForm("custom")}>
-      Add Custom API Bridge
+      Add Custom Bridge
     </button>
     <button class="btn secondary" onclick={loadData}>
       Refresh
@@ -278,7 +373,7 @@
   <div class="form-overlay" onclick={() => (showForm = false)} role="presentation">
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div class="form-modal" onclick={(e) => e.stopPropagation()} role="dialog">
-      <h3>{editingId ? "Edit" : "Add"} {formType === "preset" ? "Preset" : "Custom"} API Bridge</h3>
+      <h3>{editingId ? "Edit" : "Add"} {formType === "preset" ? "Preset" : "Custom"} Bridge</h3>
 
       {#if formType === "preset" && !editingId}
         <label>
@@ -291,35 +386,89 @@
         </label>
       {/if}
 
+      {#if formType === "custom"}
+        <label>
+          Bridge Mode
+          <div class="mode-toggle">
+            <button class="mode-btn" class:active={formBridgeMode === "rest"} onclick={() => (formBridgeMode = "rest")}>
+              REST API
+            </button>
+            <button class="mode-btn" class:active={formBridgeMode === "mcp"} onclick={() => (formBridgeMode = "mcp")}>
+              MCP Server
+            </button>
+          </div>
+        </label>
+      {/if}
+
       <label>
         Name (slug)
-        <input bind:value={formName} placeholder="meshy" disabled={formType === "preset" && !editingId} />
+        <input bind:value={formName} placeholder={formBridgeMode === "mcp" ? "my-mcp-server" : "meshy"} disabled={formType === "preset" && !editingId} />
       </label>
 
       <label>
         Display Name
-        <input bind:value={formDisplayName} placeholder="Meshy (3D Generation)" />
+        <input bind:value={formDisplayName} placeholder={formBridgeMode === "mcp" ? "My MCP Server" : "Meshy (3D Generation)"} />
       </label>
 
-      <label>
-        Base URL
-        <input bind:value={formBaseUrl} placeholder="https://api.meshy.ai" />
-      </label>
+      {#if formBridgeMode === "mcp" && formType === "custom"}
+        <!-- MCP-specific fields -->
+        <label>
+          Transport
+          <select bind:value={formMcpTransport}>
+            <option value="stdio">Command (stdio)</option>
+            <option value="sse">URL (SSE/HTTP)</option>
+          </select>
+        </label>
 
-      <label>
-        API Key
-        <input type="password" bind:value={formApiKey} placeholder={editingId ? "(unchanged)" : "Enter API key"} />
-      </label>
+        {#if formMcpTransport === "stdio"}
+          <label>
+            Command
+            <input bind:value={formMcpCommand} placeholder="npx" />
+            <span class="field-hint">The executable to run (e.g. npx, uvx, node, python)</span>
+          </label>
 
-      <label>
-        Auth Type
-        <select bind:value={formAuthType}>
-          <option value="bearer">Bearer Token</option>
-          <option value="header">Custom Header</option>
-          <option value="query">Query Parameter</option>
-          <option value="none">None</option>
-        </select>
-      </label>
+          <label>
+            Arguments (one per line)
+            <textarea bind:value={formMcpArgs} rows="3" placeholder={"-y\n@modelcontextprotocol/server-filesystem\n/tmp"}></textarea>
+          </label>
+
+          <label>
+            Environment Variables (KEY=VALUE, one per line)
+            <textarea bind:value={formMcpEnv} rows="2" placeholder="API_KEY=sk-xxx"></textarea>
+          </label>
+        {:else}
+          <label>
+            Server URL
+            <input bind:value={formMcpUrl} placeholder="http://localhost:3001/sse" />
+          </label>
+
+          <label>
+            Headers (Name: Value, one per line)
+            <textarea bind:value={formMcpHeaders} rows="2" placeholder="Authorization: Bearer sk-xxx"></textarea>
+          </label>
+        {/if}
+      {:else}
+        <!-- REST API fields -->
+        <label>
+          Base URL
+          <input bind:value={formBaseUrl} placeholder="https://api.meshy.ai" />
+        </label>
+
+        <label>
+          API Key
+          <input type="password" bind:value={formApiKey} placeholder={editingId ? "(unchanged)" : "Enter API key"} />
+        </label>
+
+        <label>
+          Auth Type
+          <select bind:value={formAuthType}>
+            <option value="bearer">Bearer Token</option>
+            <option value="header">Custom Header</option>
+            <option value="query">Query Parameter</option>
+            <option value="none">None</option>
+          </select>
+        </label>
+      {/if}
 
       {#if formError}
         <div class="form-error">{formError}</div>
@@ -603,5 +752,46 @@
     display: flex;
     gap: 8px;
     margin-top: 4px;
+  }
+
+  /* Mode toggle */
+  .mode-toggle {
+    display: flex;
+    gap: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+  }
+  .mode-btn {
+    flex: 1;
+    padding: 5px 12px;
+    font-size: var(--font-size-sm);
+    background: var(--bg-base);
+    color: var(--text-secondary);
+    cursor: pointer;
+    border: none;
+    border-right: 1px solid var(--border);
+  }
+  .mode-btn:last-child { border-right: none; }
+  .mode-btn.active {
+    background: var(--accent);
+    color: white;
+  }
+
+  /* Textarea and hints */
+  .form-modal textarea {
+    padding: 6px 8px;
+    background: var(--bg-base);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-size: var(--font-size-sm);
+    font-family: var(--font-mono);
+    resize: vertical;
+  }
+  .field-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 2px;
   }
 </style>

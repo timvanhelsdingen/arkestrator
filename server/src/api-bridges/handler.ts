@@ -77,7 +77,7 @@ export function buildUrl(
   path: string,
   apiKey?: string,
 ): string {
-  const base = config.baseUrl.replace(/\/$/, "");
+  const base = (config.baseUrl ?? "").replace(/\/$/, "");
   const url = new URL(`${base}${path}`);
   if (config.authType === "query" && apiKey) {
     url.searchParams.set("api_key", apiKey);
