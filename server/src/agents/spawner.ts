@@ -1571,6 +1571,22 @@ export async function spawnAgent(
         language: hp.language,
       }))
     : [];
+
+  // Resolve enabled API bridges for prompt injection
+  const apiBridges: Array<{ name: string; displayName: string; actions: string[] }> = [];
+  if (deps.apiBridgesRepo) {
+    const { getPresetHandler } = await import("../api-bridges/index.js");
+    for (const ab of deps.apiBridgesRepo.listEnabled()) {
+      const handler = ab.type === "preset" && ab.presetId
+        ? getPresetHandler(ab.presetId)
+        : undefined;
+      const actions = handler
+        ? handler.getActions().map((a) => a.name)
+        : Object.keys(ab.endpoints);
+      apiBridges.push({ name: ab.name, displayName: ab.displayName, actions });
+    }
+  }
+
   // Coordination script selector: controls which coordination pieces are included
   const coordScripts = job.runtimeOptions?.coordinationScripts;
   const includeBridge = (coordScripts?.bridge ?? "enabled") !== "disabled";
@@ -1892,6 +1908,7 @@ export async function spawnAgent(
     orchestratorPromptOverride || undefined,
     defaultProjectDir || undefined,
     resumeSessionId,
+    apiBridges.length > 0 ? apiBridges : undefined,
   );
 
   logger.info(
@@ -2140,6 +2157,7 @@ export async function spawnAgent(
     // small local models.
     const basePrompt = buildLocalAgenticBasePrompt(
       job, workspace, connectedBridges, orchestratorPromptOverride,
+      apiBridges.length > 0 ? apiBridges : undefined,
     );
 
     // When localModelHost === "client", try dispatching to the connected Tauri

@@ -169,6 +169,7 @@ export function createApp(deps: AppDeps) {
       deps.auditRepo,
       deps.hub,
       deps.settingsRepo,
+      deps.apiBridgesRepo,
     ),
   );
   app.route("/api/sync", createSyncRoutes(deps.syncManager, deps.apiKeysRepo));
