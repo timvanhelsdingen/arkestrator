@@ -4,12 +4,11 @@
   import { connect } from "../lib/api/ws";
   import SettingsAccountSection from "../lib/components/settings/SettingsAccountSection.svelte";
   import SettingsGeneralTab from "../lib/components/settings/SettingsGeneralTab.svelte";
-  import SettingsBridgesTab from "../lib/components/settings/SettingsBridgesTab.svelte";
+  import SettingsBridgesContainer from "../lib/components/settings/SettingsBridgesContainer.svelte";
   import SettingsLlmTab from "../lib/components/settings/SettingsLlmTab.svelte";
   import SettingsCommunityTab from "../lib/components/settings/SettingsCommunityTab.svelte";
-  import SettingsApiBridgesTab from "../lib/components/settings/SettingsApiBridgesTab.svelte";
 
-  type SettingsTab = "general" | "account" | "bridges" | "api-bridges" | "llm" | "community";
+  type SettingsTab = "general" | "account" | "bridges" | "llm" | "community";
   let settingsTab = $state<SettingsTab>("general");
 
   let username = $state(connection.lastUsername || "");
@@ -72,10 +71,7 @@
       </button>
     {/if}
     <button class="settings-tab" class:active={settingsTab === "bridges"} onclick={() => (settingsTab = "bridges")}>
-      Program Bridges
-    </button>
-    <button class="settings-tab" class:active={settingsTab === "api-bridges"} onclick={() => (settingsTab = "api-bridges")}>
-      API & MCP
+      Bridges
     </button>
     <button class="settings-tab" class:active={settingsTab === "llm"} onclick={() => (settingsTab = "llm")}>
       Local LLM
@@ -92,9 +88,7 @@
     {:else if settingsTab === "account" && connection.isAuthenticated}
       <SettingsAccountSection />
     {:else if settingsTab === "bridges"}
-      <SettingsBridgesTab />
-    {:else if settingsTab === "api-bridges"}
-      <SettingsApiBridgesTab />
+      <SettingsBridgesContainer />
     {:else if settingsTab === "llm"}
       <SettingsLlmTab />
     {:else if settingsTab === "community"}
