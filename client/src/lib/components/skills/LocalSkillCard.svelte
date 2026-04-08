@@ -32,14 +32,21 @@
   const successPct = $derived(
     ratedCount > 0 ? Math.round((effectiveness?.successRate ?? 0) * 100) : null
   );
+
+  const isNew = $derived(
+    skill.createdAt ? (Date.now() - new Date(skill.createdAt).getTime()) < 86400000 : false
+  );
 </script>
 
-<div class="skill-card" class:selected>
+<div class="skill-card" class:selected onclick={onview} role="button" tabindex="0" onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') onview?.(); }}>
   <div class="card-header">
     {#if onselect}
-      <input type="checkbox" checked={selected} onchange={onselect} class="card-checkbox" />
+      <input type="checkbox" checked={selected} onchange={onselect} onclick={(e) => e.stopPropagation()} class="card-checkbox" />
     {/if}
     <button class="card-title" onclick={onview}>{skill.title}</button>
+    {#if isNew}
+      <span class="badge new-badge">NEW</span>
+    {/if}
     {#if skill.locked}
       <span class="lock-icon" title="Locked">&#128274;</span>
     {/if}
@@ -76,7 +83,9 @@
     {/if}
   </div>
 
-  <div class="card-actions">
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="card-actions" onclick={(e) => e.stopPropagation()}>
     <button class="btn btn-sm" onclick={onview}>View</button>
     {#if canManage}
       <button class="btn btn-sm" onclick={onedit} disabled={skill.locked} title={skill.locked ? "Skill is locked" : ""}>Edit</button>
@@ -92,12 +101,13 @@
   .skill-card {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding: 12px;
+    gap: 4px;
+    padding: 10px;
     border: 1px solid var(--border-light, rgba(255,255,255,0.06));
     border-radius: 6px;
     background: var(--bg-surface, rgba(255,255,255,0.03));
     transition: border-color 0.15s, background 0.15s;
+    cursor: pointer;
   }
   .skill-card:hover {
     border-color: var(--border, rgba(255,255,255,0.12));
@@ -158,6 +168,15 @@
   .category-badge {
     background: var(--bg-subtle, rgba(255,255,255,0.06));
     color: var(--text-secondary);
+  }
+  .new-badge {
+    flex-shrink: 0;
+    font-size: 9px;
+    padding: 1px 4px;
+    border-radius: 3px;
+    color: #4ec9b0;
+    background: rgba(78, 201, 176, 0.15);
+    letter-spacing: 0.5px;
   }
 
   .card-desc {

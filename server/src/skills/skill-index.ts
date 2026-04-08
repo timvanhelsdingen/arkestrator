@@ -183,6 +183,7 @@ export interface SkillSummary {
   enabled: boolean;
   locked: boolean;
   appVersion: string | null;
+  createdAt: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -432,6 +433,7 @@ export class SkillIndex {
         enabled: s.enabled,
         locked: s.locked,
         appVersion: s.appVersion,
+        createdAt: s.createdAt,
       }));
   }
 
