@@ -11,7 +11,7 @@
  *   - client/package.json
  *   - packages/protocol/package.json
  *   - admin/package.json
- *   - extensions/vscode/package.json
+
  *   - client/src-tauri/Cargo.toml
  *   - client/src-tauri/tauri.conf.json
  *   - bridges/registry.json (official bridges only)
@@ -50,7 +50,7 @@ const jsonFiles = [
   "client/package.json",
   "packages/protocol/package.json",
   "admin/package.json",
-  "extensions/vscode/package.json",
+
 ];
 
 for (const file of jsonFiles) {
