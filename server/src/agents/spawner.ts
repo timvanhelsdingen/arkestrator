@@ -210,6 +210,7 @@ export interface SpawnerDeps {
   filePathPolicies?: Policy[];
   commandFilterPolicies?: Policy[];
   processPriority?: import("../policies/enforcer.js").ProcessPriorityLevel | null;
+  apiBridgesRepo?: import("../db/api-bridges.repo.js").ApiBridgesRepo;
 }
 
 /** Resolve the effective job timeout: per-job override → DB override → env/config fallback.
@@ -1331,6 +1332,7 @@ async function runLocalAgenticLoop(
     skillsRepo: deps.skillsRepo,
     skillStore: deps.skillStore,
     handoffRepo: deps.handoffRepo,
+    apiBridgesRepo: deps.apiBridgesRepo,
   };
   const mcpClient = await createInProcessMcpClient(mcpDeps);
 

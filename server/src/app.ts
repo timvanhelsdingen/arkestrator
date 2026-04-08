@@ -23,6 +23,7 @@ import { createSettingsRoutes } from "./routes/settings.js";
 import { createSkillsRoutes } from "./routes/skills.js";
 import { createTemplatesRoutes } from "./routes/templates.js";
 import { createTransfersRoutes } from "./routes/transfers.js";
+import { createApiBridgeRoutes } from "./routes/api-bridges.js";
 import { createMcpRoutes } from "./mcp/routes.js";
 import { CodexChatSessionManager } from "./chat/codex-sessions.js";
 import type { Database } from "bun:sqlite";
@@ -86,6 +87,7 @@ export interface AppDeps {
   resourceLeaseManager: WorkerResourceLeaseManager;
   processTracker?: ProcessTracker;
   dispatchJob?: (jobId: string) => { ok: boolean; error?: string };
+  apiBridgesRepo?: import("./db/api-bridges.repo.js").ApiBridgesRepo;
 }
 
 export function createApp(deps: AppDeps) {
@@ -186,6 +188,9 @@ export function createApp(deps: AppDeps) {
   );
   app.route("/api/transfers", createTransfersRoutes(deps.transferManager, deps.hub, deps.apiKeysRepo, deps.usersRepo, deps.config));
   app.route("/api/headless-programs", createHeadlessProgramRoutes(deps.headlessProgramsRepo, deps.usersRepo, deps.apiKeysRepo));
+  if (deps.apiBridgesRepo) {
+    app.route("/api/api-bridges", createApiBridgeRoutes(deps.apiBridgesRepo, deps.usersRepo, deps.apiKeysRepo));
+  }
   app.route(
     "/api/chat",
     createChatRoutes({
@@ -248,6 +253,7 @@ export function createApp(deps: AppDeps) {
     skillEffectivenessRepo: deps.skillEffectivenessRepo,
     skillsRepo: deps.skillsRepo,
     skillStore: deps.skillStore,
+    apiBridgesRepo: deps.apiBridgesRepo,
   };
   app.route("/mcp", createMcpRoutes(mcpDeps, deps.apiKeysRepo, deps.usersRepo));
 

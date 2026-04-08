@@ -12,6 +12,7 @@ import type { WebSocketHub } from "../ws/hub.js";
 import type { JobsRepo } from "../db/jobs.repo.js";
 import type { HeadlessProgramsRepo } from "../db/headless-programs.repo.js";
 import type { WorkerResourceLeaseManager, WorkerResourceLease } from "./resource-control.js";
+import type { ApiBridgeExecutor } from "../api-bridges/executor.js";
 import { resolveBridgeTargets } from "./resource-control.js";
 import { newId } from "../utils/id.js";
 import { normalizeQuotes } from "../utils/worker-identity.js";
@@ -22,6 +23,7 @@ export interface TaskExecutorDeps {
   jobsRepo: JobsRepo;
   headlessProgramsRepo: HeadlessProgramsRepo;
   resourceLeaseManager: WorkerResourceLeaseManager;
+  apiBridgeExecutor?: ApiBridgeExecutor;
 }
 
 interface PendingTask {
@@ -68,6 +70,9 @@ export class TaskExecutor {
 
         case "worker_headless":
           return this.dispatchWorkerHeadless(job, spec, correlationId);
+
+        case "api_call":
+          return this.dispatchApiCall(job);
 
         default:
           return { ok: false, error: `Unknown execution type: ${spec.executionType}` };
@@ -292,6 +297,17 @@ export class TaskExecutor {
     this.registerPending(job.id, correlationId, spec.timeoutMs ?? 600_000);
     logger.info("task-executor", `Dispatched worker_headless task ${job.id} for ${spec.targetProgram}`);
     return { ok: true };
+  }
+
+  private async dispatchApiCall(
+    job: Job,
+  ): Promise<{ ok: boolean; error?: string }> {
+    if (!this.deps.apiBridgeExecutor) {
+      this.failJob(job.id, "API bridge executor not available");
+      return { ok: false, error: "API bridge executor not initialized" };
+    }
+    // Delegate entirely to the API bridge executor (handles its own async lifecycle)
+    return this.deps.apiBridgeExecutor.dispatch(job);
   }
 
   // ---------- Helpers ----------

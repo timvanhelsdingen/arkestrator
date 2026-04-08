@@ -399,6 +399,8 @@ async function main() {
   const { RoutingOutcomesRepo } = await import("./db/routing-outcomes.repo.js");
   const routingOutcomesRepo = new RoutingOutcomesRepo(db);
   const jobInterventionsRepo = new JobInterventionsRepo(db);
+  const { ApiBridgesRepo } = await import("./db/api-bridges.repo.js");
+  const apiBridgesRepo = new ApiBridgesRepo(db);
   const syncManager = new SyncManager(config);
   const transferManager = new TransferManager(config);
 
@@ -688,7 +690,13 @@ async function main() {
 
   // 8b. Create task executor for non-agentic task jobs
   const { TaskExecutor } = await import("./agents/task-executor.js");
-  const taskExecutor = new TaskExecutor({ hub, jobsRepo, headlessProgramsRepo, resourceLeaseManager });
+  // Create API bridge executor for external API integrations
+  const { ApiBridgeExecutor } = await import("./api-bridges/executor.js");
+  const apiBridgeExecutor = new ApiBridgeExecutor({ apiBridgesRepo, jobsRepo, hub });
+  // Register presets (Meshy, etc.)
+  await import("./api-bridges/index.js");
+
+  const taskExecutor = new TaskExecutor({ hub, jobsRepo, headlessProgramsRepo, resourceLeaseManager, apiBridgeExecutor });
 
   // 8c. Create worker loop
   const worker = new WorkerLoop({
@@ -710,6 +718,7 @@ async function main() {
     skillEffectivenessRepo,
     skillIndex,
     routingOutcomesRepo,
+    apiBridgesRepo,
     syncManager,
     config,
     hub,
@@ -721,7 +730,7 @@ async function main() {
   });
 
   // 9. Create Hono app
-  const app = createApp({ db, jobsRepo, agentsRepo, apiKeysRepo, usersRepo, policiesRepo, auditRepo, projectsRepo, templatesRepo, workersRepo, usageRepo, depsRepo, syncManager, transferManager, hub, headlessProgramsRepo, settingsRepo, skillsRepo, skillStore, skillEffectivenessRepo, skillIndex, jobInterventionsRepo, config, resourceLeaseManager, processTracker, dispatchJob: (id) => worker.dispatchById(id) });
+  const app = createApp({ db, jobsRepo, agentsRepo, apiKeysRepo, usersRepo, policiesRepo, auditRepo, projectsRepo, templatesRepo, workersRepo, usageRepo, depsRepo, syncManager, transferManager, hub, headlessProgramsRepo, settingsRepo, skillsRepo, skillStore, skillEffectivenessRepo, skillIndex, jobInterventionsRepo, config, resourceLeaseManager, processTracker, dispatchJob: (id) => worker.dispatchById(id), apiBridgesRepo });
 
   // Handler deps for WebSocket messages
   const handlerDeps = {
@@ -745,6 +754,7 @@ async function main() {
     skillIndex,
     skillEffectivenessRepo,
     taskExecutor,
+    apiBridgesRepo,
   };
 
   // 10. Start server with Bun.serve (handles both HTTP and WebSocket)
