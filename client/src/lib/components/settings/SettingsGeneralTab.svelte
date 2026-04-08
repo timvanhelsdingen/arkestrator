@@ -13,10 +13,12 @@
   import { invoke } from "@tauri-apps/api/core";
   import { getVersion } from "@tauri-apps/api/app";
   import ServerManager from "../ServerManager.svelte";
+  import BugReportModal from "./BugReportModal.svelte";
 
   const saved = connection.loadSaved();
   let serverUrl = $state(saved.url || serverState.localUrl);
   let testResult = $state("");
+  let showBugReport = $state(false);
   let launchOnStartup = $state(false);
   let launchOnStartupLoading = $state(false);
   let launchOnStartupResult = $state("");
@@ -535,6 +537,16 @@
   </div>
 </section>
 
+<section>
+  <h3>Help & Feedback</h3>
+  <p class="section-desc">Found a bug or something not working right? Open a report and we'll look into it.</p>
+  <button class="btn secondary" onclick={() => showBugReport = true}>Report a Bug</button>
+</section>
+
+{#if showBugReport}
+  <BugReportModal onclose={() => showBugReport = false} />
+{/if}
+
 {#if connection.isAuthenticated}
   <section class="danger-zone">
     <h3>Danger Zone</h3>
@@ -793,6 +805,7 @@
   .danger-zone h3 {
     color: var(--status-failed);
   }
+  .section-desc,
   .danger-desc {
     font-size: var(--font-size-sm);
     color: var(--text-secondary);

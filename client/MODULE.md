@@ -278,6 +278,7 @@ Primary user-facing desktop dashboard (Tauri v2 + Svelte 5). Users manage jobs, 
 - **layout/StatusBar.svelte** - Connection status indicator plus client version/build marker
 - **ui/Badge.svelte** - Status/priority/program colored badges (includes `paused`, `comfyui`, `unity`, `unreal`, `task` variants)
 - **ui/ConfirmDialog.svelte** - Reusable confirmation dialog with danger/default variants. Used for delete confirmations (jobs, bulk-delete, workers)
+- **settings/BugReportModal.svelte** - Bug report modal opened from Settings > General "Help & Feedback" section. Lets user describe an issue, optionally attach a job by ID (fetches job metadata, error, and last 200 lines of logs via `api.jobs.get()`), then opens a pre-filled GitHub issue with system info (app version, OS) and job context. Uses `@tauri-apps/plugin-shell` `open()` with `window.open()` fallback.
 - **ui/TotpSetupModal.svelte** - Multi-step 2FA setup modal: step 1 fetches TOTP secret and displays QR code (rendered via `qrcode` library) with manual secret fallback, step 2 verifies a TOTP code from the authenticator app, step 3 displays recovery codes for backup. Used by both Settings (voluntary enable) and Setup (forced enrollment).
 - **ui/Toast.svelte** - Fixed-position toast notifications (top-right, success/error/info)
 - **wizard/WizardChooseMode.svelte** - Welcome/mode selection step: logo, greeting, two options ("Start Local Server" / "Connect to Existing Server"). Dispatches mode selection to parent BootstrapWizard.
