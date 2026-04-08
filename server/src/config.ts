@@ -120,7 +120,7 @@ export function loadConfig(): Config {
     coordinatorPlaybookSourcePaths: parsePathList(process.env.COORDINATOR_PLAYBOOK_SOURCE_PATHS),
     transferTempDir: process.env.TRANSFER_TEMP_DIR ?? join(dataDir, "transfer-tmp"),
     transferTtlMs: parseInt(process.env.TRANSFER_TTL_MS ?? String(60 * 60 * 1000), 10),
-    transferMaxSizeMb: parseInt(process.env.TRANSFER_MAX_SIZE_MB ?? "2000", 10),
+    transferMaxSizeMb: parseInt(process.env.TRANSFER_MAX_SIZE_MB ?? "5000", 10),
     httpTransferThresholdBytes: parseInt(process.env.HTTP_TRANSFER_THRESHOLD_BYTES ?? String(5 * 1024 * 1024), 10),
     directServeAllowedPaths: parsePathList(process.env.DIRECT_SERVE_ALLOWED_PATHS),
     corsOrigins: process.env.CORS_ORIGINS
