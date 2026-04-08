@@ -25,8 +25,12 @@
     ratedCount > 0 ? Math.round((effectiveness?.successRate ?? 0) * 100) : null
   );
 
+  const builtinSources = new Set(["bridge-repo", "builtin", "training"]);
   const isNew = $derived(
-    skill.createdAt ? (Date.now() - new Date(skill.createdAt).getTime()) < 86400000 : false
+    !builtinSources.has(skill.source ?? "") &&
+    (effectiveness?.totalUsed ?? 0) < 2 &&
+    !!skill.createdAt &&
+    (Date.now() - new Date(skill.createdAt).getTime()) < 86400000
   );
 </script>
 
