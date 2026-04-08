@@ -44,7 +44,7 @@ describe("Enum schemas", () => {
   });
 
   test("AgentEngine accepts all valid values", () => {
-    for (const e of ["claude-code", "codex", "gemini", "local-oss"]) {
+    for (const e of ["claude-code", "codex", "gemini", "grok", "local-oss"]) {
       expect(AgentEngine.parse(e)).toBe(e);
     }
   });

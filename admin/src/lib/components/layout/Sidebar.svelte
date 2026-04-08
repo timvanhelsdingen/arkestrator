@@ -46,7 +46,7 @@
   });
 </script>
 
-<nav class="sidebar">
+<nav class="sidebar" aria-label="Admin navigation">
   <div class="logo">
     <img class="logo-mark" src={brandMark} alt="Arkestrator logo" />
     <div class="logo-copy">
@@ -55,15 +55,16 @@
     </div>
   </div>
 
-  <ul class="nav-list">
+  <ul class="nav-list" role="list">
     {#each items as item}
       <li>
         <button
           class="nav-item"
           class:active={nav.current === item.page}
+          aria-current={nav.current === item.page ? "page" : undefined}
           onclick={() => (nav.current = item.page)}
         >
-          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d={iconPaths[item.icon]} />
           </svg>
           <span class="nav-label">{item.label}</span>
@@ -77,7 +78,7 @@
       <span class="username">{auth.user?.username ?? ""}</span>
       <span class="role">{auth.user?.role ?? ""}</span>
     </div>
-    <button class="logout-btn" onclick={() => auth.logout()}>Logout</button>
+    <button class="logout-btn" onclick={() => auth.logout()} aria-label="Logout">Logout</button>
   </div>
 </nav>
 

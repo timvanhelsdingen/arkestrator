@@ -573,7 +573,7 @@ export function writeCliWrapper(serverUrl: string, apiKey: string): CliWrapperRe
   const scriptName = isWindows ? "am.js" : "am";
   const scriptPath = join(dir, scriptName);
 
-  writeFileSync(join(dir, scriptName), script, "utf-8");
+  writeFileSync(join(dir, scriptName), script, { encoding: "utf-8", mode: 0o600 });
 
   if (isWindows) {
     // On Windows: create both a .cmd wrapper (for cmd.exe) and a plain bash

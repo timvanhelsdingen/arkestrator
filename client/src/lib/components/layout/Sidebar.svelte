@@ -35,20 +35,22 @@
   }
 </script>
 
-<nav class="sidebar">
+<nav class="sidebar" aria-label="Main navigation">
   <div class="brand-badge" title="Arkestrator">
     <img src={appLogo} alt="Arkestrator logo" />
   </div>
-  <div class="nav-items">
+  <div class="nav-items" role="group" aria-label="Navigation pages">
     {#each items as item}
       {#if item.page !== "coordinator" || connection.canEditCoordinator || connection.userRole === "admin"}
         <button
           class="nav-btn"
           class:active={nav.current === item.page}
           title={item.label}
+          aria-label={item.label}
+          aria-current={nav.current === item.page ? "page" : undefined}
           onclick={() => (nav.current = item.page)}
         >
-          <span class="icon">{@html item.icon}</span>
+          <span class="icon" aria-hidden="true">{@html item.icon}</span>
         </button>
       {/if}
     {/each}
@@ -60,19 +62,21 @@
         class:active={connection.workerModeEnabled}
         onclick={toggleWorkerMode}
         title={connection.workerModeEnabled ? "Worker mode ON — click to disable" : "Worker mode OFF — click to enable"}
+        aria-label={connection.workerModeEnabled ? "Disable worker mode" : "Enable worker mode"}
+        aria-pressed={connection.workerModeEnabled}
       >
-        <span class="worker-icon">&#9874;</span>
+        <span class="worker-icon" aria-hidden="true">&#9874;</span>
       </button>
     {/if}
     {#if connection.username}
-      <div class="user-info" title="{connection.username} ({connection.userRole})">
-        <span class="user-avatar">{connection.username[0].toUpperCase()}</span>
+      <div class="user-info" title="{connection.username} ({connection.userRole})" aria-label="Logged in as {connection.username}, role: {connection.userRole}">
+        <span class="user-avatar" aria-hidden="true">{connection.username[0].toUpperCase()}</span>
       </div>
-      <button class="logout-btn" onclick={handleLogout} title="Logout ({connection.username})">
-        <span class="logout-icon">&#x23FB;</span>
+      <button class="logout-btn" onclick={handleLogout} title="Logout ({connection.username})" aria-label="Logout">
+        <span class="logout-icon" aria-hidden="true">&#x23FB;</span>
       </button>
     {/if}
-    <div class="status-dot" class:connected={connection.isConnected}></div>
+    <div class="status-dot" class:connected={connection.isConnected} role="status" aria-label={connection.isConnected ? "Connected" : "Disconnected"}></div>
   </div>
 </nav>
 

@@ -15,6 +15,22 @@ export interface ApiBridgeExecutorDeps {
   hub: WebSocketHub;
 }
 
+// Per-bridge rate limiter: max 30 requests per 60s per bridge to prevent API abuse
+const API_BRIDGE_RATE_WINDOW_MS = 60_000;
+const API_BRIDGE_RATE_MAX = 30;
+const bridgeRates = new Map<string, { count: number; resetAt: number }>();
+
+function checkBridgeRateLimit(bridgeName: string): boolean {
+  const now = Date.now();
+  const entry = bridgeRates.get(bridgeName);
+  if (!entry || now > entry.resetAt) {
+    bridgeRates.set(bridgeName, { count: 1, resetAt: now + API_BRIDGE_RATE_WINDOW_MS });
+    return true;
+  }
+  entry.count++;
+  return entry.count <= API_BRIDGE_RATE_MAX;
+}
+
 /**
  * Executes API bridge calls for task jobs (mode="task", executionType="api_call").
  * Runs entirely server-side — no WebSocket correlation needed.
@@ -40,6 +56,12 @@ export class ApiBridgeExecutor {
     }
     if (!spec.apiBridgeAction) {
       return { ok: false, error: "api_call task requires apiBridgeAction in taskSpec" };
+    }
+
+    // Rate limit per bridge to prevent external API abuse
+    if (!checkBridgeRateLimit(spec.apiBridgeName)) {
+      this.failJob(job.id, `Rate limit exceeded for API bridge "${spec.apiBridgeName}"`);
+      return { ok: false, error: "Rate limit exceeded" };
     }
 
     const bridgeConfig = this.deps.apiBridgesRepo.getByName(spec.apiBridgeName);

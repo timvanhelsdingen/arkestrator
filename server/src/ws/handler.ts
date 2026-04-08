@@ -1,5 +1,11 @@
 import type { ServerWebSocket } from "bun";
-import { Message } from "@arkestrator/protocol";
+import {
+  Message,
+  type WorkerHeadlessResultMessage,
+  type WorkerLocalResultMessage,
+  type TaskProgressMessage,
+  type TransferProgressMessage,
+} from "@arkestrator/protocol";
 import type { JobsRepo } from "../db/jobs.repo.js";
 import type { AgentsRepo } from "../db/agents.repo.js";
 import type { ProjectsRepo } from "../db/projects.repo.js";
@@ -75,6 +81,27 @@ const enrichCache = new Map<string, { data: any; expiresAt: number }>();
 const ENRICH_CACHE_TTL_MS = 5_000;
 const ENRICH_CACHE_MAX = 500;
 
+// Per-connection WS message rate limiter: max 200 messages per 10s window
+const WS_RATE_WINDOW_MS = 10_000;
+const WS_RATE_MAX = 200;
+const wsRates = new Map<string, { count: number; resetAt: number }>();
+
+function checkWsRateLimit(connectionId: string): boolean {
+  const now = Date.now();
+  const entry = wsRates.get(connectionId);
+  if (!entry || now > entry.resetAt) {
+    wsRates.set(connectionId, { count: 1, resetAt: now + WS_RATE_WINDOW_MS });
+    return true;
+  }
+  entry.count++;
+  return entry.count <= WS_RATE_MAX;
+}
+
+/** Call on disconnect to free memory. */
+export function clearWsRateLimit(connectionId: string) {
+  wsRates.delete(connectionId);
+}
+
 function enrichJob(job: any, deps: HandlerDeps) {
   const now = Date.now();
   const cached = enrichCache.get(job.id);
@@ -136,6 +163,12 @@ export function handleMessage(
   raw: string,
   deps: HandlerDeps,
 ) {
+  // Per-connection message rate limiting
+  if (!checkWsRateLimit(ws.data.id)) {
+    errorReply(ws, "RATE_LIMITED", "Too many messages, slow down");
+    return;
+  }
+
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -221,10 +254,10 @@ export function handleMessage(
         handleTransferProgress(ws, msg, deps);
         break;
       case "worker_headless_result":
-        handleWorkerHeadlessResult(ws, msg as any, deps);
+        handleWorkerHeadlessResult(ws, msg, deps);
         break;
       case "worker_local_result":
-        handleWorkerLocalResult(ws, msg as any, deps);
+        handleWorkerLocalResult(ws, msg, deps);
         break;
       case "bridge_context_item_add":
         handleBridgeContextItemAdd(ws, msg, deps);
@@ -336,7 +369,7 @@ export function handleMessage(
         break;
       }
       case "task_progress":
-        handleTaskProgress(ws, msg as any, deps);
+        handleTaskProgress(ws, msg, deps);
         break;
       default:
         errorReply(ws, "UNKNOWN_TYPE", `Unhandled message type: ${(msg as { type: string }).type}`);
@@ -517,8 +550,9 @@ function handleJobInterventionSubmit(
     return;
   }
   const text = String(msg.payload?.intervention?.text ?? "").trim();
-  if (!text || text.length > 4000) {
-    errorReply(ws, "INVALID_INPUT", "Intervention text must be 1-4000 characters", msg.id);
+  const MAX_INTERVENTION_TEXT_LENGTH = 4000;
+  if (!text || text.length > MAX_INTERVENTION_TEXT_LENGTH) {
+    errorReply(ws, "INVALID_INPUT", `Intervention text must be 1-${MAX_INTERVENTION_TEXT_LENGTH} characters`, msg.id);
     return;
   }
   const source = msg.payload?.intervention?.source ?? "jobs";
@@ -769,7 +803,7 @@ function handleBridgeFileReadResponse(
 
 function handleTransferProgress(
   ws: ServerWebSocket<WsData>,
-  msg: { id: string; payload: { transferId: string; bytesCompleted: number; filesCompleted: number; filesTotal: number; status: string; error?: string } },
+  msg: TransferProgressMessage,
   deps: HandlerDeps,
 ) {
   // Broadcast transfer progress to all connected clients (admin UI, etc.)
@@ -787,23 +821,7 @@ function handleTransferProgress(
 
 function handleWorkerHeadlessResult(
   ws: ServerWebSocket<WsData>,
-  msg: {
-    id: string;
-    payload: {
-      correlationId: string;
-      program: string;
-      success: boolean;
-      executed: number;
-      failed: number;
-      skipped: number;
-      errors: string[];
-      stdout?: string;
-      stderr?: string;
-      exitCode?: number;
-      headless?: boolean;
-      senderId?: string;
-    };
-  },
+  msg: WorkerHeadlessResultMessage,
   deps: HandlerDeps,
 ) {
   if (ws.data.type !== "client") {
@@ -855,19 +873,7 @@ function handleWorkerHeadlessResult(
 
 function handleWorkerLocalResult(
   ws: ServerWebSocket<WsData>,
-  msg: {
-    id: string;
-    payload: {
-      correlationId: string;
-      success: boolean;
-      stdout?: string;
-      stderr?: string;
-      exitCode?: number;
-      errors: string[];
-      timedOut?: boolean;
-      senderId?: string;
-    };
-  },
+  msg: WorkerLocalResultMessage,
   deps: HandlerDeps,
 ) {
   if (ws.data.type !== "client") {
@@ -1105,7 +1111,7 @@ function handleBridgeEditorContext(
 
 function handleTaskProgress(
   ws: ServerWebSocket<WsData>,
-  msg: { id: string; payload: { jobId: string; percent: number | null; statusText?: string; metadata?: Record<string, unknown> } },
+  msg: TaskProgressMessage,
   deps: HandlerDeps,
 ) {
   if (!deps.taskExecutor) return;

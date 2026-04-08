@@ -20,6 +20,7 @@
   import SkillsAndTraining from "./pages/SkillsAndTraining.svelte";
   import Settings from "./pages/Settings.svelte";
   import Toast from "./lib/components/ui/Toast.svelte";
+  import ErrorBoundary from "./lib/components/ui/ErrorBoundary.svelte";
   import brandLogo from "./assets/brand/arkestrator-logo_brandname.svg";
   import { checkForAppUpdatesOnce } from "./lib/updater";
 
@@ -294,19 +295,19 @@
     <Sidebar />
     <main class="content">
       {#if nav.current === "chat"}
-        <Chat />
+        <ErrorBoundary name="Chat"><Chat /></ErrorBoundary>
       {:else if nav.current === "jobs"}
-        <Jobs />
+        <ErrorBoundary name="Jobs"><Jobs /></ErrorBoundary>
       {:else if nav.current === "admin"}
-        <Admin />
+        <ErrorBoundary name="Admin"><Admin /></ErrorBoundary>
       {:else if nav.current === "workers"}
-        <Workers />
+        <ErrorBoundary name="Workers"><Workers /></ErrorBoundary>
       {:else if nav.current === "projects"}
-        <Projects />
+        <ErrorBoundary name="Projects"><Projects /></ErrorBoundary>
       {:else if nav.current === "coordinator"}
-        <SkillsAndTraining />
+        <ErrorBoundary name="Skills & Training"><SkillsAndTraining /></ErrorBoundary>
       {:else if nav.current === "settings"}
-        <Settings />
+        <ErrorBoundary name="Settings"><Settings /></ErrorBoundary>
       {/if}
     </main>
   </div>

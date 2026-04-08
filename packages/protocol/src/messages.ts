@@ -704,7 +704,35 @@ export const TaskProgressMessage = makeMessage(
 );
 export type TaskProgressMessage = z.infer<typeof TaskProgressMessage>;
 
+// --- Skills Updated (server -> client broadcast after auto-pull) ---
+
+export const SkillsUpdatedMessage = makeMessage(
+  "skills_updated",
+  z.object({
+    program: z.string(),
+    pulled: z.number().int().nonnegative(),
+    source: z.enum(["auto-pull", "manual"]),
+  }),
+);
+export type SkillsUpdatedMessage = z.infer<typeof SkillsUpdatedMessage>;
+
 // --- Error ---
+
+export const ErrorCode = z.enum([
+  "PARSE_ERROR",
+  "INVALID_INPUT",
+  "FORBIDDEN",
+  "NOT_FOUND",
+  "NOT_CONNECTED",
+  "TIMEOUT",
+  "INTERNAL_ERROR",
+  "UNKNOWN_TYPE",
+  "CREATE_FAILED",
+  "NO_TARGET",
+  "COMMAND_BLOCKED",
+  "RATE_LIMITED",
+]);
+export type ErrorCode = z.infer<typeof ErrorCode>;
 
 export const ErrorMessage = makeMessage(
   "error",
@@ -771,6 +799,7 @@ export const Message = z.discriminatedUnion("type", [
   TransferInitiateMessage,
   TransferProgressMessage,
   TaskProgressMessage,
+  SkillsUpdatedMessage,
   ErrorMessage,
 ]);
 export type Message = z.infer<typeof Message>;

@@ -26,6 +26,11 @@ let intentionalDisconnect = false;
 let wsGeneration = 0;
 const BASE_DELAY = 3000;
 const MAX_DELAY = 30000;
+const RECONNECT_BACKOFF_MULTIPLIER = 1.5;
+const RECONNECT_JITTER_FACTOR = 0.25;
+const ACTIVE_JOB_POLL_INTERVAL_MS = 10_000;
+const STATUS_RECONCILE_INITIAL_DELAY_MS = 150;
+const STATUS_RECONCILE_DEFAULT_DELAY_MS = 250;
 let currentDelay = BASE_DELAY;
 const API_KEY_PATTERN = /^ark_[a-f0-9]{48}$/i;
 
@@ -169,10 +174,10 @@ function applyWorkerStatus(payload: any) {
   // additions appear immediately even if bridge_status is delayed/missed.
   const onlineNow = workersStore.bridges.filter((b) => b?.connected !== false);
   workersStore.bridges = mergeOfflineBridgeHistory(onlineNow);
-  scheduleStatusReconcile(150);
+  scheduleStatusReconcile(STATUS_RECONCILE_INITIAL_DELAY_MS);
 }
 
-function scheduleStatusReconcile(delayMs = 250) {
+function scheduleStatusReconcile(delayMs = STATUS_RECONCILE_DEFAULT_DELAY_MS) {
   if (statusReconcileTimer) return;
   statusReconcileTimer = setTimeout(() => {
     statusReconcileTimer = null;
@@ -264,7 +269,7 @@ export async function connect(url: string, apiKey: string) {
       if (jobs.all.some((j) => j.status === "running" || j.status === "queued")) {
         sendMessage({ type: "job_list", id: crypto.randomUUID(), payload: {} });
       }
-    }, 10_000);
+    }, ACTIVE_JOB_POLL_INTERVAL_MS);
   };
 
   socket.onmessage = (event) => {
@@ -906,13 +911,13 @@ function scheduleReconnect() {
   if (reconnectTimer) return;
   if (ws?.readyState === WebSocket.OPEN || ws?.readyState === WebSocket.CONNECTING) return;
   // Add jitter (0-25% of current delay) to prevent thundering herd
-  const jitter = Math.random() * currentDelay * 0.25;
+  const jitter = Math.random() * currentDelay * RECONNECT_JITTER_FACTOR;
   const delay = currentDelay + jitter;
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
     if (connection.url && connection.apiKey) {
       connect(connection.url, connection.apiKey);
     }
-    currentDelay = Math.min(currentDelay * 1.5, MAX_DELAY);
+    currentDelay = Math.min(currentDelay * RECONNECT_BACKOFF_MULTIPLIER, MAX_DELAY);
   }, delay);
 }
