@@ -33,6 +33,7 @@ class WizardState {
   /** Summary counts set by individual wizard steps */
   agentsCreated = $state(0);
   bridgesInstalled = $state(0);
+  apiBridgesConfigured = $state(0);
 
 
   /** Security step tracking */
@@ -57,8 +58,8 @@ class WizardState {
 
   get steps(): string[] {
     return this.mode === "local"
-      ? ["Welcome", "Security", "Agents", "Skills", "Bridges", "Ready"]
-      : ["Welcome", "Connect", "Personality", "Bridges", "Ready"];
+      ? ["Welcome", "Security", "Agents", "Skills", "Bridges", "API Bridges", "Ready"]
+      : ["Welcome", "Connect", "Personality", "Bridges", "API Bridges", "Ready"];
   }
 
   get totalSteps(): number {
@@ -96,6 +97,7 @@ class WizardState {
     this.mode = "";
     this.agentsCreated = 0;
     this.bridgesInstalled = 0;
+    this.apiBridgesConfigured = 0;
     this.securitySubStep = "starting";
     this.passwordChanged = false;
     this.totpSetupDone = false;
