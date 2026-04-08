@@ -109,6 +109,14 @@ export function createApp(deps: AppDeps) {
     ),
   );
 
+  // Security headers
+  app.use("*", async (c, next) => {
+    c.header("X-Frame-Options", "DENY");
+    c.header("X-Content-Type-Options", "nosniff");
+    c.header("Referrer-Policy", "strict-origin-when-cross-origin");
+    return next();
+  });
+
   // Optional server-side network policy enforcement (IP/domain allow/deny lists).
   app.use("*", async (c, next) => {
     const controls = getNetworkControls(deps.settingsRepo);

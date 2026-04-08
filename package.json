@@ -26,14 +26,7 @@
     },
     "onlyBuiltDependencies": [
       "@tauri-apps/cli",
-      "b",
-      "d",
-      "e",
-      "esbuild",
-      "i",
-      "l",
-      "s",
-      "u"
+      "esbuild"
     ]
   }
 }

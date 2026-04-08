@@ -29,7 +29,7 @@ import { JobInterventionsRepo } from "./db/job-interventions.repo.js";
 import { SyncManager } from "./workspace/sync-manager.js";
 import { TransferManager } from "./transfers/transfer-manager.js";
 import { WebSocketHub } from "./ws/hub.js";
-import { handleMessage } from "./ws/handler.js";
+import { handleMessage, clearWsRateLimit } from "./ws/handler.js";
 import { handleClientDisconnect } from "./agents/client-dispatch.js";
 import type { ServerWebSocket } from "bun";
 import type { WsData } from "./ws/hub.js";
@@ -1064,6 +1064,7 @@ async function main() {
       },
       close(rawWs) {
         const ws = rawWs as ServerWebSocket<WsData>;
+        clearWsRateLimit(ws.data.id);
         hub.unregister(ws);
 
         // Fail any client-dispatched jobs if the client disconnects
