@@ -17,6 +17,7 @@ export interface SkillEntry {
   enabled?: boolean;
   locked?: boolean;
   appVersion?: string | null;
+  createdAt?: string;
 }
 
 export interface SkillEffectiveness {

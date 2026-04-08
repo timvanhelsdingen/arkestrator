@@ -218,6 +218,8 @@
   let skillsFilter = $state("");
   let skillFilterCategory = $state("");
   let skillFilterSource = $state("");
+  let skillSort = $state<"name" | "newest" | "oldest">("newest");
+  let skillCardSize = $state(Number(localStorage.getItem("ark-skill-card-size") ?? "200"));
   let skillViewSlug = $state<string | null>(null);
   let skillViewData = $state<SkillEntry | null>(null);
   let skillViewPlaybooks = $state<Array<{ path: string; content: string | null; error?: string }>>([]);
@@ -290,7 +292,7 @@
 
   const filteredSkills = $derived.by(() => {
     const q = skillsFilter.toLowerCase().trim();
-    // Filter by selected program (global skills only show when "global" is selected)
+    // Filter by selected program only (global skills shown on their own page)
     let list = serverSkills.filter((s) => s.program === program);
     if (skillFilterCategory) {
       list = list.filter((s) => s.category === skillFilterCategory);
@@ -306,6 +308,14 @@
           (s.program ?? "").toLowerCase().includes(q) ||
           (s.category ?? "").toLowerCase().includes(q),
       );
+    }
+    // Sort
+    if (skillSort === "newest") {
+      list.sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
+    } else if (skillSort === "oldest") {
+      list.sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? ""));
+    } else {
+      list.sort((a, b) => a.title.localeCompare(b.title));
     }
     return list;
   });
@@ -1740,20 +1750,18 @@
         {#if skillsView === "local"}
         <p class="desc">Skills loaded on the server that customize coordinator behavior per bridge.</p>
         <div class="skill-toolbar">
-          <label class="select-all-checkbox" title="Select all">
-            <input type="checkbox"
-              checked={filteredSkills.length > 0 && filteredSkills.every(s => selectedSkillKeys.has(skillKey(s)))}
-              onchange={(e) => {
+          <button class="btn secondary btn-select-all" onclick={() => {
+                const allSelected = filteredSkills.length > 0 && filteredSkills.every(s => selectedSkillKeys.has(skillKey(s)));
                 const next = new Set(selectedSkillKeys);
-                if ((e.target as HTMLInputElement).checked) {
-                  filteredSkills.forEach(s => next.add(skillKey(s)));
-                } else {
+                if (allSelected) {
                   filteredSkills.forEach(s => next.delete(skillKey(s)));
+                } else {
+                  filteredSkills.forEach(s => next.add(skillKey(s)));
                 }
                 selectedSkillKeys = next;
-              }}
-            />
-          </label>
+              }}>
+            {filteredSkills.length > 0 && filteredSkills.every(s => selectedSkillKeys.has(skillKey(s))) ? "Deselect All" : "Select All"}
+          </button>
           <select class="skill-filter-select" bind:value={skillFilterCategory}>
             <option value="">All Categories</option>
             {#each skillCategories as cat}
@@ -1765,6 +1773,11 @@
             {#each skillSources as src}
               <option value={src}>{src}</option>
             {/each}
+          </select>
+          <select class="skill-filter-select" bind:value={skillSort}>
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="name">Name A-Z</option>
           </select>
           <input type="text" placeholder="Filter skills..." bind:value={skillsFilter} class="skill-search" />
           {#if selectedSkillKeys.size > 0}
@@ -1793,6 +1806,11 @@
               {skillCreateOpen ? "Cancel" : "Create Skill"}
             </button>
           {/if}
+          <span class="zoom-control" title="Card size">
+            <span class="zoom-icon">&#x1F50D;</span>
+            <input type="range" min="140" max="320" step="10" bind:value={skillCardSize}
+              oninput={() => localStorage.setItem("ark-skill-card-size", String(skillCardSize))} />
+          </span>
         </div>
 
         {#if skillCreateOpen}
@@ -1842,7 +1860,7 @@
             {#if serverSkills.length === 0}No skills loaded. <button class="btn-link" onclick={pullAllSkills}>Pull from Bridge Repo</button>{:else}No match.{/if}
           </p>
         {:else}
-          <div class="skill-card-grid">
+          <div class="skill-card-grid" style="grid-template-columns: repeat(auto-fill, minmax({skillCardSize}px, 1fr))">
             {#each filteredSkills as skill (skill.id)}
               {@const key = skillKey(skill)}
               <LocalSkillCard
@@ -1917,7 +1935,7 @@
             </div>
           {/if}
 
-          <div class="skill-card-grid">
+          <div class="skill-card-grid" style="grid-template-columns: repeat(auto-fill, minmax({skillCardSize}px, 1fr))">
             {#each communitySkills.skills as skill (skill.id)}
               {@const installed = communitySkills.getInstalled(skill.id)}
               <SkillCard
@@ -2897,13 +2915,24 @@
   .skill-search { flex: 1; min-width: 160px; padding: 6px 8px; font-size: var(--font-size-sm); }
   .skill-card-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
-    gap: 12px;
+    gap: 10px;
   }
-  .select-all-checkbox {
+  .btn-select-all {
+    white-space: nowrap;
+  }
+  .zoom-control {
     display: flex;
     align-items: center;
-    cursor: pointer;
+    gap: 4px;
+    margin-left: auto;
+  }
+  .zoom-icon {
+    font-size: 12px;
+    opacity: 0.5;
+  }
+  .zoom-control input[type="range"] {
+    width: 80px;
+    accent-color: var(--accent);
   }
   .btn-sm { font-size: 0.8em; padding: 2px 8px; cursor: pointer; background: var(--bg-subtle, rgba(255,255,255,0.08)); border: 1px solid var(--border); border-radius: 3px; color: inherit; }
   .btn-sm:hover { background: var(--bg-hover, rgba(255,255,255,0.12)); }

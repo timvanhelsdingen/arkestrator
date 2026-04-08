@@ -90,8 +90,8 @@
   .skill-card {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding: 12px;
+    gap: 4px;
+    padding: 10px;
     border: 1px solid var(--border-light, rgba(255,255,255,0.06));
     border-radius: 6px;
     background: var(--bg-surface, rgba(255,255,255,0.03));
