@@ -15,9 +15,10 @@
     type LocalModelCatalogEntry,
     type ProviderModelCatalog,
   } from "../../api/rest";
+  import { open as openDialog } from "@tauri-apps/plugin-dialog";
   import TemplatePicker from "./TemplatePicker.svelte";
 
-  type AttachmentMeta = { id: string; name: string; kind: "text" | "image" | "binary"; size: number };
+  type AttachmentMeta = { id: string; name: string; kind: "text" | "image" | "binary" | "folder"; size: number; fullPath?: string };
 
   // Module-level storage: survives component remounts (navigation) but not page reloads.
   // File objects can't be serialized to localStorage so this is the best we can do.
@@ -497,6 +498,26 @@
     fileInput?.click();
   }
 
+  async function attachFolder() {
+    try {
+      const selected = await openDialog({
+        directory: true,
+        multiple: true,
+        title: "Attach folder reference(s)",
+      });
+      if (!selected) return;
+      const paths = Array.isArray(selected) ? selected : [selected];
+      const next: typeof attachments = [];
+      for (const p of paths) {
+        const name = p.split(/[\\/]/).pop() || p;
+        next.push({ id: crypto.randomUUID(), name, kind: "folder", size: 0, fullPath: p });
+      }
+      attachments = [...attachments, ...next];
+    } catch {
+      // user cancelled
+    }
+  }
+
   async function onAttachFiles(e: Event) {
     const input = e.target as HTMLInputElement;
     const files = Array.from(input.files ?? []);
@@ -551,7 +572,10 @@
       "Attachment content is not inlined here; use filenames/type/size metadata only.",
     ];
     for (const item of attachments) {
-      if (item.kind === "text") {
+      if (item.kind === "folder") {
+        sections.push(`### Folder: ${item.fullPath || item.name}`);
+        sections.push("Directory path attached as reference. Read/browse this folder as needed.");
+      } else if (item.kind === "text") {
         sections.push(`### File: ${item.name} (${item.size} bytes)`);
         sections.push("Attached text file reference.");
       } else if (item.kind === "image") {
@@ -885,6 +909,14 @@
       Attach
     </button>
     <button
+      class="btn-attach"
+      onclick={attachFolder}
+      disabled={improving}
+      title="Attach folder path as reference"
+    >
+      Folder
+    </button>
+    <button
       class="btn-send"
       onclick={sendChat}
       disabled={!promptText.trim() || !isAuth || improving}
@@ -924,8 +956,8 @@
   {#if attachments.length > 0}
     <div class="attachment-list">
       {#each attachments as item (item.id)}
-        <div class="attachment-chip">
-          <span>{item.name}</span>
+        <div class="attachment-chip" title={item.fullPath || item.name}>
+          <span>{item.kind === "folder" ? (item.fullPath || item.name) : item.name}</span>
           <span class="attachment-kind">{item.kind}</span>
           <button class="attachment-remove" onclick={() => removeAttachment(item.id)} aria-label={`Remove ${item.name}`}>x</button>
         </div>
