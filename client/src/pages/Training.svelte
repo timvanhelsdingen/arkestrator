@@ -797,7 +797,6 @@
     display: flex;
     flex-direction: column;
     overflow-y: auto;
-    max-width: 1100px;
   }
   h2 { font-size: var(--font-size-lg); margin-bottom: 12px; }
   h3 { font-size: var(--font-size-base); margin-bottom: 8px; color: var(--text-secondary); }

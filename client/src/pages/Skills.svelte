@@ -1065,7 +1065,6 @@
     display: flex;
     flex-direction: column;
     overflow-y: auto;
-    max-width: 1100px;
   }
   h2 { font-size: var(--font-size-lg); margin-bottom: 12px; }
   h3 { font-size: var(--font-size-base); margin-bottom: 8px; color: var(--text-secondary); }
@@ -1073,28 +1072,29 @@
   /* Filter bar */
   .filter-bar {
     display: flex;
-    gap: 8px;
+    gap: 6px;
     align-items: center;
     flex-wrap: wrap;
-    padding: 8px 0;
+    padding: 6px 0;
     margin-bottom: 12px;
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
   }
   .filter-select {
-    padding: 5px 8px;
-    font-size: var(--font-size-sm);
+    padding: 4px 6px;
+    font-size: 11px;
     background: var(--bg-deep, rgba(0,0,0,0.2));
     color: var(--text-primary);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm, 4px);
-    min-width: 120px;
+    min-width: 0;
+    width: auto;
   }
   .filter-search {
-    flex: 1;
-    min-width: 160px;
-    padding: 6px 8px;
-    font-size: var(--font-size-sm);
+    min-width: 120px;
+    max-width: 200px;
+    padding: 4px 6px;
+    font-size: 11px;
     background: var(--bg-base);
     color: var(--text-primary);
     border: 1px solid var(--border);
