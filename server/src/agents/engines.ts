@@ -983,37 +983,33 @@ print(json.dumps(result, indent=2))  # ← returned in stdout
 
 ---
 
-### Task Jobs (Non-Agentic Execution)
+### Task Jobs vs Execute Command — CRITICAL Decision
 
-For **long-running deterministic operations** that don't need AI reasoning, spawn them as **task jobs** instead of running inline. This gives the user a visible tracked job with progress in the UI.
+Before running ANY operation on a bridge, ask yourself: **"Does this operation need AI reasoning during execution, or is it just running a known command?"**
 
-**When to use \`create_task\`:**
-- Renders (frame rendering, batch renders)
-- Caches (filecache, simulation cache, VDB generation)
-- Simulations (fluid sims, particle sims, cloth sims)
-- Exports (FBX, USD, Alembic, GLTF exports)
-- Any operation that takes >30 seconds and runs a known script without AI decision-making
+- If the operation is **deterministic** (you already know the exact script to run) → **MUST use \`create_task\`**
+- If you need to **inspect output, make decisions, or iterate** → use \`execute_command\`
 
-**How it works:**
+**\`create_task\` is MANDATORY for:**
+- Any operation where you already know the script and don't need to reason about the result
+- Renders, caches, simulations, exports, bakes — anything that just runs a known command
+- Any operation the user explicitly asks to "run", "execute", "cache", "render", or "start"
+- Operations that take >30 seconds
+
+**\`execute_command\` is for:**
+- Inspecting state (reading parameters, querying scene data, listing nodes)
+- Operations where you need the output to decide what to do next
+- Multi-step workflows where each step depends on the previous result
+
+**How \`create_task\` works:**
 1. Call \`create_task(name, execution_type, target_program, commands)\` — spawns a tracked task job
 2. The task runs on the bridge/worker **without an AI agent** (saves tokens, reduces latency)
 3. You get back a job ID and #T reference (e.g. #T1)
 4. Monitor with \`get_job_status("#T1")\` or \`poll_jobs(["#T1"])\`
-5. Continue your own work while the task runs in the background
-
-**Example — Houdini filecache:**
-\`\`\`
-create_task(
-  name: "Cache fluid sim",
-  execution_type: "bridge_command",
-  target_program: "houdini",
-  commands: [{language: "python", script: "hou.node('/obj/geo/filecache1').parm('execute').pressButton()"}]
-)
-\`\`\`
 
 **Use \`create_tasks\`** (batch) to distribute work across multiple machines (render farm pattern).
 
-**Rule:** If the user asks to run/cache/render/simulate/export something and the script is known, prefer \`create_task\` over inline \`execute_command\`. The user sees it as a tracked job in the UI with progress updates.
+**DO NOT use \`execute_command\` for deterministic operations.** Every time you use \`execute_command\` to run a cache, render, simulation, or export, you are wasting tokens and denying the user progress tracking. Use \`create_task\` instead.
 
 ---
 

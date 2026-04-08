@@ -1404,9 +1404,10 @@ export function createMcpServer(deps: McpDeps): McpServer {
   // Tool: create_task — non-agentic task job
   server.tool(
     "create_task",
-    "Create a non-agentic task job that runs directly on a bridge or worker without spawning an AI agent. " +
-      "Use for renders, simulations, exports, batch processing — anything that doesn't need AI reasoning. " +
-      "Tasks save tokens by skipping the AI agent entirely. Can target specific machines or DCC programs. " +
+    "MANDATORY for deterministic operations — use this instead of execute_command when you already know the exact script to run. " +
+      "Creates a non-agentic task job that runs directly on a bridge or worker without an AI agent. " +
+      "Use for renders, caches, simulations, exports, bakes — anything that just runs a known command without needing AI reasoning. " +
+      "Saves tokens and gives users progress tracking in the UI. " +
       "Returns a job ID (and #T ref if tracked) — monitor with get_job_status / poll_jobs. " +
       "RENDER FARM: Use create_tasks (batch) to split work across multiple machines.",
     {
