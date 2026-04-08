@@ -34,6 +34,7 @@ interface RegistrySkillEntry {
 interface BridgeRegistryEntry {
   id: string;
   program: string;
+  dir?: string;
   skills?: Array<{ slug: string; file: string; title: string; category?: string }>;
 }
 
@@ -65,7 +66,10 @@ async function fetchRegistry(): Promise<RegistryData> {
           const dir = entry.dir ?? entry.id;
           const r = await fetch(`${BRIDGE_RAW_BASE}/${dir}/bridge.json`);
           if (!r.ok) throw new Error(`${r.status}`);
-          return (await r.json()) as BridgeRegistryEntry;
+          const data = (await r.json()) as BridgeRegistryEntry;
+          // Carry over dir from registry index so URL construction uses the correct path
+          if (!data.dir) data.dir = dir;
+          return data;
         }),
       );
       bridgeEntries = results
@@ -79,6 +83,7 @@ async function fetchRegistry(): Promise<RegistryData> {
     const skills: RegistrySkillEntry[] = [];
     for (const bridge of bridgeEntries) {
       const program = bridge.program ?? bridge.id;
+      const bridgeDir = bridge.dir ?? bridge.id;
       // Each bridge has a coordinator.md (always available)
       skills.push({
         slug: `${program}-coordinator`,
@@ -87,7 +92,7 @@ async function fetchRegistry(): Promise<RegistryData> {
         title: `${program} Coordinator`,
         description: `Coordinator instructions for the ${program} bridge`,
         version: "1.0.0",
-        contentUrl: `${BRIDGE_RAW_BASE}/${bridge.id}/coordinator.md`,
+        contentUrl: `${BRIDGE_RAW_BASE}/${bridgeDir}/coordinator.md`,
       });
       // Plus any listed skills
       for (const skill of bridge.skills ?? []) {
@@ -98,7 +103,7 @@ async function fetchRegistry(): Promise<RegistryData> {
           title: skill.title,
           description: "",
           version: "1.0.0",
-          contentUrl: `${BRIDGE_RAW_BASE}/${bridge.id}/${skill.file}`,
+          contentUrl: `${BRIDGE_RAW_BASE}/${bridgeDir}/${skill.file}`,
         });
       }
     }
