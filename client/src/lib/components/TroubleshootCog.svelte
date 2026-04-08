@@ -40,9 +40,20 @@
     try {
       // Try to wipe skills via API first (server-side)
       try { await api.skills.wipeAll(); } catch { /* server may not be reachable */ }
-      await invoke("wipe_app_data_dir");
+      // Wipe the Tauri app data dir (production server data)
+      try { await invoke("wipe_app_data_dir"); } catch { /* may fail in dev mode */ }
+      // Wipe the dev-mode server data dir via API
+      try {
+        const res = await fetch("http://localhost:7800/api/settings/dev-reset", { method: "POST" });
+        if (!res.ok) throw new Error("dev-reset not available");
+      } catch { /* not critical — production uses wipe_app_data_dir */ }
       localStorage.clear();
-      await invoke("restart_app");
+      // Restart the app, fall back to page reload if Tauri restart fails (dev mode)
+      try {
+        await invoke("restart_app");
+      } catch {
+        window.location.reload();
+      }
     } catch (err: any) {
       resetting = false;
       confirmingFullReset = false;

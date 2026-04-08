@@ -10,6 +10,7 @@ import type { HeadlessProgramsRepo } from "../db/headless-programs.repo.js";
 import type { WebSocketHub } from "../ws/hub.js";
 import type { WorkersRepo } from "../db/workers.repo.js";
 import type { Config } from "../config.js";
+import { logger } from "../utils/logger.js";
 import type { ProcessTracker } from "../agents/process-tracker.js";
 import { requirePermission } from "../middleware/auth.js";
 import { errorResponse } from "../utils/errors.js";
@@ -178,6 +179,28 @@ export function createSettingsRoutes(
         dir: coordinatorPlaybooksDir,
       }),
     });
+  });
+
+  // POST /dev-reset — wipe the server data directory (dev mode factory reset).
+  // In production, the Tauri app wipes its own data dir. In dev, the server
+  // data lives in server/data/ which the Tauri command can't reach.
+  router.post("/dev-reset", async (c) => {
+    if (db && config) {
+      const { rmSync, existsSync } = await import("fs");
+      const { join } = await import("path");
+      // Close the database to release the file lock
+      db.close();
+      // Wipe the data directory
+      const dataDir = config.dataDir;
+      if (existsSync(dataDir)) {
+        rmSync(dataDir, { recursive: true, force: true });
+        logger.info("dev-reset", `Wiped data directory: ${dataDir}`);
+      }
+      // The server will crash after this since the DB is gone — that's expected.
+      // In dev mode with --watch, bun will auto-restart.
+      return c.json({ ok: true, wiped: dataDir });
+    }
+    return c.json({ ok: false, error: "Not available" }, 500);
   });
 
   // ── Mount sub-routers ──
