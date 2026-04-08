@@ -818,7 +818,7 @@
           {#if serverSkills.length === 0}No skills loaded. <button class="btn-link" onclick={pullAllSkills}>Update All from Repo</button>{:else}No match.{/if}
         </p>
       {:else}
-        <div class="skill-card-grid" style="grid-template-columns: repeat(auto-fill, minmax({skillCardSize}px, 1fr))">
+        <div class="skill-card-grid" style="grid-template-columns: repeat(auto-fill, minmax({skillCardSize}px, 1fr)); --card-scale: {skillCardSize / 200}">
           {#each filteredSkills as skill (skill.id)}
             {@const key = skillKey(skill)}
             <LocalSkillCard
@@ -913,7 +913,7 @@
         </div>
       {/if}
 
-      <div class="skill-card-grid" style="grid-template-columns: repeat(auto-fill, minmax({skillCardSize}px, 1fr))">
+      <div class="skill-card-grid" style="grid-template-columns: repeat(auto-fill, minmax({skillCardSize}px, 1fr)); --card-scale: {skillCardSize / 200}">
         {#each communitySkills.skills as skill (skill.id)}
           {@const installed = communitySkills.getInstalled(skill.id)}
           <SkillCard
