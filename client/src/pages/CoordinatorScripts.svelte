@@ -15,6 +15,9 @@
   let scriptsByProgram = $state<Record<string, string>>({});
   let scriptsSaving = $state(false);
 
+  // Card size (zoom)
+  let scriptCardSize = $state(Number(localStorage.getItem("ark-script-card-size") ?? "300"));
+
   // Script editor modal
   type ScriptEditorTarget = string | null; // program name or null
   let scriptEditorTarget = $state<ScriptEditorTarget>(null);
@@ -146,13 +149,18 @@
         <button class="btn secondary" onclick={refreshAll} disabled={loading}>
           {loading ? "Loading..." : "Refresh"}
         </button>
+        <span class="zoom-control" title="Card size">
+          <span class="zoom-icon">&#x1F50D;</span>
+          <input type="range" min="200" max="500" step="10" bind:value={scriptCardSize}
+            oninput={() => localStorage.setItem("ark-script-card-size", String(scriptCardSize))} />
+        </span>
       </div>
 
       {#if error}<div class="error">{error}</div>{/if}
       {#if info}<div class="info">{info}</div>{/if}
 
       {#if isAdmin}
-        <div class="script-cards">
+        <div class="script-cards" style="grid-template-columns: repeat(auto-fill, minmax({scriptCardSize}px, 1fr))">
           {#each programs as prog (prog.value)}
             <div class="script-card">
               <div class="script-card-header">
@@ -231,7 +239,6 @@
     display: flex;
     flex-direction: column;
     overflow: auto;
-    max-width: 1100px;
   }
   h2 { font-size: var(--font-size-lg); margin-bottom: 12px; }
   h3 { font-size: var(--font-size-base); margin-bottom: 8px; color: var(--text-secondary); }
@@ -252,7 +259,6 @@
   /* Script cards grid */
   .script-cards {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
     gap: 12px;
     margin-bottom: 16px;
   }
@@ -349,9 +355,9 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     padding: 16px;
-    width: 640px;
+    width: 900px;
     max-width: 90vw;
-    max-height: 80vh;
+    max-height: 90vh;
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -368,7 +374,11 @@
   }
   .script-editor-textarea {
     flex: 1;
-    min-height: 300px;
+    min-height: 450px;
     resize: vertical;
   }
+
+  .zoom-control { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+  .zoom-icon { font-size: 12px; opacity: 0.5; }
+  .zoom-control input[type="range"] { width: 80px; accent-color: var(--accent); }
 </style>
