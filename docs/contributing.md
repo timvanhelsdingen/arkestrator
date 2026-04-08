@@ -20,7 +20,7 @@ arkestrator/
 ├── server/              # Bun + Hono server (hub)
 ├── client/              # Tauri v2 + Svelte 5 desktop app
 ├── admin/               # Web admin SPA (served at /admin)
-├── extensions/vscode/   # VS Code extension
+
 ├── docs/                # Documentation
 └── scripts/             # Build and deployment scripts
 ```
@@ -75,7 +75,7 @@ Each module has a `MODULE.md` file that tracks its current state. After making c
 - `server/MODULE.md`
 - `client/MODULE.md`
 - `admin/MODULE.md`
-- `extensions/vscode/MODULE.md`
+
 
 ## Pull Request Checklist
 

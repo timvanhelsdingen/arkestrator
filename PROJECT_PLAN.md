@@ -964,7 +964,7 @@ The client embeds the admin panel via iframe with `postMessage` session token ha
 - Agent config templates: preset configs for Claude Sonnet/Opus, Gemini, Codex, Custom Local with "Add from Template" UI
 - Job submission rate limiting: 10 jobs/minute per API key
 - CI/CD pipeline (GitHub Actions: build protocol, type-check client+admin, run server+protocol tests, release builds for macOS/Windows/Linux)
-- VS Code extension (Chat Participant + standalone webview, auto-discovery, status bar)
+
 
 ### Pending
 (No major pending items -- all planned v0.1.x features have shipped.)
@@ -975,9 +975,9 @@ The client embeds the admin panel via iframe with `postMessage` session token ha
 - Houdini coordinator generalization: replaced pyro-only coordinator enforcement with task-classified guidance (modeling/fx/render/debug), added explicit instruction to prefer matched project scripts/docs from repo/client sources, and limited pyro wiring gates to explicit pyro/explosion tasks.
 - Attachment prompt sanitation: chat `Attach` flow now writes metadata-only attachment references (name/size/type) into prompts and stops inlining raw text/data-url payloads, preventing oversized base64/code blobs from flooding job logs.
 - VPS HTTPS deployment path: added `docker-compose.vps.yml` with Caddy TLS reverse proxy, `deploy/caddy/Caddyfile`, `.env.vps.example`, and new deployment runbook (`docs/deployment-vps-caddy.md`).
-- Release-readiness verification pass for rebrand: validated `@arkestrator/protocol` build, `@arkestrator/admin` build, `@arkestrator/client` build, full server+protocol test suite (`184` passing), VS Code extension build (`arkestrator-vscode`), sidecar compile, and live `/health` smoke check.
+- Release-readiness verification pass for rebrand: validated `@arkestrator/protocol` build, `@arkestrator/admin` build, `@arkestrator/client` build, full server+protocol test suite (`184` passing), sidecar compile, and live `/health` smoke check.
 - Startup resilience hardening for migrated DB paths: server DB open now recovers from invalid legacy DB files by quarantining corrupted files (`*.invalid-<timestamp>`) and creating a fresh database automatically.
-- VS Code extension Arkestrator identity cleanup: command/chat/config identifiers now use `arkestrator.*` only.
+
 - Arkestrator pre-release hard cutover: package scope renamed to `@arkestrator/*`, runtime naming is now Arkestrator-only before public launch. Shared config uses `~/.arkestrator/config.json`, runtime env vars use `ARKESTRATOR_*`, sidecar outputs use `arkestrator-server-*`, and coordinator config files use `arkestrator.coordinator.json/.md`.
 - Core fallback/generalization refactor: disconnected-bridge fallback logic is now centralized in `server/src/agents/fallback-execution.ts` and reused across spawner, REST bridge-command route, and WS bridge-command routing to reduce duplicated hardcoded program logic in core flows.
 - Security/hygiene hardening pass: runtime secret artifacts (`server/.mcp.json`, local Claude settings, generated codex prompt files) were removed from tracked files, and ignore rules were tightened to prevent reintroduction.
@@ -1042,14 +1042,14 @@ The client embeds the admin panel via iframe with `postMessage` session token ha
 - CI/CD pipeline (GitHub Actions: build protocol, type-check client+admin, run 166 tests)
 - Unit/integration tests (104 server + 62 protocol, Bun test runner, in-memory SQLite)
 - Per-user token/cost limits (DB columns, worker enforcement, REST endpoints, admin UI, spawner userId fix)
-- VSCode extension (`extensions/vscode/`) - Chat Participant + standalone webview, auto-discovery, status bar
+
 - Blender bridge parity + critical bug fix: stripped to thin execution endpoint (removed log panel, `get_bridge()`/`_BridgeAPI`, `log_text`, `dashboard_path`). Fixed scene-guard bug that silently dropped all `bridge_command` messages. End-to-end verified via real orchestration job: agent sent Python to Blender (sphere OBJ export) and GDScript to Godot (scene file), both bridges responded with real `bridgeId`/`correlationId` JSON, output files confirmed on disk.
 - MCP fixes: StatelessTransport no longer hangs on notifications (no `id` field â†’ 202 immediately), curl restored as primary orchestration method in system prompt, `am` CLI writes both `am.cmd` (cmd.exe) and `am` bash script (Git Bash/Claude Code).
 - MCP job-control parity expansion: added `list_targets` (live bridges + enabled headless programs), `get_job_logs` (tail logs with line limits), and `cancel_job` tools. MCP cancel now uses `ProcessTracker` when available so running subprocesses are terminated before status transition.
 - MCP client-parity bridge + user gate: added `client_api_request` MCP tool to forward allowlisted non-admin client REST calls (jobs/chat/projects/workers/coordinator-training flows) with caller auth headers, and added per-user `useMcp` capability enforced by `/mcp` auth so admins can allow/disallow MCP access per user.
 - Startup script refresh: added root `start:latest` (`git pull --ff-only && pnpm dev`) and switched `start.bat` / `start.sh` to call it so launcher scripts always fast-forward to latest before booting dev.
 - CLI/MCP parity hardening: added bridge context and headless-check REST endpoints (`GET /api/bridge-command/context/:target`, `POST /api/bridge-command/headless-check`), expanded `am` CLI to cover context, multi-command execution, agent config list, job create/status/list, and headless checks. MCP `run_headless_check` now reuses the same server helper as REST.
-- VSCode extension parity refresh: extension REST client now tolerates both legacy and current `/api/workers` payloads (`Worker[]` vs `{ workers, bridges }`), parses structured server error payloads for cleaner UX, and status flows now report bridge counts plus worker online/active-bridge details.
+
 - Bridge coordinator prompt quality pass: per-bridge defaults (Blender/Godot/Houdini/ComfyUI/Unity/Unreal) now include direct official documentation links; global/Codex guidance updated with explicit CLI equivalents for MCP-only workflows.
 - Unity plugin (`bridges/unity/`) - C# Editor bridge with auto-connect from shared config, periodic context sync, context-item forwarding, path-safe file application, and structured `unity_json` execution actions.
 - Coordinator script API hardening: `GET/PUT/DELETE /api/settings/coordinator-scripts/:program` now validates filename-safe program keys and rejects path-traversal-like values with `400 INVALID_INPUT`. Added dedicated route tests to prevent regressions.
@@ -1072,7 +1072,7 @@ The client embeds the admin panel via iframe with `postMessage` session token ha
 - Linux dropdown theme parity: global client/admin CSS now sets `color-scheme: dark` and styles `option/optgroup` to prevent white native dropdown menus in Linux builds.
 - Client/admin cleanup pass: removed Svelte a11y/build warnings (semantic setup forms, keyboard-safe worker expansion markup, interactive chat resize handle, removed admin login autofocus and dead CSS rule).
 - Test execution scope fix: server/protocol now expose explicit `test` scripts and CI runs them via pnpm filters, preventing accidental traversal into dependency test suites.
-- Repo hygiene cleanup: removed tracked generated/runtime artifacts (`data/*.db*`, Houdini `__pycache__/*.pyc`, packaged VSCode `.vsix`) and deprecated scratch docs (`PLAN.md`, `marblegame*.md`); `.gitignore` now blocks these classes.
+- Repo hygiene cleanup: removed tracked generated/runtime artifacts (`data/*.db*`, Houdini `__pycache__/*.pyc`) and deprecated scratch docs (`PLAN.md`, `marblegame*.md`); `.gitignore` now blocks these classes.
 - Settings auth/local-server UX fix: client Settings now hides login fields while a session is active and shows auth form only when signed out; local server status now auto-detects externally started localhost servers (for example `pnpm dev`/`pnpm server`) through background `/health` polling instead of only client-spawned processes.
 - Settings coordinator layout pass: coordinator-only settings now use a split rail/detail workspace so the left side handles area/program/target selection and the right side is dedicated to editing. Script editing is now preview-first with explicit `Edit Script` / `Preview` toggles, and settings max-width was expanded for better desktop space usage.
 - Coordinator tab detail-pane fix: the dedicated client Coordinator page now uses a true split layout (sticky left control rail + right detail content pane), so wide-screen space is used for active editor/work surfaces instead of single-column stacking.
