@@ -70,7 +70,7 @@ Each module has its own documentation file that tracks its current state (files,
 - **Server:** `server/MODULE.md`
 - **Client:** `client/MODULE.md`
 - **Admin:** `admin/MODULE.md`
-- **VSCode Extension:** `extensions/vscode/MODULE.md`
+
 - **Bridges:** Live in a separate repo: [arkestrator-bridges](https://github.com/timvanhelsdingen/arkestrator-bridges). Do not look for bridge source code in this repo.
 
 Update these docs whenever you add, remove, or rename files, routes, components, message types, schemas, or significant functionality. Keep descriptions concise - these are reference docs, not tutorials.

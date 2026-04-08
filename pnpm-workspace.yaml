@@ -3,7 +3,7 @@ packages:
   - server
   - client
   - admin
-  - extensions/vscode
+
 
 allowBuild: esbuild
 
