@@ -111,7 +111,10 @@ export function createApp(deps: AppDeps) {
 
   // Security headers
   app.use("*", async (c, next) => {
-    c.header("X-Frame-Options", "DENY");
+    // Allow /admin to be embedded in iframe (Tauri client uses an iframe for the admin panel)
+    if (!c.req.path.startsWith("/admin")) {
+      c.header("X-Frame-Options", "DENY");
+    }
     c.header("X-Content-Type-Options", "nosniff");
     c.header("Referrer-Policy", "strict-origin-when-cross-origin");
     return next();
