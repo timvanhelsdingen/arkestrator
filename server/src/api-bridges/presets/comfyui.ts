@@ -58,7 +58,7 @@ type ComfyHistoryEntry = {
  */
 export class ComfyUiHandler implements ApiBridgeHandler {
   readonly presetId = "comfyui";
-  readonly displayName = "ComfyUI (Image/Video Generation)";
+  readonly displayName = "ComfyUI (Generative Workflows)";
   readonly defaultBaseUrl = DEFAULT_BASE_URL;
 
   getActions(): ApiBridgeAction[] {

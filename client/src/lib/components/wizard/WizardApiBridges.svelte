@@ -29,10 +29,10 @@
 
   onMount(async () => {
     try {
-      const [presets, existing] = await Promise.all([
-        api.apiBridges.presets() as Promise<PresetInfo[]>,
-        api.apiBridges.list() as Promise<Array<{ name: string }>>,
-      ]);
+      const presets = (await api.apiBridges.presets()) as PresetInfo[];
+      // List existing bridges — may fail if not yet authenticated (wizard flow)
+      let existing: Array<{ name: string }> = [];
+      try { existing = (await api.apiBridges.list()) as Array<{ name: string }>; } catch { /* not authenticated yet */ }
       alreadyConfigured = existing.map((b) => b.name);
       presetStates = presets.map((preset) => ({
         preset,
