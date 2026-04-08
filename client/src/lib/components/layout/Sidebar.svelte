@@ -20,7 +20,9 @@
     { page: "admin", label: "Admin", icon: "&#9881;" },
     { page: "workers", label: "Workers", icon: "&#8644;" },
     { page: "projects", label: "Projects", icon: "&#9636;" },
-    { page: "coordinator", label: "Skills & Training", icon: "&#9678;" },
+    { page: "skills", label: "Skills", icon: "&#9678;" },
+    { page: "coordinator-scripts", label: "Scripts", icon: "&#9998;" },
+    { page: "training", label: "Training", icon: "&#9881;" },
     { page: "settings", label: "Settings", icon: "&#9776;" },
   ];
 
@@ -41,7 +43,7 @@
   </div>
   <div class="nav-items">
     {#each items as item}
-      {#if item.page !== "coordinator" || connection.canEditCoordinator || connection.userRole === "admin"}
+      {#if !["skills", "coordinator-scripts", "training"].includes(item.page) || connection.canEditCoordinator || connection.userRole === "admin"}
         <button
           class="nav-btn"
           class:active={nav.current === item.page}
