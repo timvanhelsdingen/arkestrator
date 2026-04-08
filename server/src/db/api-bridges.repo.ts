@@ -6,6 +6,7 @@ import type {
   ApiBridgeConfigUpdate,
   ApiBridgePollConfig,
   ApiBridgeEndpoint,
+  McpConfig,
 } from "@arkestrator/protocol";
 
 interface ApiBridgeRow {
@@ -22,6 +23,7 @@ interface ApiBridgeRow {
   endpoints: string;
   default_options: string;
   poll_config: string | null;
+  mcp_config: string | null;
   enabled: number;
   created_at: string;
   updated_at: string;
@@ -35,13 +37,14 @@ function rowToConfig(row: ApiBridgeRow): ApiBridgeConfig {
     displayName: row.display_name,
     type: row.type,
     presetId: row.preset_id ?? undefined,
-    baseUrl: row.base_url,
+    baseUrl: row.base_url || undefined,
     authType: row.auth_type as ApiBridgeConfig["authType"],
     authHeader: row.auth_header,
     authPrefix: row.auth_prefix,
     endpoints: JSON.parse(row.endpoints) as Record<string, ApiBridgeEndpoint>,
     defaultOptions: JSON.parse(row.default_options) as Record<string, unknown>,
     pollConfig: row.poll_config ? (JSON.parse(row.poll_config) as ApiBridgePollConfig) : undefined,
+    mcpConfig: row.mcp_config ? (JSON.parse(row.mcp_config) as McpConfig) : undefined,
     enabled: row.enabled === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -62,8 +65,8 @@ export class ApiBridgesRepo {
     this.insertStmt = db.prepare(
       `INSERT INTO api_bridges (id, name, display_name, type, preset_id, base_url,
         auth_type, auth_header, auth_prefix, api_key, endpoints, default_options,
-        poll_config, enabled, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        poll_config, mcp_config, enabled, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     this.getByIdStmt = db.prepare(`SELECT * FROM api_bridges WHERE id = ?`);
     this.getByNameStmt = db.prepare(`SELECT * FROM api_bridges WHERE name = ?`);
@@ -85,7 +88,7 @@ export class ApiBridgesRepo {
       data.displayName,
       data.type,
       data.presetId ?? null,
-      data.baseUrl,
+      data.baseUrl ?? "",
       data.authType ?? "bearer",
       data.authHeader ?? "Authorization",
       data.authPrefix ?? "Bearer ",
@@ -93,6 +96,7 @@ export class ApiBridgesRepo {
       JSON.stringify(data.endpoints ?? {}),
       JSON.stringify(data.defaultOptions ?? {}),
       data.pollConfig ? JSON.stringify(data.pollConfig) : null,
+      data.mcpConfig ? JSON.stringify(data.mcpConfig) : null,
       data.enabled !== false ? 1 : 0,
       now,
       now,
@@ -130,13 +134,14 @@ export class ApiBridgesRepo {
     if (data.displayName !== undefined) { sets.push("display_name = ?"); values.push(data.displayName); }
     if (data.type !== undefined) { sets.push("type = ?"); values.push(data.type); }
     if (data.presetId !== undefined) { sets.push("preset_id = ?"); values.push(data.presetId); }
-    if (data.baseUrl !== undefined) { sets.push("base_url = ?"); values.push(data.baseUrl); }
+    if (data.baseUrl !== undefined) { sets.push("base_url = ?"); values.push(data.baseUrl ?? ""); }
     if (data.authType !== undefined) { sets.push("auth_type = ?"); values.push(data.authType); }
     if (data.authHeader !== undefined) { sets.push("auth_header = ?"); values.push(data.authHeader); }
     if (data.authPrefix !== undefined) { sets.push("auth_prefix = ?"); values.push(data.authPrefix); }
     if (data.endpoints !== undefined) { sets.push("endpoints = ?"); values.push(JSON.stringify(data.endpoints)); }
     if (data.defaultOptions !== undefined) { sets.push("default_options = ?"); values.push(JSON.stringify(data.defaultOptions)); }
     if (data.pollConfig !== undefined) { sets.push("poll_config = ?"); values.push(JSON.stringify(data.pollConfig)); }
+    if (data.mcpConfig !== undefined) { sets.push("mcp_config = ?"); values.push(data.mcpConfig ? JSON.stringify(data.mcpConfig) : null); }
     if (data.enabled !== undefined) { sets.push("enabled = ?"); values.push(data.enabled ? 1 : 0); }
 
     if (sets.length === 0) return existing;

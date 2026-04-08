@@ -432,6 +432,8 @@ const COLUMN_ADDITIONS = [
   `ALTER TABLE skill_versions ADD COLUMN app_version TEXT`,
   // User-requested skill slugs attached to a job (from /skill:slug in prompt)
   `ALTER TABLE jobs ADD COLUMN requested_skills TEXT`,
+  // MCP server config for API bridges (JSON: transport, command, args, env, url, headers)
+  `ALTER TABLE api_bridges ADD COLUMN mcp_config TEXT`,
   // API Bridges — server-side handlers for external REST APIs (Meshy, Stability, etc.)
   `CREATE TABLE IF NOT EXISTS api_bridges (
     id              TEXT PRIMARY KEY,

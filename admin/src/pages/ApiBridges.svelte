@@ -4,16 +4,26 @@
   import { toast } from "../lib/stores/toast.svelte";
   import Modal from "../lib/components/ui/Modal.svelte";
 
+  interface McpConfig {
+    transport: "stdio" | "sse";
+    command?: string;
+    args?: string[];
+    env?: Record<string, string>;
+    url?: string;
+    headers?: Record<string, string>;
+  }
+
   interface ApiBridge {
     id: string;
     name: string;
     displayName: string;
     type: "preset" | "custom";
     presetId?: string;
-    baseUrl: string;
+    baseUrl?: string;
     authType: string;
     enabled: boolean;
     hasApiKey: boolean;
+    mcpConfig?: McpConfig;
     createdAt: string;
     updatedAt: string;
   }
@@ -44,6 +54,15 @@
   let formAuthType = $state("bearer");
   let formSaving = $state(false);
 
+  // MCP form state
+  let formBridgeMode = $state<"rest" | "mcp">("rest");
+  let formMcpTransport = $state<"stdio" | "sse">("stdio");
+  let formMcpCommand = $state("");
+  let formMcpArgs = $state("");
+  let formMcpEnv = $state("");
+  let formMcpUrl = $state("");
+  let formMcpHeaders = $state("");
+
   // Test state
   let testingId = $state<string | null>(null);
 
@@ -73,6 +92,13 @@
     formBaseUrl = "";
     formApiKey = "";
     formAuthType = "bearer";
+    formBridgeMode = "rest";
+    formMcpTransport = "stdio";
+    formMcpCommand = "";
+    formMcpArgs = "";
+    formMcpEnv = "";
+    formMcpUrl = "";
+    formMcpHeaders = "";
     if (type === "preset" && presets.length > 0) {
       formPresetId = presets[0].presetId;
       formName = presets[0].presetId;
@@ -88,9 +114,32 @@
     formPresetId = bridge.presetId ?? "";
     formName = bridge.name;
     formDisplayName = bridge.displayName;
-    formBaseUrl = bridge.baseUrl;
+    formBaseUrl = bridge.baseUrl ?? "";
     formApiKey = "";
     formAuthType = bridge.authType;
+
+    if (bridge.mcpConfig) {
+      formBridgeMode = "mcp";
+      formMcpTransport = bridge.mcpConfig.transport;
+      formMcpCommand = bridge.mcpConfig.command ?? "";
+      formMcpArgs = (bridge.mcpConfig.args ?? []).join("\n");
+      formMcpEnv = bridge.mcpConfig.env
+        ? Object.entries(bridge.mcpConfig.env).map(([k, v]) => `${k}=${v}`).join("\n")
+        : "";
+      formMcpUrl = bridge.mcpConfig.url ?? "";
+      formMcpHeaders = bridge.mcpConfig.headers
+        ? Object.entries(bridge.mcpConfig.headers).map(([k, v]) => `${k}: ${v}`).join("\n")
+        : "";
+    } else {
+      formBridgeMode = "rest";
+      formMcpTransport = "stdio";
+      formMcpCommand = "";
+      formMcpArgs = "";
+      formMcpEnv = "";
+      formMcpUrl = "";
+      formMcpHeaders = "";
+    }
+
     showForm = true;
   }
 
@@ -104,6 +153,18 @@
     }
   }
 
+  /** Parse newline-separated key=value pairs into a Record. */
+  function parseKeyValues(text: string, separator = "="): Record<string, string> {
+    const result: Record<string, string> = {};
+    for (const line of text.split("\n").map((l) => l.trim()).filter(Boolean)) {
+      const idx = line.indexOf(separator);
+      if (idx > 0) {
+        result[line.slice(0, idx).trim()] = line.slice(idx + separator.length).trim();
+      }
+    }
+    return result;
+  }
+
   async function saveForm() {
     formSaving = true;
     try {
@@ -111,19 +172,39 @@
         name: formName,
         displayName: formDisplayName,
         type: formType,
-        baseUrl: formBaseUrl,
         authType: formAuthType,
         enabled: true,
       };
+
+      if (formBridgeMode === "mcp" && formType === "custom") {
+        const mcpConfig: Record<string, unknown> = { transport: formMcpTransport };
+        if (formMcpTransport === "stdio") {
+          mcpConfig.command = formMcpCommand;
+          const args = formMcpArgs.split("\n").map((a) => a.trim()).filter(Boolean);
+          if (args.length) mcpConfig.args = args;
+          const env = parseKeyValues(formMcpEnv);
+          if (Object.keys(env).length) mcpConfig.env = env;
+        } else {
+          mcpConfig.url = formMcpUrl;
+          const headers = parseKeyValues(formMcpHeaders, ":");
+          if (Object.keys(headers).length) mcpConfig.headers = headers;
+        }
+        data.mcpConfig = mcpConfig;
+        data.authType = "none";
+      } else {
+        data.baseUrl = formBaseUrl;
+        data.mcpConfig = null;
+        if (formApiKey) data.apiKey = formApiKey;
+      }
+
       if (formType === "preset") data.presetId = formPresetId;
-      if (formApiKey) data.apiKey = formApiKey;
 
       if (editingBridge) {
         await api.apiBridges.update(editingBridge.id, data);
-        toast.success("API bridge updated");
+        toast.success("Bridge updated");
       } else {
         await api.apiBridges.create(data);
-        toast.success("API bridge created");
+        toast.success("Bridge created");
       }
       showForm = false;
       await loadData();
@@ -174,11 +255,11 @@
 
 <div class="page">
   <div class="page-header">
-    <h1>API Bridges</h1>
-    <p class="subtitle">Server-side integrations with external REST APIs (Meshy, Stability AI, custom endpoints).</p>
+    <h1>API & MCP Bridges</h1>
+    <p class="subtitle">Server-side integrations with external REST APIs, MCP servers, and preset services.</p>
     <div class="actions">
-      <button class="btn primary" onclick={() => openAdd("preset")}>Add Preset</button>
-      <button class="btn secondary" onclick={() => openAdd("custom")}>Add Custom</button>
+      <button class="btn primary" onclick={() => openAdd("preset")}>Add Preset Bridge</button>
+      <button class="btn secondary" onclick={() => openAdd("custom")}>Add Custom Bridge</button>
       <button class="btn secondary" onclick={loadData}>Refresh</button>
     </div>
   </div>
@@ -210,13 +291,23 @@
               <span class="slug">{bridge.name}</span>
             </td>
             <td>
-              <span class="badge" class:preset={bridge.type === "preset"}>
-                {bridge.type}
+              <span class="badge" class:preset={bridge.type === "preset"} class:mcp={!!bridge.mcpConfig}>
+                {bridge.mcpConfig ? "mcp" : bridge.type}
               </span>
             </td>
-            <td class="mono">{bridge.baseUrl}</td>
+            <td class="mono">
+              {#if bridge.mcpConfig}
+                {bridge.mcpConfig.transport === "stdio"
+                  ? `${bridge.mcpConfig.command} ${(bridge.mcpConfig.args ?? []).join(" ")}`
+                  : bridge.mcpConfig.url ?? ""}
+              {:else}
+                {bridge.baseUrl ?? ""}
+              {/if}
+            </td>
             <td>
-              {#if bridge.authType === "none"}
+              {#if bridge.mcpConfig}
+                <span class="muted">N/A</span>
+              {:else if bridge.authType === "none"}
                 <span class="muted">N/A</span>
               {:else if bridge.hasApiKey}
                 <span class="status-ok">Configured</span>
@@ -273,7 +364,7 @@
 
 <!-- Add/Edit Modal -->
 {#if showForm}
-  <Modal title="{editingBridge ? 'Edit' : 'Add'} {formType === 'preset' ? 'Preset' : 'Custom'} API Bridge" open={showForm} onclose={() => (showForm = false)}>
+  <Modal title="{editingBridge ? 'Edit' : 'Add'} {formType === 'preset' ? 'Preset' : 'Custom'} Bridge" open={showForm} onclose={() => (showForm = false)}>
     <div class="form">
       {#if formType === "preset" && !editingBridge}
         <label>
@@ -286,35 +377,87 @@
         </label>
       {/if}
 
+      {#if formType === "custom"}
+        <label>
+          Bridge Mode
+          <div class="mode-toggle">
+            <button class="mode-btn" class:active={formBridgeMode === "rest"} onclick={() => (formBridgeMode = "rest")}>
+              REST API
+            </button>
+            <button class="mode-btn" class:active={formBridgeMode === "mcp"} onclick={() => (formBridgeMode = "mcp")}>
+              MCP Server
+            </button>
+          </div>
+        </label>
+      {/if}
+
       <label>
         Name (slug)
-        <input bind:value={formName} placeholder="meshy" disabled={formType === "preset" && !editingBridge} />
+        <input bind:value={formName} placeholder={formBridgeMode === "mcp" ? "my-mcp-server" : "meshy"} disabled={formType === "preset" && !editingBridge} />
       </label>
 
       <label>
         Display Name
-        <input bind:value={formDisplayName} placeholder="Meshy (3D Generation)" />
+        <input bind:value={formDisplayName} placeholder={formBridgeMode === "mcp" ? "My MCP Server" : "Meshy (3D Generation)"} />
       </label>
 
-      <label>
-        Base URL
-        <input bind:value={formBaseUrl} placeholder="https://api.meshy.ai" />
-      </label>
+      {#if formBridgeMode === "mcp" && formType === "custom"}
+        <label>
+          Transport
+          <select bind:value={formMcpTransport}>
+            <option value="stdio">Command (stdio)</option>
+            <option value="sse">URL (SSE/HTTP)</option>
+          </select>
+        </label>
 
-      <label>
-        API Key
-        <input type="password" bind:value={formApiKey} placeholder={editingBridge ? "(unchanged)" : "Enter API key"} />
-      </label>
+        {#if formMcpTransport === "stdio"}
+          <label>
+            Command
+            <input bind:value={formMcpCommand} placeholder="npx" />
+            <span class="field-hint">The executable to run (e.g. npx, uvx, node, python)</span>
+          </label>
 
-      <label>
-        Auth Type
-        <select bind:value={formAuthType}>
-          <option value="bearer">Bearer Token</option>
-          <option value="header">Custom Header</option>
-          <option value="query">Query Parameter</option>
-          <option value="none">None</option>
-        </select>
-      </label>
+          <label>
+            Arguments (one per line)
+            <textarea bind:value={formMcpArgs} rows="3" placeholder={"-y\n@modelcontextprotocol/server-filesystem\n/tmp"}></textarea>
+          </label>
+
+          <label>
+            Environment Variables (KEY=VALUE, one per line)
+            <textarea bind:value={formMcpEnv} rows="2" placeholder="API_KEY=sk-xxx"></textarea>
+          </label>
+        {:else}
+          <label>
+            Server URL
+            <input bind:value={formMcpUrl} placeholder="http://localhost:3001/sse" />
+          </label>
+
+          <label>
+            Headers (Name: Value, one per line)
+            <textarea bind:value={formMcpHeaders} rows="2" placeholder="Authorization: Bearer sk-xxx"></textarea>
+          </label>
+        {/if}
+      {:else}
+        <label>
+          Base URL
+          <input bind:value={formBaseUrl} placeholder="https://api.meshy.ai" />
+        </label>
+
+        <label>
+          API Key
+          <input type="password" bind:value={formApiKey} placeholder={editingBridge ? "(unchanged)" : "Enter API key"} />
+        </label>
+
+        <label>
+          Auth Type
+          <select bind:value={formAuthType}>
+            <option value="bearer">Bearer Token</option>
+            <option value="header">Custom Header</option>
+            <option value="query">Query Parameter</option>
+            <option value="none">None</option>
+          </select>
+        </label>
+      {/if}
 
       <div class="form-actions">
         <button class="btn primary" onclick={saveForm} disabled={formSaving}>
@@ -346,6 +489,7 @@
 
   .badge { font-size: 10px; padding: 2px 6px; border-radius: 3px; background: var(--bg-elevated); color: var(--text-secondary); text-transform: uppercase; font-weight: 600; }
   .badge.preset { background: rgba(78, 201, 176, 0.15); color: var(--accent); }
+  .badge.mcp { background: rgba(96, 165, 250, 0.15); color: #60a5fa; }
   .status-ok { color: var(--accent); font-size: 12px; font-weight: 600; }
   .status-warn { color: var(--warning, #f0ad4e); font-size: 12px; font-weight: 600; }
   .status-badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 600; background: rgba(102, 102, 102, 0.15); color: var(--text-muted); }
@@ -376,5 +520,12 @@
   .form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--text-secondary); }
   .form input, .form select { padding: 6px 8px; background: var(--bg-base); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-primary); font-size: 13px; }
   .form input:disabled { opacity: 0.5; }
+  .form textarea { padding: 6px 8px; background: var(--bg-base); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-primary); font-size: 13px; font-family: var(--font-mono, monospace); resize: vertical; }
   .form-actions { display: flex; gap: 8px; margin-top: 4px; }
+
+  .mode-toggle { display: flex; gap: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+  .mode-btn { flex: 1; padding: 5px 12px; font-size: 13px; background: var(--bg-base); color: var(--text-secondary); cursor: pointer; border: none; border-right: 1px solid var(--border); }
+  .mode-btn:last-child { border-right: none; }
+  .mode-btn.active { background: var(--accent); color: white; }
+  .field-hint { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
 </style>

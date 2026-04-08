@@ -75,7 +75,7 @@
       Program Bridges
     </button>
     <button class="settings-tab" class:active={settingsTab === "api-bridges"} onclick={() => (settingsTab = "api-bridges")}>
-      API Bridges
+      API & MCP
     </button>
     <button class="settings-tab" class:active={settingsTab === "llm"} onclick={() => (settingsTab = "llm")}>
       Local LLM

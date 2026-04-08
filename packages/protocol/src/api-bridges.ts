@@ -98,6 +98,27 @@ export const ApiBridgeResult = z.object({
 });
 export type ApiBridgeResult = z.infer<typeof ApiBridgeResult>;
 
+// --- MCP Server Configuration ---
+
+export const McpTransportType = z.enum(["stdio", "sse"]);
+export type McpTransportType = z.infer<typeof McpTransportType>;
+
+export const McpConfig = z.object({
+  /** Transport type: "stdio" for local subprocess, "sse" for remote SSE/HTTP */
+  transport: McpTransportType,
+  /** Command to run (stdio only, e.g. "npx", "uvx", "node") */
+  command: z.string().optional(),
+  /** Arguments for the command (stdio only) */
+  args: z.array(z.string()).optional(),
+  /** Extra environment variables (stdio only) */
+  env: z.record(z.string(), z.string()).optional(),
+  /** Server URL (sse only, e.g. "http://localhost:3001/sse") */
+  url: z.string().url().optional(),
+  /** Extra headers (sse only) */
+  headers: z.record(z.string(), z.string()).optional(),
+});
+export type McpConfig = z.infer<typeof McpConfig>;
+
 // --- Bridge Configuration ---
 
 export const ApiBridgeConfig = z.object({
@@ -110,8 +131,8 @@ export const ApiBridgeConfig = z.object({
   type: ApiBridgeType,
   /** Preset handler ID (e.g. "meshy") — only for type="preset" */
   presetId: z.string().optional(),
-  /** Base URL for the API (e.g. "https://api.meshy.ai") */
-  baseUrl: z.string().url(),
+  /** Base URL for the API (e.g. "https://api.meshy.ai") — optional for MCP bridges */
+  baseUrl: z.string().url().optional(),
   /** Authentication method */
   authType: ApiBridgeAuthType.default("bearer"),
   /** Header name for auth (default: "Authorization") */
@@ -124,6 +145,8 @@ export const ApiBridgeConfig = z.object({
   defaultOptions: z.record(z.string(), z.unknown()).default({}),
   /** Polling configuration for async APIs */
   pollConfig: ApiBridgePollConfig.optional(),
+  /** MCP server configuration — if present, this is an MCP bridge */
+  mcpConfig: McpConfig.optional(),
   /** Whether this bridge is active */
   enabled: z.boolean().default(true),
   createdAt: z.string().datetime(),

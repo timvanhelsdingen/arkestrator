@@ -2124,13 +2124,15 @@ export function createMcpServer(deps: McpDeps): McpServer {
       const { getPresetHandler, listPresets } = await import("../api-bridges/index.js");
 
       const result = bridges.map((b) => {
+        const isMcp = !!b.mcpConfig;
         const handler = b.type === "preset" && b.presetId ? getPresetHandler(b.presetId) : undefined;
         return {
           name: b.name,
           display_name: b.displayName,
-          type: b.type,
+          type: isMcp ? "mcp" : b.type,
           preset_id: b.presetId,
           base_url: b.baseUrl,
+          mcp_transport: b.mcpConfig?.transport,
           actions: handler ? handler.getActions() : Object.keys(b.endpoints).map((name) => ({ name, description: `Custom endpoint: ${name}` })),
         };
       });
