@@ -825,8 +825,22 @@ async function handleTransferInitiate(payload: {
   downloadBaseUrl?: string;
   p2pUrl?: string;
 }) {
-  const { transferId, files, downloadBaseUrl, projectPath, p2pUrl } = payload;
+  const { transferId, files, projectPath, p2pUrl } = payload;
+  let { downloadBaseUrl } = payload;
   if (!transferId || !Array.isArray(files) || !downloadBaseUrl) return;
+
+  // Fix localhost URLs — the server sends localhost but we may be on a different machine.
+  // Replace with the actual server URL we're connected to.
+  if (connection.url && downloadBaseUrl.includes("://localhost")) {
+    try {
+      const serverBase = new URL(connection.url);
+      const dlUrl = new URL(downloadBaseUrl);
+      dlUrl.hostname = serverBase.hostname;
+      dlUrl.port = serverBase.port;
+      dlUrl.protocol = serverBase.protocol;
+      downloadBaseUrl = dlUrl.toString().replace(/\/$/, "");
+    } catch { /* keep original */ }
+  }
 
   // Parse P2P info if available
   let p2pInfo: { host: string; port: number; tokens: string[] } | null = null;

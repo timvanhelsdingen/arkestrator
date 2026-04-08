@@ -1403,7 +1403,7 @@ export function seedCoordinatorScripts(dir: string, skillsRepo?: import("../db/s
         content: FILE_TRANSFER_SKILL_CONTENT,
         source: "builtin",
         priority: 60,
-        autoFetch: false,
+        autoFetch: true,
         enabled: true,
       });
     }
