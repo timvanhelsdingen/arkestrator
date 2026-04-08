@@ -118,10 +118,8 @@
     padding: 0;
     cursor: pointer;
     text-align: left;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
     min-width: 0;
+    word-break: break-word;
   }
   .card-title:hover {
     color: var(--accent);

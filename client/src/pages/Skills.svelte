@@ -81,6 +81,7 @@
   let skillCreateSaving = $state(false);
   let skillsPulling = $state(false);
   let selectedSkillKeys = $state(new Set<string>());
+  let selectedCommunityIds = $state(new Set<string>());
   let importSkillInput = $state<HTMLInputElement | undefined>(undefined);
   let refreshingSkills = $state(new Set<string>());
 
@@ -177,6 +178,14 @@
     return list;
   });
 
+  const selectedInstallableCount = $derived.by(() => {
+    let count = 0;
+    for (const id of selectedCommunityIds) {
+      if (!communitySkills.isInstalled(id)) count++;
+    }
+    return count;
+  });
+
   const viewingOldVersion = $derived(selectedVersionNumber > 0 && selectedVersionNumber !== skillCurrentVersion);
   const selectedVersionData = $derived(skillVersions.find(v => v.version === selectedVersionNumber));
 
@@ -227,6 +236,13 @@
     });
     communitySkills.publishPreselect = preselect;
     communitySkills.publishModalOpen = true;
+  }
+
+  async function batchInstallSelected() {
+    const ids = [...selectedCommunityIds].filter((id) => !communitySkills.isInstalled(id));
+    if (ids.length === 0) return;
+    await communitySkills.batchInstall(ids);
+    selectedCommunityIds = new Set();
   }
 
   function normalizeProgramKey(value: string): string {
@@ -832,17 +848,18 @@
           value={communitySkills.searchQuery}
           oninput={(e) => {
             communitySkills.searchQuery = (e.target as HTMLInputElement).value;
+            selectedCommunityIds = new Set();
             clearTimeout(communitySearchTimer);
             communitySearchTimer = setTimeout(() => communitySkills.search(), 300);
           }}
         />
-        <select class="filter-select" value={communitySkills.programFilter} onchange={(e) => { communitySkills.programFilter = (e.target as HTMLSelectElement).value; communitySkills.search(); }}>
+        <select class="filter-select" value={communitySkills.programFilter} onchange={(e) => { communitySkills.programFilter = (e.target as HTMLSelectElement).value; selectedCommunityIds = new Set(); communitySkills.search(); }}>
           <option value="">All Programs</option>
           {#each communitySkills.programs as p}
             <option value={p}>{p}</option>
           {/each}
         </select>
-        <select class="filter-select" value={communitySkills.categoryFilter} onchange={(e) => { communitySkills.categoryFilter = (e.target as HTMLSelectElement).value; communitySkills.search(); }}>
+        <select class="filter-select" value={communitySkills.categoryFilter} onchange={(e) => { communitySkills.categoryFilter = (e.target as HTMLSelectElement).value; selectedCommunityIds = new Set(); communitySkills.search(); }}>
           <option value="">All Categories</option>
           {#each communitySkills.categories as c}
             <option value={c}>{c}</option>
@@ -864,6 +881,29 @@
         <button class="btn" onclick={() => { communitySkills.publishPreselect = null; communitySkills.publishModalOpen = true; }}>
           Publish
         </button>
+        <span class="toolbar-separator"></span>
+        <button class="btn secondary btn-select-all" onclick={() => {
+          const allSelected = communitySkills.skills.length > 0 && communitySkills.skills.every(s => selectedCommunityIds.has(s.id));
+          const next = new Set(selectedCommunityIds);
+          if (allSelected) {
+            communitySkills.skills.forEach(s => next.delete(s.id));
+          } else {
+            communitySkills.skills.forEach(s => next.add(s.id));
+          }
+          selectedCommunityIds = next;
+        }}>
+          {communitySkills.skills.length > 0 && communitySkills.skills.every(s => selectedCommunityIds.has(s.id)) ? "Deselect All" : "Select All"}
+        </button>
+        {#if selectedCommunityIds.size > 0}
+          <span class="badge">{selectedCommunityIds.size} selected</span>
+        {/if}
+        {#if selectedInstallableCount > 0}
+          <button class="btn" onclick={batchInstallSelected} disabled={communitySkills.batchInstalling}>
+            {communitySkills.batchInstalling
+              ? `Installing (${communitySkills.batchProgress}/${communitySkills.batchTotal})...`
+              : `Install Selected (${selectedInstallableCount})`}
+          </button>
+        {/if}
       </div>
 
       {#if communitySkills.error}
@@ -881,6 +921,12 @@
             {installed}
             hasUpdate={communitySkills.hasUpdate(skill.id)}
             busy={communitySkills.installingIds.has(skill.id)}
+            selected={selectedCommunityIds.has(skill.id)}
+            onselect={() => {
+              const next = new Set(selectedCommunityIds);
+              if (next.has(skill.id)) next.delete(skill.id); else next.add(skill.id);
+              selectedCommunityIds = next;
+            }}
             onview={() => communitySkills.viewDetail(skill)}
             oninstall={() => communitySkills.install(skill.id)}
             ontoggle={() => communitySkills.toggleEnabled(skill.id)}
@@ -1249,7 +1295,8 @@
   .skill-version-selector select { font-size: var(--font-size-sm); padding: 3px 6px; background: var(--bg-deep, rgba(0,0,0,0.2)); color: var(--text-primary); border: 1px solid var(--border); border-radius: var(--radius-sm, 4px); }
   .restore-btn { background: var(--accent, #4e9ce6) !important; color: #fff !important; font-weight: 600; }
 
-  .community-toolbar { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+  .community-toolbar { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; align-items: center; }
+  .toolbar-separator { width: 1px; height: 20px; background: var(--border-light, rgba(255,255,255,0.08)); }
   .community-error {
     background: rgba(244, 71, 71, 0.1); border: 1px solid var(--status-failed); border-radius: var(--radius-sm);
     padding: 8px 12px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;

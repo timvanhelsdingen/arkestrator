@@ -8,26 +8,33 @@
     installed,
     hasUpdate = false,
     busy = false,
+    selected = false,
     onview,
     oninstall,
     ontoggle,
     onupdate,
     onuninstall,
+    onselect,
   }: {
     skill: CommunitySkillSummary;
     installed?: InstalledCommunitySkill;
     hasUpdate?: boolean;
     busy?: boolean;
+    selected?: boolean;
     onview: () => void;
     oninstall?: () => void;
     ontoggle?: () => void;
     onupdate?: () => void;
     onuninstall?: () => void;
+    onselect?: () => void;
   } = $props();
 </script>
 
-<div class="skill-card" class:installed={!!installed}>
+<div class="skill-card" class:installed={!!installed} class:selected={selected}>
   <div class="card-header">
+    {#if onselect}
+      <input type="checkbox" checked={selected} onchange={onselect} onclick={(e) => e.stopPropagation()} class="card-checkbox" />
+    {/if}
     <button class="card-title" onclick={onview}>{skill.title}</button>
   </div>
 
@@ -48,13 +55,13 @@
   {/if}
 
   <div class="card-meta">
-    <span class="meta-author" title={skill.author?.username || "Unknown"}>
+    <span class="meta-author" title={skill.author?.username || "Official"}>
       {#if skill.author?.avatar_url}
         <img class="avatar" src={skill.author.avatar_url} alt="" />
       {:else}
-        <span class="avatar-fallback">{(skill.author?.username || "?")[0].toUpperCase()}</span>
+        <span class="avatar-fallback">{(skill.author?.username || "Official")[0].toUpperCase()}</span>
       {/if}
-      {skill.author?.username || "Unknown"}
+      {skill.author?.username || "Official"}
     </span>
     <span class="meta-item">v{skill.version}</span>
     <span class="meta-item">&#8681; {skill.downloads ?? 0}</span>
@@ -104,6 +111,12 @@
   .skill-card.installed {
     border-left: 3px solid var(--status-completed);
   }
+  .skill-card.selected {
+    border-color: var(--accent);
+  }
+  .card-checkbox {
+    flex-shrink: 0;
+  }
 
   .card-header {
     display: flex;
@@ -121,10 +134,8 @@
     padding: 0;
     cursor: pointer;
     text-align: left;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
     min-width: 0;
+    word-break: break-word;
   }
   .card-title:hover {
     color: var(--accent);

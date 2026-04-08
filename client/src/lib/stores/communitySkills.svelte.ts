@@ -66,6 +66,11 @@ class CommunitySkillsState {
   // Installing/uninstalling tracking
   installingIds = $state<Set<string>>(new Set());
 
+  // Batch install tracking
+  batchInstalling = $state(false);
+  batchProgress = $state(0);
+  batchTotal = $state(0);
+
   // Active sub-tab
   activeTab = $state<"browse" | "installed">("browse");
 
@@ -216,7 +221,7 @@ class CommunitySkillsState {
   // Install / Uninstall
   // ---------------------------------------------------------------------------
 
-  async install(communityId: string, includeDeps = true): Promise<void> {
+  async install(communityId: string, includeDeps = true, silent = false): Promise<void> {
     if (this.installingIds.has(communityId)) return;
     this.installingIds = new Set([...this.installingIds, communityId]);
     try {
@@ -254,17 +259,57 @@ class CommunitySkillsState {
         depCount = await this._installDeps(detail, new Set([communityId]));
       }
 
-      const title = result.skill?.title || result.slug;
-      const msg = depCount > 0
-        ? `Installed "${title}" + ${depCount} dependenc${depCount === 1 ? "y" : "ies"} (disabled by default)`
-        : `Installed "${title}" (disabled by default)`;
-      toast.success(msg);
+      if (!silent) {
+        const title = result.skill?.title || result.slug;
+        const msg = depCount > 0
+          ? `Installed "${title}" + ${depCount} dependenc${depCount === 1 ? "y" : "ies"} (disabled by default)`
+          : `Installed "${title}" (disabled by default)`;
+        toast.success(msg);
+      }
     } catch (err: any) {
-      toast.error(`Install failed: ${err?.message}`);
+      if (!silent) toast.error(`Install failed: ${err?.message}`);
+      else throw err; // Re-throw so batchInstall can count failures
     } finally {
       const next = new Set(this.installingIds);
       next.delete(communityId);
       this.installingIds = next;
+    }
+  }
+
+  /** Batch-install multiple community skills sequentially. */
+  async batchInstall(communityIds: string[]): Promise<void> {
+    const toInstall = communityIds.filter(
+      (id) => !this.isInstalled(id) && !this.installingIds.has(id),
+    );
+    if (toInstall.length === 0) return;
+
+    this.batchInstalling = true;
+    this.batchProgress = 0;
+    this.batchTotal = toInstall.length;
+
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const communityId of toInstall) {
+      try {
+        await this.install(communityId, true, true);
+        successCount++;
+      } catch {
+        failCount++;
+      }
+      this.batchProgress++;
+    }
+
+    this.batchInstalling = false;
+
+    if (failCount === 0) {
+      toast.success(
+        `Installed ${successCount} skill${successCount !== 1 ? "s" : ""} (disabled by default)`,
+      );
+    } else {
+      toast.info(
+        `Installed ${successCount} of ${toInstall.length} skills (${failCount} failed)`,
+      );
     }
   }
 
