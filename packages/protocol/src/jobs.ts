@@ -197,6 +197,8 @@ export const Job = z.object({
   taskStatusText: z.string().optional(),
   /** Stable task reference (e.g., "T1", "T2") for #T<N> agent references. */
   taskRef: z.string().optional(),
+  /** Skill slugs explicitly requested by the user via /skill:slug in the prompt. */
+  requestedSkills: z.array(z.string()).optional(),
 });
 export type Job = z.infer<typeof Job>;
 
@@ -235,5 +237,7 @@ export const JobSubmit = z.object({
   taskSpec: TaskSpec.optional(),
   /** If true, assigns a stable #T<N> reference for agent tracking. Default true for task jobs. */
   track: z.boolean().optional(),
+  /** Skill slugs explicitly requested by the user via /skill:slug in the prompt. */
+  requestedSkills: z.array(z.string()).optional(),
 });
 export type JobSubmit = z.infer<typeof JobSubmit>;

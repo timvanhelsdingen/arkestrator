@@ -430,6 +430,8 @@ const COLUMN_ADDITIONS = [
   // Track which app version created/updated each skill for compatibility filtering
   `ALTER TABLE skills ADD COLUMN app_version TEXT`,
   `ALTER TABLE skill_versions ADD COLUMN app_version TEXT`,
+  // User-requested skill slugs attached to a job (from /skill:slug in prompt)
+  `ALTER TABLE jobs ADD COLUMN requested_skills TEXT`,
   // API Bridges — server-side handlers for external REST APIs (Meshy, Stability, etc.)
   `CREATE TABLE IF NOT EXISTS api_bridges (
     id              TEXT PRIMARY KEY,

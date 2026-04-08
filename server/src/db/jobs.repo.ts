@@ -64,6 +64,7 @@ interface JobRow {
   task_progress: number | null;
   task_status_text: string | null;
   task_ref: string | null;
+  requested_skills: string | null;
   created_at: string;
   started_at: string | null;
   completed_at: string | null;
@@ -160,6 +161,7 @@ function rowToJob(row: JobRow): Job {
     taskProgress: row.task_progress ?? undefined,
     taskStatusText: row.task_status_text ?? undefined,
     taskRef: row.task_ref ?? undefined,
+    requestedSkills: row.requested_skills ? JSON.parse(row.requested_skills) : undefined,
     createdAt: row.created_at,
     startedAt: row.started_at ?? undefined,
     completedAt: row.completed_at ?? undefined,
@@ -216,8 +218,8 @@ export class JobsRepo {
 
   constructor(private db: Database) {
     this.insertStmt = db.prepare(
-      `INSERT INTO jobs (id, status, priority, coordination_mode, name, prompt, editor_context, files, runtime_options, context_items, agent_config_id, requested_agent_config_id, actual_agent_config_id, actual_model, routing_reason, bridge_id, bridge_program, worker_name, target_worker_name, project_id, submitted_by, parent_job_id, used_bridges, outcome_rating, outcome_notes, outcome_marked_at, outcome_marked_by, mode, task_spec, task_ref, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO jobs (id, status, priority, coordination_mode, name, prompt, editor_context, files, runtime_options, context_items, agent_config_id, requested_agent_config_id, actual_agent_config_id, actual_model, routing_reason, bridge_id, bridge_program, worker_name, target_worker_name, project_id, submitted_by, parent_job_id, used_bridges, outcome_rating, outcome_notes, outcome_marked_at, outcome_marked_by, mode, task_spec, task_ref, requested_skills, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     this.getByIdStmt = db.prepare(`SELECT * FROM jobs WHERE id = ? AND deleted_at IS NULL`);
     this.listByStatusStmt = db.prepare(
@@ -468,6 +470,7 @@ export class JobsRepo {
       mode,
       input.taskSpec ? JSON.stringify(input.taskSpec) : null,
       taskRef,
+      input.requestedSkills?.length ? JSON.stringify(input.requestedSkills) : null,
       now,
     );
     return this.getById(id)!;
