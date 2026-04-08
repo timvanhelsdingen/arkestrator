@@ -1853,11 +1853,46 @@ export async function spawnAgent(
       }
     }
 
+    // Inject explicitly requested skills (user typed /skill:slug in the prompt)
+    const requestedSlugs = job.requestedSkills ?? [];
+    if (requestedSlugs.length > 0) {
+      const requestedLines: string[] = ["## Requested Skills"];
+      const MAX_REQUESTED_TOTAL = 15_000;
+      let requestedInjected = 0;
+      for (const slug of requestedSlugs) {
+        if (requestedInjected >= MAX_REQUESTED_TOTAL) break;
+        const skill = deps.skillsRepo.get(slug);
+        if (!skill) {
+          requestedLines.push(`### ${slug} [not found]`);
+          continue;
+        }
+        const header = skill.title || skill.name || skill.slug;
+        const tag = skill.program && skill.program !== "global" ? ` [${skill.program}]` : "";
+        requestedLines.push(`### ${header}${tag}`);
+        if (skill.description) requestedLines.push(skill.description);
+        if (skill.content) {
+          const capped = skill.content.slice(0, Math.min(4000, MAX_REQUESTED_TOTAL - requestedInjected));
+          requestedLines.push(capped);
+          requestedInjected += capped.length;
+        }
+        requestedLines.push("");
+
+        // Track effectiveness
+        if (deps.skillEffectivenessRepo) {
+          deps.skillEffectivenessRepo.recordUsage(skill.id, job.id);
+        }
+      }
+      const requestedBlock = requestedLines.join("\n").trim();
+      orchestratorPromptOverride = orchestratorPromptOverride
+        ? `${orchestratorPromptOverride}\n\n${requestedBlock}`
+        : requestedBlock;
+    }
+
     // Log for observability
     const promptPreview = job.prompt.length > 80 ? job.prompt.slice(0, 80) + "..." : job.prompt;
     logger.info(
       "skill-ranking",
-      `Job ${job.id} [${jobProgram || "global"}] "${promptPreview}" → ${autoFetchSkills.length} auto-fetch, ${rankedSkillCount} on-demand skills available`,
+      `Job ${job.id} [${jobProgram || "global"}] "${promptPreview}" → ${autoFetchSkills.length} auto-fetch, ${requestedSlugs.length} requested, ${rankedSkillCount} on-demand skills available`,
     );
   }
 

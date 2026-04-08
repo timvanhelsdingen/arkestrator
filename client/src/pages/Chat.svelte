@@ -246,6 +246,7 @@
       runtimeOptions?: JobRuntimeOptions;
       jobName?: string;
       uploadedFiles?: Array<{ path: string; content: string }>;
+      requestedSkills?: string[];
     },
   ) {
     let editorContext: any = undefined;
@@ -333,10 +334,11 @@
       ...(opts.dependsOn ? { dependsOn: opts.dependsOn } : {}),
       ...(opts.runtimeOptions ? { runtimeOptions: opts.runtimeOptions } : {}),
       ...(opts.jobName ? { name: opts.jobName } : {}),
+      ...(opts.requestedSkills?.length ? { requestedSkills: opts.requestedSkills } : {}),
     };
   }
 
-  async function handleSubmit(prompt: string, resolvedRuntimeOptions?: JobRuntimeOptions, files?: Array<{ path: string; content: string }>) {
+  async function handleSubmit(prompt: string, resolvedRuntimeOptions?: JobRuntimeOptions, files?: Array<{ path: string; content: string }>, requestedSkills?: string[]) {
     if (!tab || !prompt.trim()) return;
 
     if (!connection.isAuthenticated && !connection.apiKey) {
@@ -400,6 +402,7 @@
       runtimeOptions: resolvedRuntimeOptions ?? tab.runtimeOptions,
       jobName: tab.jobName,
       uploadedFiles: files,
+      requestedSkills,
       ...(tab.dependsOnJobId ? { dependsOn: [tab.dependsOnJobId] } : {}),
     });
 

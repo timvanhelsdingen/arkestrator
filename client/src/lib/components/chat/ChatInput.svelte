@@ -17,6 +17,7 @@
   } from "../../api/rest";
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
   import TemplatePicker from "./TemplatePicker.svelte";
+  import SkillPicker from "./SkillPicker.svelte";
 
   type AttachmentMeta = { id: string; name: string; kind: "text" | "image" | "binary" | "folder"; size: number; fullPath?: string };
 
@@ -41,7 +42,7 @@
     selectedWorkerNames: string[];
     dependencyJobId: string;
     runtimeOptions?: JobRuntimeOptions;
-    onsubmit: (prompt: string, resolvedRuntimeOptions?: JobRuntimeOptions, files?: Array<{ path: string; content: string }>) => void;
+    onsubmit: (prompt: string, resolvedRuntimeOptions?: JobRuntimeOptions, files?: Array<{ path: string; content: string }>, requestedSkills?: string[]) => void;
     onchat: (prompt: string, resolvedRuntimeOptions?: JobRuntimeOptions) => void;
   } = $props();
 
@@ -211,6 +212,10 @@
   let inputHeight = $state(loadInputHeight());
   let vDragging = $state(false);
   let presetsOpen = $state(false);
+  let skillPickerOpen = $state(false);
+  let skillPickerQuery = $state("");
+  let slashStartPos = $state(0);
+  let skillPickerRef: SkillPicker | undefined = $state();
 
 
   function loadInputHeight(): number {
@@ -432,6 +437,12 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
+    // Let the skill picker handle navigation keys when open
+    if (skillPickerOpen && skillPickerRef) {
+      const handled = skillPickerRef.handleKeydown(e);
+      if (handled) return;
+    }
+
     if (e.key === "Enter" && e.shiftKey && (e.ctrlKey || e.metaKey)) {
       // Ctrl+Shift+Enter → Queue and Start
       e.preventDefault();
@@ -441,6 +452,71 @@
       e.preventDefault();
       sendChat();
     }
+  }
+
+  function handleTextareaInput() {
+    if (!textarea) return;
+    const cursor = textarea.selectionStart ?? 0;
+    const text = promptText;
+
+    // Look backwards from cursor for a `/` that starts a slash command
+    // The `/` must be at position 0 or preceded by whitespace/newline
+    let slashPos = -1;
+    for (let i = cursor - 1; i >= 0; i--) {
+      const ch = text[i];
+      if (ch === "/") {
+        if (i === 0 || /\s/.test(text[i - 1])) {
+          slashPos = i;
+        }
+        break;
+      }
+      // Stop scanning if we hit whitespace (no slash in this "word")
+      if (/\s/.test(ch)) break;
+    }
+
+    if (slashPos >= 0) {
+      const query = text.slice(slashPos + 1, cursor);
+      // Only open if there's no space in the query (still typing the command)
+      if (!/\s/.test(query)) {
+        skillPickerOpen = true;
+        skillPickerQuery = query;
+        slashStartPos = slashPos;
+        return;
+      }
+    }
+    skillPickerOpen = false;
+  }
+
+  function onSkillSelect(skill: { slug: string; title: string; program: string }) {
+    // Replace the /query text with /skill:slug tag
+    const before = promptText.slice(0, slashStartPos);
+    const cursor = textarea?.selectionStart ?? promptText.length;
+    const after = promptText.slice(cursor);
+    const tag = `/skill:${skill.slug}`;
+    const needsTrailingSpace = after.length > 0 && !/^\s/.test(after);
+    promptText = `${before}${tag}${needsTrailingSpace ? " " : " "}${after}`;
+    skillPickerOpen = false;
+
+    const newCursor = before.length + tag.length + 1;
+    tick().then(() => {
+      textarea?.focus();
+      textarea?.setSelectionRange(newCursor, newCursor);
+    });
+  }
+
+  const SKILL_TAG_RE = /\/skill:([a-zA-Z0-9_-]+)/g;
+
+  /** Extract /skill:slug tags from prompt text. Returns slugs array and cleaned prompt. */
+  function extractSkillTags(text: string): { cleaned: string; skills: string[] } {
+    const skills: string[] = [];
+    let match: RegExpExecArray | null;
+    const re = new RegExp(SKILL_TAG_RE.source, "g");
+    while ((match = re.exec(text)) !== null) {
+      const slug = match[1];
+      if (slug && !skills.includes(slug)) skills.push(slug);
+    }
+    const cleaned = skills.length > 0 ? text.replace(SKILL_TAG_RE, "").replace(/  +/g, " ").trim() : text;
+    return { cleaned, skills };
   }
 
   function sendChat() {
@@ -458,7 +534,8 @@
     if (!promptText.trim()) return;
     const tab = chatStore.activeTab;
     if (tab) tab.startPaused = paused;
-    const preparedPrompt = buildPromptWithAttachments(promptText.trim());
+    const rawPrompt = buildPromptWithAttachments(promptText.trim());
+    const { cleaned: preparedPrompt, skills: requestedSkills } = extractSkillTags(rawPrompt);
 
     // Read attachment files into FileAttachment format for server upload
     const filePayloads: Array<{ path: string; content: string }> = [];
@@ -478,7 +555,7 @@
       }
     }
 
-    onsubmit(preparedPrompt, resolveRuntimeOptionsForPrompt(preparedPrompt, "job"), filePayloads);
+    onsubmit(preparedPrompt, resolveRuntimeOptionsForPrompt(preparedPrompt, "job"), filePayloads, requestedSkills.length > 0 ? requestedSkills : undefined);
     promptText = "";
     attachments = [];
     attachmentFiles = new Map();
@@ -679,6 +756,9 @@
     if (!target.closest(".presets-dropdown")) {
       presetsOpen = false;
     }
+    if (skillPickerOpen && !target.closest(".skill-picker")) {
+      skillPickerOpen = false;
+    }
   }
 
   // Listen for click-to-insert events from ChatContextPanel
@@ -848,13 +928,22 @@
     </div>
   </div>
 
-  <div class="input-row">
+  <div class="input-row" style="position: relative;">
+    {#if skillPickerOpen}
+      <SkillPicker
+        bind:this={skillPickerRef}
+        query={skillPickerQuery}
+        onselect={onSkillSelect}
+        onclose={() => (skillPickerOpen = false)}
+      />
+    {/if}
     <textarea
       bind:this={textarea}
       bind:value={promptText}
       onkeydown={handleKeydown}
+      oninput={handleTextareaInput}
       readonly={improving}
-      placeholder={"Type a message or prompt... (Shift+Enter to chat, Ctrl+Shift+Enter to queue)"}
+      placeholder={"Type a message or prompt... (Shift+Enter to chat, Ctrl+Shift+Enter to queue)  |  / to search skills"}
     ></textarea>
   </div>
   {#if improving}
