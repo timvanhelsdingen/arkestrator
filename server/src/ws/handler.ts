@@ -29,6 +29,7 @@ import { LocalAgenticToolCall } from "@arkestrator/protocol";
 import { basename, dirname } from "path";
 import { newId } from "../utils/id.js";
 import { logger } from "../utils/logger.js";
+import { autoDetectTaskJob } from "../agents/task-auto-detect.js";
 
 export interface HandlerDeps {
   jobsRepo: JobsRepo;
@@ -360,16 +361,30 @@ function handleJobSubmit(
     return;
   }
 
+  // Auto-detect deterministic task jobs (cache, render, sim)
+  const runtimeOptions = applyPromptBridgeExecutionMode(
+    msg.payload?.prompt,
+    msg.payload?.runtimeOptions,
+  );
+  const payload = { ...msg.payload, runtimeOptions };
+  const autoDetected = autoDetectTaskJob(
+    payload.prompt,
+    payload.contextItems ?? [],
+    payload.editorContext,
+    ws.data.program,
+    runtimeOptions,
+  );
+  if (autoDetected) {
+    payload.mode = "task";
+    payload.taskSpec = autoDetected.taskSpec;
+    payload.name = payload.name ?? autoDetected.name;
+    logger.info("handler", `Auto-detected task job: ${autoDetected.patternId} → "${autoDetected.name}"`);
+  }
+
   let job;
   try {
     job = deps.jobsRepo.create(
-      {
-        ...msg.payload,
-        runtimeOptions: applyPromptBridgeExecutionMode(
-          msg.payload?.prompt,
-          msg.payload?.runtimeOptions,
-        ),
-      },
+      payload,
       ws.data.id,
       ws.data.program,
       ws.data.workerName,

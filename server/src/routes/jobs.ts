@@ -36,6 +36,7 @@ import {
 import { getJobInterventionSupport, tryDeliverGuidanceViaStdin } from "../agents/job-interventions.js";
 import { isModelAllowedByStoredAllowlist } from "../local-models/catalog.js";
 import { resolveAutoAgentByPriority } from "../agents/auto-routing.js";
+import { autoDetectTaskJob } from "../agents/task-auto-detect.js";
 import {
   filterCoordinatorSourcePathsByProgram,
   loadCoordinatorPlaybookContextDetailed,
@@ -924,6 +925,22 @@ export function createJobRoutes(
       inferredBridgeProgram = metadata.target_bridges[0];
     } else if (typeof metadata?.bridge_type === "string") {
       inferredBridgeProgram = metadata.bridge_type;
+    }
+
+    // Auto-detect deterministic task jobs (cache, render, sim) to skip AI agent
+    const autoDetected = autoDetectTaskJob(
+      parsed.data.prompt,
+      parsed.data.contextItems ?? [],
+      parsed.data.editorContext,
+      inferredBridgeProgram,
+      runtimeOptions,
+    );
+    if (autoDetected) {
+      parsed.data.mode = "task";
+      parsed.data.taskSpec = autoDetected.taskSpec;
+      parsed.data.name = parsed.data.name ?? autoDetected.name;
+      inferredBridgeProgram = autoDetected.bridgeProgram;
+      logger.info("jobs", `Auto-detected task job: ${autoDetected.patternId} → "${autoDetected.name}"`);
     }
 
     let job;
