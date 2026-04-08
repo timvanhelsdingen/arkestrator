@@ -198,7 +198,8 @@ export function createApp(deps: AppDeps) {
       deps.settingsRepo,
     ),
   );
-  app.route("/api/transfers", createTransfersRoutes(deps.transferManager, deps.hub, deps.apiKeysRepo, deps.usersRepo, deps.config));
+  const transferRoutes = createTransfersRoutes(deps.transferManager, deps.hub, deps.apiKeysRepo, deps.usersRepo, deps.config);
+  app.route("/api/transfers", transferRoutes.app);
   app.route("/api/headless-programs", createHeadlessProgramRoutes(deps.headlessProgramsRepo, deps.usersRepo, deps.apiKeysRepo));
   if (deps.apiBridgesRepo) {
     app.route("/api/api-bridges", createApiBridgeRoutes(deps.apiBridgesRepo, deps.usersRepo, deps.apiKeysRepo));
@@ -349,5 +350,5 @@ export function createApp(deps: AppDeps) {
     return spaFallback(c);
   });
 
-  return app;
+  return { app, handleTransferServeReady: transferRoutes.handleServeReady };
 }

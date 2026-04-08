@@ -770,6 +770,9 @@ function dispatchImmediate(msg: any) {
     case "transfer_initiate":
       void handleTransferInitiate(msg.payload);
       break;
+    case "transfer_serve_request":
+      void handleTransferServeRequest(msg.payload);
+      break;
     case "skills_updated":
       // Server auto-pulled skills after bridge connect — notify UI pages
       window.dispatchEvent(new CustomEvent("arkestrator:skills_updated", { detail: msg.payload }));
@@ -820,11 +823,23 @@ async function handleTransferInitiate(payload: {
   projectPath?: string;
   source?: string;
   downloadBaseUrl?: string;
+  p2pUrl?: string;
 }) {
-  const { transferId, files, downloadBaseUrl, projectPath } = payload;
+  const { transferId, files, downloadBaseUrl, projectPath, p2pUrl } = payload;
   if (!transferId || !Array.isArray(files) || !downloadBaseUrl) return;
 
-  console.log(`[transfer_initiate] Starting download of ${files.length} file(s), ${((payload.totalBytes ?? 0) / 1024 / 1024).toFixed(1)} MB`);
+  // Parse P2P info if available
+  let p2pInfo: { host: string; port: number; tokens: string[] } | null = null;
+  if (p2pUrl) {
+    try {
+      p2pInfo = JSON.parse(p2pUrl);
+    } catch {
+      console.warn("[transfer] Failed to parse p2pUrl, using server relay");
+    }
+  }
+
+  const mode = p2pInfo ? "P2P" : "server";
+  console.log(`[transfer_initiate] Starting ${mode} download of ${files.length} file(s), ${((payload.totalBytes ?? 0) / 1024 / 1024).toFixed(1)} MB`);
 
   let filesCompleted = 0;
   let bytesCompleted = 0;
@@ -838,37 +853,57 @@ async function handleTransferInitiate(payload: {
       destPath = `${projectPath}${sep}${destPath}`;
     }
 
-    // Build download URL with auth
-    let downloadUrl = `${downloadBaseUrl}/${i}`;
-    if (connection.apiKey) {
-      downloadUrl += `?key=${encodeURIComponent(connection.apiKey)}`;
+    let written = 0;
+    let usedP2P = false;
+
+    // Try P2P first if available
+    if (p2pInfo && p2pInfo.tokens[i]) {
+      const p2pDownloadUrl = `http://${p2pInfo.host}:${p2pInfo.port}/transfer/${p2pInfo.tokens[i]}`;
+      try {
+        written = await invoke<number>("fs_download_file", {
+          url: p2pDownloadUrl,
+          destPath,
+        });
+        usedP2P = true;
+      } catch (err) {
+        console.warn(`[transfer] P2P download failed for ${file.path}, falling back to server: ${err}`);
+      }
     }
 
-    try {
-      const written = await invoke<number>("fs_download_file", {
-        url: downloadUrl,
-        destPath,
-        apiKey: connection.apiKey ?? undefined,
-      });
-      filesCompleted++;
-      bytesCompleted += written;
-      console.log(`[transfer] Downloaded ${file.path} (${(written / 1024 / 1024).toFixed(1)} MB)`);
-    } catch (err) {
-      console.error(`[transfer] Failed to download ${file.path}:`, err);
-      sendMessage({
-        type: "transfer_progress",
-        id: crypto.randomUUID(),
-        payload: {
-          transferId,
-          bytesCompleted,
-          filesCompleted,
-          filesTotal: files.length,
-          status: "error",
-          error: String(err),
-        },
-      });
-      return;
+    // Fall back to server relay
+    if (!usedP2P) {
+      let downloadUrl = `${downloadBaseUrl}/${i}`;
+      if (connection.apiKey) {
+        downloadUrl += `?key=${encodeURIComponent(connection.apiKey)}`;
+      }
+
+      try {
+        written = await invoke<number>("fs_download_file", {
+          url: downloadUrl,
+          destPath,
+          apiKey: connection.apiKey ?? undefined,
+        });
+      } catch (err) {
+        console.error(`[transfer] Failed to download ${file.path}:`, err);
+        sendMessage({
+          type: "transfer_progress",
+          id: crypto.randomUUID(),
+          payload: {
+            transferId,
+            bytesCompleted,
+            filesCompleted,
+            filesTotal: files.length,
+            status: "error",
+            error: String(err),
+          },
+        });
+        return;
+      }
     }
+
+    filesCompleted++;
+    bytesCompleted += written;
+    console.log(`[transfer] Downloaded ${file.path} (${(written / 1024 / 1024).toFixed(1)} MB) via ${usedP2P ? "P2P" : "server"}`);
   }
 
   // Report completion
@@ -884,6 +919,80 @@ async function handleTransferInitiate(payload: {
     },
   });
   console.log(`[transfer] Transfer ${transferId} complete: ${filesCompleted} files, ${(bytesCompleted / 1024 / 1024).toFixed(1)} MB`);
+}
+
+/** Handle P2P serve request: server asks us to serve local files for a transfer. */
+async function handleTransferServeRequest(payload: {
+  transferId?: string;
+  files?: Array<{ path: string; size: number }>;
+}) {
+  const { transferId, files } = payload;
+  if (!transferId || !Array.isArray(files) || files.length === 0) return;
+
+  console.log(`[transfer_serve_request] Asked to serve ${files.length} file(s) for transfer ${transferId}`);
+
+  try {
+    // Generate a unique token per file
+    const fileEntries = files.map((f) => ({
+      path: f.path,
+      token: crypto.randomUUID(),
+    }));
+
+    // Start file server
+    const result = await invoke<{ port: number }>("fs_serve_files", {
+      files: fileEntries,
+      idleTimeoutSecs: 600, // 10 minute idle timeout
+    });
+
+    // Detect our LAN IP address
+    const host = await detectLanIp();
+
+    // Report ready to server
+    sendMessage({
+      type: "transfer_serve_ready",
+      id: crypto.randomUUID(),
+      payload: {
+        transferId,
+        host,
+        port: result.port,
+        tokens: fileEntries.map((f) => f.token),
+      },
+    });
+
+    console.log(`[transfer_serve] File server ready on ${host}:${result.port} for transfer ${transferId}`);
+  } catch (err) {
+    console.error(`[transfer_serve] Failed to start file server:`, err);
+    sendMessage({
+      type: "transfer_serve_ready",
+      id: crypto.randomUUID(),
+      payload: {
+        transferId,
+        host: "",
+        port: 0,
+        tokens: [],
+        error: String(err),
+      },
+    });
+  }
+}
+
+/** Detect the machine's LAN IP address for P2P transfers. */
+async function detectLanIp(): Promise<string> {
+  try {
+    // Use Tauri to run a quick command to detect LAN IP
+    const result = await invoke<{ stdout: string }>("run_local_command", {
+      command: navigator.platform.includes("Win")
+        ? "powershell -Command \"(Get-NetIPAddress -AddressFamily IPv4 | Where-Object {$_.PrefixOrigin -eq 'Dhcp' -or $_.PrefixOrigin -eq 'Manual'} | Select-Object -First 1).IPAddress\""
+        : "hostname -I | awk '{print $1}'",
+      cwd: ".",
+      timeoutMs: 5000,
+    });
+    const ip = (typeof result === "object" && result.stdout ? result.stdout : String(result)).trim();
+    if (ip && ip !== "127.0.0.1" && !ip.startsWith("::")) return ip;
+  } catch {
+    // fallback
+  }
+  return "127.0.0.1";
 }
 
 /** Write bridge-facing shared config for local bridge auto-discovery.
