@@ -104,7 +104,6 @@ import {
   TRAINING_BLOCK_END,
 } from "./coordinator-training.js";
 import { appendOperatorNotesToPrompt } from "./job-interventions.js";
-import { isDeterministicHint } from "./task-auto-detect.js";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from "fs";
 import { basename, join } from "path";
 
@@ -1592,19 +1591,6 @@ export async function spawnAgent(
     if (orchestratorPromptOverride && !includeTraining) {
       orchestratorPromptOverride = stripTrainingBlocks(orchestratorPromptOverride);
     }
-  }
-
-  // Deterministic-operation hint: nudge agent toward create_task for cache/render/sim prompts
-  if (isDeterministicHint(job.prompt, job.contextItems ?? [], job.bridgeProgram ?? undefined)) {
-    const hint =
-      "## Deterministic Operation Detected\n" +
-      "This prompt looks like a deterministic operation (cache, render, simulation, export). " +
-      "Strongly prefer `create_task` over `execute_command` — it saves tokens, gives the user progress tracking, " +
-      "and doesn't require AI reasoning for the execution itself. Only use `execute_command` if you need to " +
-      "inspect/modify parameters before running.";
-    orchestratorPromptOverride = orchestratorPromptOverride
-      ? `${hint}\n\n${orchestratorPromptOverride}`
-      : hint;
   }
 
   // Optional task playbook context (JSON manifest + per-task instruction/example files).
