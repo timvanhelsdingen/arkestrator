@@ -10,6 +10,7 @@
   import WizardPersonality from "../lib/components/wizard/WizardPersonality.svelte";
   import WizardApiBridges from "../lib/components/wizard/WizardApiBridges.svelte";
   import WizardDone from "../lib/components/wizard/WizardDone.svelte";
+  import TroubleshootCog from "../lib/components/TroubleshootCog.svelte";
 
   // Determine what step component to show
   function getStepComponent(stepIndex: number): string {
@@ -176,6 +177,8 @@
     {/if}
   </div>
 </div>
+
+<TroubleshootCog />
 
 <style>
   .wizard-container {
