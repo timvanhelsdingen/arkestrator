@@ -267,6 +267,10 @@ jobs:
           EOF
           sed -i 's/^          //' ~/.rpmmacros
 
+          # Import public key into RPM keyring so rpm -K can verify
+          gpg --armor --export "$GPG_KEY_ID" > /tmp/gpg-pub.asc
+          sudo rpm --import /tmp/gpg-pub.asc
+
           for rpm_file in /tmp/assets/*.rpm; do
             if [ -f "$rpm_file" ]; then
               echo "Signing $rpm_file..."
