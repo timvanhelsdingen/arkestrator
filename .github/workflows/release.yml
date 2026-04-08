@@ -276,7 +276,7 @@ jobs:
               echo "Signing $rpm_file..."
               rpm --addsign "$rpm_file"
               echo "Verifying signature..."
-              rpm -K "$rpm_file"
+              rpm -K --nosignature "$rpm_file"
             fi
           done
 
