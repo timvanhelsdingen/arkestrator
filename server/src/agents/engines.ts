@@ -99,6 +99,7 @@ export function buildCommand(
   orchestratorPromptOverride?: string,
   defaultProjectDir?: string,
   resumeSessionId?: string,
+  apiBridges?: ApiBridgePromptInfo[],
 ): CommandSpec {
   const cwd = workspace?.cwd ?? job.editorContext?.projectRoot ?? process.cwd();
   const baseEnv: Record<string, string> = {};
@@ -117,6 +118,7 @@ export function buildCommand(
         orchestratorPromptOverride,
         defaultProjectDir,
         resumeSessionId,
+        apiBridges,
       );
     case "codex":
       return buildCodexCommand(
@@ -129,6 +131,7 @@ export function buildCommand(
         headlessPrograms,
         orchestratorPromptOverride,
         defaultProjectDir,
+        apiBridges,
       );
     case "gemini":
       return buildGeminiCommand(config, job, cwd, baseEnv, workspace);
@@ -145,6 +148,7 @@ export function buildCommand(
         headlessPrograms,
         orchestratorPromptOverride,
         defaultProjectDir,
+        apiBridges,
       );
     default:
       return buildLocalCommand(
@@ -157,6 +161,7 @@ export function buildCommand(
         headlessPrograms,
         orchestratorPromptOverride,
         defaultProjectDir,
+        apiBridges,
       );
   }
 }
@@ -264,6 +269,7 @@ function buildClaudeCommand(
   orchestratorPromptOverride?: string,
   defaultProjectDir?: string,
   resumeSessionId?: string,
+  apiBridges?: ApiBridgePromptInfo[],
 ): CommandSpec {
   // Run in agentic mode so Claude can actually edit files
   // --output-format stream-json forces per-line flushing (fixes pipe buffering)
@@ -311,6 +317,7 @@ function buildClaudeCommand(
     headlessPrograms,
     orchestratorPromptOverride,
     defaultProjectDir,
+    apiBridges,
   );
   const systemPrompt = instructionPrompt.text;
 
@@ -397,6 +404,7 @@ function buildCodexCommand(
   headlessPrograms?: HeadlessProgramInfo[],
   orchestratorPromptOverride?: string,
   defaultProjectDir?: string,
+  apiBridges?: ApiBridgePromptInfo[],
 ): CommandSpec {
   const args: string[] = [];
   let resolvedCwd = cwd;
@@ -440,6 +448,7 @@ function buildCodexCommand(
     headlessPrograms,
     orchestratorPromptOverride,
     defaultProjectDir,
+    apiBridges,
   );
   let instructionText = instructionPrompt.text;
   if (instructionPrompt.hasBridgePrompt) {
@@ -485,6 +494,7 @@ function buildInstructionPrompt(
   headlessPrograms?: HeadlessProgramInfo[],
   orchestratorPromptOverride?: string,
   defaultProjectDir?: string,
+  apiBridges?: ApiBridgePromptInfo[],
 ): InstructionPromptResult {
   // Shared instruction chain:
   // project system prompt -> agent config system prompt -> command-mode rules -> orchestration prompt
@@ -518,6 +528,7 @@ function buildInstructionPrompt(
     orchestratorPromptOverride,
     defaultProjectDir,
     job.id,
+    apiBridges,
   );
   appendInstructionSection(sections, bridgePrompt);
   if (config.engine === "claude-code" || config.engine === "codex") {
@@ -784,6 +795,7 @@ function buildLocalCommand(
   headlessPrograms?: HeadlessProgramInfo[],
   orchestratorPromptOverride?: string,
   defaultProjectDir?: string,
+  apiBridges?: ApiBridgePromptInfo[],
 ): CommandSpec {
   const prompt = buildLocalExecutionPrompt(
     config,
@@ -793,6 +805,7 @@ function buildLocalCommand(
     headlessPrograms,
     orchestratorPromptOverride,
     defaultProjectDir,
+    apiBridges,
   );
 
   const args = buildLocalCliArgs(config.args, prompt, config.model);
@@ -813,6 +826,7 @@ export function buildLocalExecutionPrompt(
   headlessPrograms?: HeadlessProgramInfo[],
   orchestratorPromptOverride?: string,
   defaultProjectDir?: string,
+  apiBridges?: ApiBridgePromptInfo[],
 ): string {
   let prompt = buildPrompt(job, workspace);
   const instructionPrompt = buildInstructionPrompt(
@@ -823,6 +837,7 @@ export function buildLocalExecutionPrompt(
     headlessPrograms,
     orchestratorPromptOverride,
     defaultProjectDir,
+    apiBridges,
   );
   if (instructionPrompt.text) {
     prompt = [
@@ -894,6 +909,7 @@ export function buildLocalAgenticBasePrompt(
   workspace?: WorkspaceResolution,
   connectedBridges?: BridgeInfo[],
   orchestratorPrompt?: string,
+  apiBridges?: ApiBridgePromptInfo[],
 ): string {
   const sections: string[] = [];
 
@@ -907,6 +923,16 @@ export function buildLocalAgenticBasePrompt(
       return `- ${parts.join(" ")}`;
     });
     sections.push(`Connected bridges:\n${bridgeLines.join("\n")}`);
+  }
+
+  // API bridges available via MCP tools
+  if (apiBridges && apiBridges.length > 0) {
+    const lines = apiBridges.map((ab) =>
+      `- ${ab.displayName} (${ab.name}): ${ab.actions.join(", ")}`,
+    );
+    sections.push(
+      `API bridges (server-side, use execute_api_bridge tool):\n${lines.join("\n")}`,
+    );
   }
 
   // Include coordination content (bridge scripts, playbooks, training) if provided.
@@ -1473,6 +1499,12 @@ const SKILLS_REMINDER_BLOCK =
   "After learning something non-trivial, create_skill to save it for future tasks.\n" +
   "---";
 
+export interface ApiBridgePromptInfo {
+  name: string;
+  displayName: string;
+  actions: string[];
+}
+
 function buildBridgeOrchestrationPrompt(
   bridges?: BridgeInfo[],
   currentProgram?: string,
@@ -1480,6 +1512,7 @@ function buildBridgeOrchestrationPrompt(
   orchestratorPromptOverride?: string,
   defaultProjectDir?: string,
   jobId?: string,
+  apiBridges?: ApiBridgePromptInfo[],
 ): string {
   // Filter out the bridge that submitted this job (don't tell it to send commands to itself)
   const otherBridges = (bridges ?? []).filter((b) => b.program !== currentProgram);
@@ -1492,8 +1525,10 @@ function buildBridgeOrchestrationPrompt(
 
   const hasOverride = !!(orchestratorPromptOverride && orchestratorPromptOverride.trim());
 
-  // If no override and no other bridges, still return the skills reminder
-  if (!hasOverride && otherBridges.length === 0 && availableHeadless.length === 0) {
+  const hasApiBridges = apiBridges && apiBridges.length > 0;
+
+  // If no override and no other bridges and no API bridges, still return the skills reminder
+  if (!hasOverride && otherBridges.length === 0 && availableHeadless.length === 0 && !hasApiBridges) {
     return SKILLS_REMINDER_BLOCK;
   }
 
@@ -1610,6 +1645,19 @@ function buildBridgeOrchestrationPrompt(
       "You can read files from the client machine (renders, project files, textures) using the " +
       "`read_client_file` MCP tool. This reads files via the bridge connection — no file syncing needed. " +
       "For images, the file is saved locally and you can then use the Read tool to view it visually.";
+  }
+
+  // Append API bridge info so agents know about server-side API tools
+  if (apiBridges && apiBridges.length > 0) {
+    const lines = apiBridges.map((ab) =>
+      `- **${ab.displayName}** (\`${ab.name}\`): ${ab.actions.join(", ")}`,
+    );
+    result += "\n\n## API Bridges (Server-Side)\n" +
+      "The following external API services are available via MCP tools. " +
+      "These run entirely on the server — no client bridge connection needed.\n\n" +
+      lines.join("\n") + "\n\n" +
+      "Use `list_api_bridges` to see full parameter schemas, then `execute_api_bridge(bridge, action, params)` to call them. " +
+      "Results include output file URLs that can be downloaded.";
   }
 
   // Always append skills reminder as the final section so every bridge job sees it

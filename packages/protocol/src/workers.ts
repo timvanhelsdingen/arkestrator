@@ -17,6 +17,8 @@ export const Worker = z.object({
   knownPrograms: z.array(z.string()).default([]),
   /** Whether the client has worker mode enabled (accepts jobs from other machines) */
   workerModeEnabled: z.boolean().optional(),
+  /** True when this worker represents the Arkestrator server itself (hosts API bridges) */
+  isServerWorker: z.boolean().optional(),
   firstSeenAt: z.string().datetime(),
   lastSeenAt: z.string().datetime(),
 });

@@ -5,6 +5,7 @@ import type { UsersRepo } from "../db/users.repo.js";
 import type { ApiKeysRepo } from "../db/apikeys.repo.js";
 import type { AuditRepo } from "../db/audit.repo.js";
 import type { SettingsRepo } from "../db/settings.repo.js";
+import type { ApiBridgesRepo } from "../db/api-bridges.repo.js";
 import type { WebSocketHub } from "../ws/hub.js";
 import { isAuthenticated, requirePermission, getClientIp } from "../middleware/auth.js";
 import { errorResponse } from "../utils/errors.js";
@@ -27,6 +28,7 @@ export function createWorkerRoutes(
   auditRepo: AuditRepo,
   hub: WebSocketHub,
   settingsRepo: SettingsRepo,
+  apiBridgesRepo?: ApiBridgesRepo,
 ) {
   const router = new Hono();
 
@@ -105,6 +107,42 @@ export function createWorkerRoutes(
           ip: worker.lastIp,
           connectedAt: undefined,
           osUser: undefined,
+        });
+      }
+    }
+
+    // Inject a virtual "Server" worker for API bridges (Meshy, Stability, etc.)
+    const enabledApiBridges = apiBridgesRepo?.listEnabled() ?? [];
+    if (enabledApiBridges.length > 0) {
+      const serverName = hostname();
+      const now = new Date().toISOString();
+      const apiBridgePrograms = enabledApiBridges.map((b) => b.displayName);
+
+      enriched.push({
+        id: "server-worker",
+        name: serverName,
+        status: "online",
+        activeBridgeCount: enabledApiBridges.length,
+        knownPrograms: apiBridgePrograms,
+        workerModeEnabled: true,
+        isServerWorker: true,
+        firstSeenAt: now,
+        lastSeenAt: now,
+        rule: getWorkerRule(settingsRepo, serverName),
+      });
+
+      for (const ab of enabledApiBridges) {
+        const hasKey = !!apiBridgesRepo!.getApiKey(ab.id);
+        bridgeList.push({
+          id: `api-bridge:${ab.name}`,
+          name: ab.displayName,
+          type: "bridge",
+          connected: ab.enabled && hasKey,
+          lastSeen: ab.updatedAt,
+          program: ab.displayName,
+          bridgeVersion: "api-bridge",
+          workerName: serverName,
+          connectedAt: ab.enabled && hasKey ? ab.updatedAt : undefined,
         });
       }
     }
