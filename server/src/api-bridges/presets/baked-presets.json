@@ -1,0 +1,72 @@
+[
+  {
+    "presetId": "meshy",
+    "displayName": "Meshy (3D Generation)",
+    "defaultBaseUrl": "https://api.meshy.ai",
+    "authType": "bearer",
+    "description": "AI-powered 3D model generation from text or images via the Meshy API"
+  },
+  {
+    "presetId": "comfyui",
+    "displayName": "ComfyUI (Generative Workflows)",
+    "defaultBaseUrl": "http://127.0.0.1:8188",
+    "authType": "none",
+    "description": "Local ComfyUI instance for image/video generation workflows"
+  },
+  {
+    "presetId": "runway",
+    "displayName": "Runway (Video Generation)",
+    "defaultBaseUrl": "https://api.dev.runwayml.com",
+    "authType": "bearer",
+    "description": "AI-powered video generation and editing via the Runway API"
+  },
+  {
+    "presetId": "kling",
+    "displayName": "Kling AI (Video Generation)",
+    "defaultBaseUrl": "https://api.klingai.com",
+    "authType": "bearer",
+    "description": "AI-powered video generation from text or images via the Kling AI API"
+  },
+  {
+    "presetId": "luma",
+    "displayName": "Luma AI (Video & 3D Generation)",
+    "defaultBaseUrl": "https://api.lumalabs.ai",
+    "authType": "bearer",
+    "description": "AI-powered video and 3D generation via the Luma AI API (Dream Machine, Genie)"
+  },
+  {
+    "presetId": "flux",
+    "displayName": "Flux (Image Generation)",
+    "defaultBaseUrl": "https://api.bfl.ml",
+    "authType": "header",
+    "description": "High-quality image generation via the Black Forest Labs Flux API"
+  },
+  {
+    "presetId": "ideogram",
+    "displayName": "Ideogram (Image Generation)",
+    "defaultBaseUrl": "https://api.ideogram.ai",
+    "authType": "bearer",
+    "description": "AI-powered image generation with superior text rendering via the Ideogram API"
+  },
+  {
+    "presetId": "tripo",
+    "displayName": "Tripo (3D Generation)",
+    "defaultBaseUrl": "https://api.tripo3d.ai",
+    "authType": "bearer",
+    "description": "AI-powered 3D model generation from text or images via the Tripo API"
+  },
+  {
+    "presetId": "elevenlabs",
+    "displayName": "ElevenLabs (Audio Generation)",
+    "defaultBaseUrl": "https://api.elevenlabs.io",
+    "authType": "header",
+    "description": "AI-powered voice synthesis, sound effects, and audio generation via ElevenLabs"
+  },
+  {
+    "presetId": "suno",
+    "displayName": "Suno (Music Generation)",
+    "defaultBaseUrl": "https://apibox.erweima.ai",
+    "authType": "bearer",
+    "description": "AI-powered music generation via the Suno API"
+  }
+]

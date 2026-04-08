@@ -7,7 +7,10 @@
     presetId: string;
     displayName: string;
     defaultBaseUrl: string;
+    authType?: string;
+    description?: string;
     actions: Array<{ name: string; description: string }>;
+    hasHandler?: boolean;
   }
 
   interface PresetState {
@@ -84,7 +87,7 @@
     let configured = 0;
     for (const state of presetStates) {
       if (!state.selected || state.saved) continue;
-      if (!state.apiKey && state.preset.presetId !== "comfyui") {
+      if (!state.apiKey && state.preset.authType !== "none") {
         state.error = "API key required";
         continue;
       }
@@ -97,7 +100,7 @@
           type: "preset",
           presetId: state.preset.presetId,
           baseUrl: state.baseUrl,
-          authType: state.preset.presetId === "comfyui" ? "none" : "bearer",
+          authType: state.preset.authType ?? "bearer",
           apiKey: state.apiKey || undefined,
           enabled: true,
         });
@@ -146,15 +149,20 @@
           </label>
         </div>
 
-        <div class="preset-actions-list">
-          {#each state.preset.actions as action}
-            <span class="action-tag">{action.name}</span>
-          {/each}
-        </div>
+        {#if state.preset.description}
+          <div class="preset-desc">{state.preset.description}</div>
+        {/if}
+        {#if state.preset.actions.length > 0}
+          <div class="preset-actions-list">
+            {#each state.preset.actions as action}
+              <span class="action-tag">{action.name}</span>
+            {/each}
+          </div>
+        {/if}
 
         {#if (state.selected || state.saved) && !state.saved}
           <div class="preset-config">
-            {#if state.preset.presetId !== "comfyui"}
+            {#if state.preset.authType !== "none"}
               <label class="config-field">
                 <span>API Key</span>
                 <input
@@ -287,6 +295,13 @@
     font-weight: 600;
   }
 
+  .preset-desc {
+    font-size: 11px;
+    color: var(--text-secondary);
+    padding-left: 24px;
+    margin-top: 4px;
+    line-height: 1.3;
+  }
   .preset-actions-list {
     display: flex;
     gap: 4px;
