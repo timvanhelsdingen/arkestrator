@@ -1,10 +1,11 @@
-// Register all preset handlers on import
+// Register all preset handlers on import.
+// NOTE: ComfyUI is NOT registered here — it runs locally per-worker and is handled
+// by the existing headless bridge system (comfyui-headless.ts + health checker).
+// Only cloud/server-side API services belong here.
 import { registerPreset } from "./registry.js";
 import { MeshyHandler } from "./presets/meshy.js";
-import { ComfyUiHandler } from "./presets/comfyui.js";
 
 registerPreset(new MeshyHandler());
-registerPreset(new ComfyUiHandler());
 
 // Re-export public API
 export { getPresetHandler, listPresets, listPresetIds } from "./registry.js";
