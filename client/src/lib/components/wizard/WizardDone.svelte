@@ -20,7 +20,13 @@
         <span>bridge{wizard.bridgesInstalled === 1 ? "" : "s"} installed</span>
       </div>
     {/if}
-    {#if wizard.agentsCreated === 0 && wizard.bridgesInstalled === 0}
+    {#if wizard.apiBridgesConfigured > 0}
+      <div class="summary-item">
+        <span class="count">{wizard.apiBridgesConfigured}</span>
+        <span>API bridge{wizard.apiBridgesConfigured === 1 ? "" : "s"} configured</span>
+      </div>
+    {/if}
+    {#if wizard.agentsCreated === 0 && wizard.bridgesInstalled === 0 && wizard.apiBridgesConfigured === 0}
       <p class="hint">You can configure agents and install bridges later in Settings.</p>
     {/if}
   </div>

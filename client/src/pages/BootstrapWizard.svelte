@@ -8,29 +8,32 @@
   import WizardSkillsTraining from "../lib/components/wizard/WizardSkillsTraining.svelte";
   import WizardBridges from "../lib/components/wizard/WizardBridges.svelte";
   import WizardPersonality from "../lib/components/wizard/WizardPersonality.svelte";
+  import WizardApiBridges from "../lib/components/wizard/WizardApiBridges.svelte";
   import WizardDone from "../lib/components/wizard/WizardDone.svelte";
 
   // Determine what step component to show
   function getStepComponent(stepIndex: number): string {
     if (wizard.mode === "local") {
-      // Welcome → Security → Agents → Skills → Bridges → Ready
+      // Welcome → Security → Agents → Skills → Bridges → API Bridges → Ready
       switch (stepIndex) {
         case 0: return "choose";
         case 1: return "security";
         case 2: return "agents";
         case 3: return "skills";
         case 4: return "bridges";
-        case 5: return "done";
+        case 5: return "api-bridges";
+        case 6: return "done";
         default: return "choose";
       }
     } else if (wizard.mode === "remote") {
-      // Welcome → Connect → Personality → Bridges → Ready
+      // Welcome → Connect → Personality → Bridges → API Bridges → Ready
       switch (stepIndex) {
         case 0: return "choose";
         case 1: return "connect";
         case 2: return "personality";
         case 3: return "bridges";
-        case 4: return "done";
+        case 4: return "api-bridges";
+        case 5: return "done";
         default: return "choose";
       }
     }
@@ -118,6 +121,8 @@
         <WizardSkillsTraining />
       {:else if currentComponent === "bridges"}
         <WizardBridges />
+      {:else if currentComponent === "api-bridges"}
+        <WizardApiBridges />
       {:else if currentComponent === "done"}
         <WizardDone />
       {/if}
