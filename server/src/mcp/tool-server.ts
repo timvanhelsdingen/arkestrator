@@ -2189,7 +2189,34 @@ export function createMcpServer(deps: McpDeps): McpServer {
           onProgress: (percent, statusText) => logParts.push(`[${percent ?? "?"}%] ${statusText}`),
         });
 
-        const text = JSON.stringify(result, null, 2);
+        // Build a compact response — full signed URLs can be 10KB+ and may exceed
+        // MCP response size limits in some clients, causing "no output" errors.
+        const compact: Record<string, unknown> = {
+          success: result.success,
+          bridgeName: result.bridgeName,
+          action: result.action,
+        };
+        if (result.error) compact.error = result.error;
+        if (result.externalTaskId) compact.externalTaskId = result.externalTaskId;
+        if (result.externalStatus) compact.externalStatus = result.externalStatus;
+        if (result.outputFiles && result.outputFiles.length > 0) {
+          compact.outputFiles = result.outputFiles.map((f) => ({
+            url: f.url,
+            filename: f.filename,
+            mimeType: f.mimeType,
+            ...(f.sizeBytes != null ? { sizeBytes: f.sizeBytes } : {}),
+          }));
+          compact.downloadHint = "Use curl or wget to download these files to the desired directory.";
+        }
+        // Include a summary of the raw API data (omit large nested objects)
+        if (result.data && typeof result.data === "object") {
+          const d = result.data as Record<string, unknown>;
+          if (d.status) compact.apiStatus = d.status;
+          if (d.progress != null) compact.apiProgress = d.progress;
+          if (d.thumbnail_url) compact.thumbnailUrl = d.thumbnail_url;
+        }
+
+        const text = JSON.stringify(compact, null, 2);
         return {
           content: [{ type: "text" as const, text }],
           isError: !result.success,
