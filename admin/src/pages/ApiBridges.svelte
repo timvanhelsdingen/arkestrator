@@ -264,7 +264,7 @@
 
 <!-- Add/Edit Modal -->
 {#if showForm}
-  <Modal title="{editingBridge ? 'Edit' : 'Add'} {formType === 'preset' ? 'Preset' : 'Custom'} API Bridge" onclose={() => (showForm = false)}>
+  <Modal title="{editingBridge ? 'Edit' : 'Add'} {formType === 'preset' ? 'Preset' : 'Custom'} API Bridge" open={showForm} onclose={() => (showForm = false)}>
     <div class="form">
       {#if formType === "preset" && !editingBridge}
         <label>
