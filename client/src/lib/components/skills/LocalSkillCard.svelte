@@ -8,23 +8,33 @@
     selected = false,
     canManage = false,
     communityEnabled = false,
+    hasUpdate = false,
+    refreshing = false,
     onselect,
     onview,
     onedit,
     ondelete,
     onshare,
+    onrefresh,
   }: {
     skill: SkillEntry;
     effectiveness?: SkillEffectiveness | null;
     selected?: boolean;
     canManage?: boolean;
     communityEnabled?: boolean;
+    hasUpdate?: boolean;
+    refreshing?: boolean;
     onselect?: () => void;
     onview?: () => void;
     onedit?: () => void;
     ondelete?: () => void;
     onshare?: () => void;
+    onrefresh?: () => void;
   } = $props();
+
+  const isRefreshable = $derived(
+    skill.source === "bridge-repo" || skill.source === "registry" || skill.source === "community"
+  );
 
   const ratedCount = $derived(
     effectiveness ? effectiveness.totalUsed - (effectiveness.pendingOutcomes ?? 0) : 0
@@ -44,7 +54,9 @@
       <input type="checkbox" checked={selected} onchange={onselect} onclick={(e) => e.stopPropagation()} class="card-checkbox" />
     {/if}
     <button class="card-title" onclick={onview}>{skill.title}</button>
-    {#if isNew}
+    {#if hasUpdate}
+      <span class="badge update-badge">UPDATE</span>
+    {:else if isNew}
       <span class="badge new-badge">NEW</span>
     {/if}
     {#if skill.locked}
@@ -90,6 +102,11 @@
     {#if canManage}
       <button class="btn btn-sm" onclick={onedit} disabled={skill.locked} title={skill.locked ? "Skill is locked" : ""}>Edit</button>
       <button class="btn btn-sm btn-danger" onclick={ondelete}>Delete</button>
+    {/if}
+    {#if isRefreshable && onrefresh}
+      <button class="btn btn-sm {hasUpdate ? 'btn-accent' : ''}" onclick={onrefresh} disabled={refreshing} title="Update from source">
+        {refreshing ? "Updating..." : hasUpdate ? "Update" : "Refresh"}
+      </button>
     {/if}
     {#if communityEnabled && onshare}
       <button class="btn btn-sm" onclick={onshare} title="Share to community">Share</button>
@@ -178,6 +195,15 @@
     background: rgba(78, 201, 176, 0.15);
     letter-spacing: 0.5px;
   }
+  .update-badge {
+    flex-shrink: 0;
+    font-size: 9px;
+    padding: 1px 4px;
+    border-radius: 3px;
+    color: #e2b93d;
+    background: rgba(226, 185, 61, 0.15);
+    letter-spacing: 0.5px;
+  }
 
   .card-desc {
     margin: 0;
@@ -246,6 +272,14 @@
   }
   .btn-danger:hover {
     background: rgba(244, 71, 71, 0.1);
+  }
+  .btn-accent {
+    color: #e2b93d;
+    border-color: #e2b93d;
+    background: transparent;
+  }
+  .btn-accent:hover {
+    background: rgba(226, 185, 61, 0.1);
   }
   .btn-sm {
     padding: 2px 8px;

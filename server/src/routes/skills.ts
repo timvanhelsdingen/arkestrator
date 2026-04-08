@@ -552,6 +552,97 @@ export function createSkillsRoutes(
     }
   });
 
+  // POST /refresh/:slug — re-fetch a single skill from its upstream source
+  router.post("/refresh/:slug", async (c) => {
+    const auth = await requireWriteAccess(c);
+    if (!auth) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+
+    const slug = c.req.param("slug");
+    const program = c.req.query("program") || undefined;
+
+    // Find the existing skill
+    const existing = program
+      ? skillsRepo.getAny?.(slug, program) ?? skillsRepo.get(slug, program)
+      : skillsRepo.get(slug);
+    if (!existing) {
+      return errorResponse(c, 404, `Skill "${slug}" not found`, "NOT_FOUND");
+    }
+    if (existing.source === "user" || existing.source === "builtin") {
+      return errorResponse(c, 400, `Skill "${slug}" has source "${existing.source}" — nothing to refresh from`, "BAD_REQUEST");
+    }
+
+    let content: string | null = null;
+    let contentUrl: string | null = existing.sourcePath ?? null;
+
+    // For bridge-repo / registry skills: resolve contentUrl from sourcePath or registry
+    if (existing.source === "bridge-repo" || existing.source === "registry") {
+      if (!contentUrl) {
+        // Try to find the URL in the registry
+        const registry = await fetchRegistry();
+        const entry = registry.skills.find(
+          (s) => s.slug === slug && s.program === (existing.program ?? "global"),
+        );
+        if (entry) {
+          contentUrl = entry.contentUrl;
+        }
+      }
+      if (!contentUrl) {
+        return errorResponse(c, 404, `Cannot resolve upstream URL for skill "${slug}"`, "NOT_FOUND");
+      }
+      try {
+        const res = await fetch(contentUrl);
+        if (!res.ok) {
+          return errorResponse(c, 502, `Upstream fetch failed: ${res.status} ${res.statusText}`, "UPSTREAM_ERROR");
+        }
+        content = await res.text();
+      } catch (err: any) {
+        return errorResponse(c, 502, `Upstream fetch error: ${err?.message}`, "UPSTREAM_ERROR");
+      }
+    }
+
+    // For community skills: client passes communityId + optional baseUrl
+    if (existing.source === "community") {
+      let body: any = {};
+      try { body = await c.req.json().catch(() => ({})); } catch { /* empty */ }
+      const communityId = body?.communityId;
+      const baseUrl = (body?.communityBaseUrl || "https://arkestrator.com").replace(/\/+$/, "");
+      if (!communityId) {
+        return errorResponse(c, 400, "communityId is required to refresh a community skill", "BAD_REQUEST");
+      }
+      try {
+        const res = await fetch(`${baseUrl}/api/skills/${encodeURIComponent(communityId)}/download`);
+        if (!res.ok) {
+          return errorResponse(c, 502, `Community API error: ${res.status}`, "UPSTREAM_ERROR");
+        }
+        content = await res.text();
+      } catch (err: any) {
+        return errorResponse(c, 502, `Failed to reach community API: ${err?.message}`, "UPSTREAM_ERROR");
+      }
+    }
+
+    if (!content || !content.trim()) {
+      return errorResponse(c, 502, "Upstream returned empty content", "UPSTREAM_ERROR");
+    }
+
+    // Update skill content (triggers version snapshot if changed)
+    try {
+      const updates: Record<string, unknown> = { content };
+      if (contentUrl && !existing.sourcePath) {
+        updates.sourcePath = contentUrl; // backfill sourcePath if missing
+      }
+      if (skillStore) {
+        await skillStore.update(slug, updates, existing.program);
+      } else {
+        skillsRepo.update(existing.id, updates);
+        skillIndex.refresh();
+      }
+      const updated = skillsRepo.getAny?.(slug, existing.program) ?? skillsRepo.get(slug, existing.program);
+      return c.json({ ok: true, skill: updated });
+    } catch (err: any) {
+      return errorResponse(c, 500, err?.message ?? "Failed to update skill", "INTERNAL_ERROR");
+    }
+  });
+
   // POST /export-zip — export selected skills as a ZIP of SKILL.md files
   router.post("/export-zip", async (c) => {
     const auth = await requireAuth(c);

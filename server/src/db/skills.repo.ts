@@ -95,6 +95,7 @@ export interface UpdateSkillInput {
   playbooks?: string[];
   relatedSkills?: string[];
   source?: string;
+  sourcePath?: string | null;
   priority?: number;
   autoFetch?: boolean;
   enabled?: boolean;
@@ -251,6 +252,7 @@ export class SkillsRepo {
     if (updates.playbooks !== undefined) { sets.push("playbooks = ?"); values.push(JSON.stringify(updates.playbooks)); }
     if (updates.relatedSkills !== undefined) { sets.push("related_skills = ?"); values.push(JSON.stringify(updates.relatedSkills)); }
     if (updates.source !== undefined) { sets.push("source = ?"); values.push(updates.source); }
+    if (updates.sourcePath !== undefined) { sets.push("source_path = ?"); values.push(updates.sourcePath); }
     if (updates.priority !== undefined) { sets.push("priority = ?"); values.push(updates.priority); }
     if (updates.autoFetch !== undefined) { sets.push("auto_fetch = ?"); values.push(updates.autoFetch ? 1 : 0); }
     if (updates.enabled !== undefined) { sets.push("enabled = ?"); values.push(updates.enabled ? 1 : 0); }
