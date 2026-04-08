@@ -5236,6 +5236,36 @@ export function createSettingsCoordinatorRoutes(deps: SettingsRouteDeps) {
     });
   });
 
+  // --- Coordinator script versioning helpers ---
+
+  /** Get the current version number for a program (0 if no versions exist yet). */
+  function getScriptCurrentVersion(program: string): number {
+    if (!db) return 0;
+    try {
+      const row = db.prepare(
+        "SELECT MAX(version) as maxV FROM coordinator_script_versions WHERE program = ?",
+      ).get(program) as { maxV: number | null } | null;
+      return (row?.maxV ?? 0);
+    } catch {
+      return 0;
+    }
+  }
+
+  /** Snapshot the current file content into the versions table. Returns the version number. */
+  function snapshotScriptVersion(program: string, content: string): number {
+    if (!db) return 0;
+    const nextVersion = getScriptCurrentVersion(program) + 1;
+    try {
+      db.prepare(
+        `INSERT OR IGNORE INTO coordinator_script_versions (id, program, version, content, created_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      ).run(newId(), program, nextVersion, content, new Date().toISOString());
+    } catch {
+      // Table may not exist on very old DBs — proceed without snapshotting
+    }
+    return nextVersion;
+  }
+
   // Save a coordinator script (create or overwrite the file)
   router.put("/coordinator-scripts/:program", async (c) => {
     const user = requireSecurityManager(c);
@@ -5259,6 +5289,17 @@ export function createSettingsCoordinatorRoutes(deps: SettingsRouteDeps) {
       return errorResponse(c, 400, "content must be a string", "INVALID_INPUT");
     }
 
+    // Snapshot the current content before overwriting (for version history)
+    let version = getScriptCurrentVersion(program);
+    if (existsSync(path)) {
+      try {
+        const oldContent = readFileSync(path, "utf-8");
+        if (oldContent.trim() !== content.trim()) {
+          version = snapshotScriptVersion(program, oldContent);
+        }
+      } catch { /* ignore read errors */ }
+    }
+
     try {
       mkdirSync(coordinatorScriptsDir, { recursive: true });
       writeFileSync(path, content, "utf-8");
@@ -5274,7 +5315,113 @@ export function createSettingsCoordinatorRoutes(deps: SettingsRouteDeps) {
       ipAddress: getClientIp(c),
     });
 
-    return c.json({ ok: true, program });
+    return c.json({ ok: true, program, version: version + 1 });
+  });
+
+  // List version history for a coordinator script (newest first)
+  router.get("/coordinator-scripts/:program/versions", (c) => {
+    const user = requireSecurityManager(c);
+    if (!user) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+
+    const program = c.req.param("program");
+    if (!resolveCoordinatorScriptPath(program)) {
+      return errorResponse(c, 400, "Invalid program name", "INVALID_INPUT");
+    }
+
+    try {
+      const rows = db!.prepare(
+        "SELECT * FROM coordinator_script_versions WHERE program = ? ORDER BY version DESC",
+      ).all(program) as Array<{
+        id: string; program: string; version: number; content: string; created_at: string;
+      }>;
+      const currentVersion = getScriptCurrentVersion(program) + 1; // current live = max snapshot + 1
+      return c.json({ versions: rows, currentVersion });
+    } catch {
+      return c.json({ versions: [], currentVersion: 1 });
+    }
+  });
+
+  // Rollback a coordinator script to a previous version
+  router.post("/coordinator-scripts/:program/rollback", async (c) => {
+    const user = requireSecurityManager(c);
+    if (!user) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+
+    const program = c.req.param("program");
+    const path = resolveCoordinatorScriptPath(program);
+    if (!path) {
+      return errorResponse(c, 400, "Invalid program name", "INVALID_INPUT");
+    }
+
+    let body: any;
+    try { body = await c.req.json(); } catch {
+      return errorResponse(c, 400, "Invalid JSON", "INVALID_INPUT");
+    }
+    const version = Number(body?.version);
+    if (!Number.isFinite(version) || version < 1) {
+      return errorResponse(c, 400, "Invalid version number", "INVALID_INPUT");
+    }
+
+    // Find the target version
+    const target = db!.prepare(
+      "SELECT content FROM coordinator_script_versions WHERE program = ? AND version = ?",
+    ).get(program, version) as { content: string } | null;
+    if (!target) {
+      return errorResponse(c, 404, `Version ${version} not found`, "NOT_FOUND");
+    }
+
+    // Snapshot current content before restoring
+    if (existsSync(path)) {
+      try {
+        const currentContent = readFileSync(path, "utf-8");
+        snapshotScriptVersion(program, currentContent);
+      } catch { /* ignore */ }
+    }
+
+    // Write the restored content
+    try {
+      mkdirSync(coordinatorScriptsDir, { recursive: true });
+      writeFileSync(path, target.content, "utf-8");
+    } catch (err) {
+      return errorResponse(c, 500, `Failed to write script: ${err}`, "WRITE_ERROR");
+    }
+
+    auditRepo.log({
+      userId: user.id,
+      username: user.username,
+      action: "coordinator_script_rollback",
+      resource: `coordinator_script:${program}`,
+      ipAddress: getClientIp(c),
+    });
+
+    return c.json({ ok: true, program, content: target.content });
+  });
+
+  // Delete a specific version snapshot
+  router.delete("/coordinator-scripts/:program/versions/:version", (c) => {
+    const user = requireSecurityManager(c);
+    if (!user) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+
+    const program = c.req.param("program");
+    if (!resolveCoordinatorScriptPath(program)) {
+      return errorResponse(c, 400, "Invalid program name", "INVALID_INPUT");
+    }
+
+    const version = Number(c.req.param("version"));
+    if (!Number.isFinite(version) || version < 1) {
+      return errorResponse(c, 400, "Invalid version number", "INVALID_INPUT");
+    }
+
+    try {
+      const result = db!.prepare(
+        "DELETE FROM coordinator_script_versions WHERE program = ? AND version = ?",
+      ).run(program, version);
+      if (result.changes === 0) {
+        return errorResponse(c, 404, `Version ${version} not found`, "NOT_FOUND");
+      }
+      return c.json({ ok: true });
+    } catch {
+      return errorResponse(c, 500, "Failed to delete version", "INTERNAL");
+    }
   });
 
   // Reset a coordinator script to its built-in default, or remove it entirely if dynamic

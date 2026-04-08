@@ -694,6 +694,17 @@ export const api = {
       }),
     resetCoordinatorScript: (program: string) =>
       request(`/api/settings/coordinator-scripts/${program}`, { method: "DELETE" }),
+    listCoordinatorScriptVersions: (program: string) =>
+      request(`/api/settings/coordinator-scripts/${encodeURIComponent(program)}/versions`),
+    rollbackCoordinatorScript: (program: string, version: number) =>
+      request(`/api/settings/coordinator-scripts/${encodeURIComponent(program)}/rollback`, {
+        method: "POST",
+        body: JSON.stringify({ version }),
+      }),
+    deleteCoordinatorScriptVersion: (program: string, version: number) =>
+      request(`/api/settings/coordinator-scripts/${encodeURIComponent(program)}/versions/${version}`, {
+        method: "DELETE",
+      }),
     getCoordinatorReferencePaths: () =>
       request("/api/settings/coordinator-reference-paths"),
     setCoordinatorReferencePaths: (paths: string[]) =>

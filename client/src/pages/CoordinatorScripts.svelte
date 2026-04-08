@@ -23,14 +23,15 @@
   let scriptEditorTarget = $state<ScriptEditorTarget>(null);
   let scriptEditorDraft = $state("");
 
+  // Version history
+  type ScriptVersion = { id: string; program: string; version: number; content: string; created_at: string };
+  let scriptVersions = $state<ScriptVersion[]>([]);
+  let scriptCurrentVersion = $state(1);
+  let selectedVersionNumber = $state(0); // 0 = current (live)
+  const viewingOldVersion = $derived(selectedVersionNumber > 0 && selectedVersionNumber !== scriptCurrentVersion);
+
   function normalizeProgramKey(value: string): string {
     return String(value ?? "").trim().toLowerCase();
-  }
-
-  function previewScript(content: string): string {
-    const oneLine = String(content ?? "").trim().replace(/\s+/g, " ");
-    if (!oneLine) return "No script content yet.";
-    return oneLine.length > 140 ? `${oneLine.slice(0, 140)}...` : oneLine;
   }
 
   async function loadPrograms() {
@@ -76,14 +77,82 @@
     }
   }
 
-  function openScriptEditor(program: string) {
+  async function openScriptEditor(program: string) {
     scriptEditorTarget = program;
     scriptEditorDraft = scriptsByProgram[program] ?? "";
+    selectedVersionNumber = 0;
+    scriptVersions = [];
+    scriptCurrentVersion = 1;
+    // Load version history
+    try {
+      const res = await api.settings.listCoordinatorScriptVersions(program);
+      scriptVersions = Array.isArray(res?.versions) ? res.versions : [];
+      scriptCurrentVersion = res?.currentVersion ?? 1;
+    } catch { /* no versions yet */ }
   }
 
   function closeScriptEditor() {
     scriptEditorTarget = null;
     scriptEditorDraft = "";
+    scriptVersions = [];
+    selectedVersionNumber = 0;
+  }
+
+  function onVersionSelect() {
+    if (!scriptEditorTarget) return;
+    if (selectedVersionNumber === 0) {
+      // Back to current live content
+      scriptEditorDraft = scriptsByProgram[scriptEditorTarget] ?? "";
+      return;
+    }
+    const v = scriptVersions.find((sv) => sv.version === selectedVersionNumber);
+    if (v) scriptEditorDraft = v.content;
+  }
+
+  async function rollbackToVersion(version: number) {
+    if (!scriptEditorTarget) return;
+    error = "";
+    info = "";
+    try {
+      const res = await api.settings.rollbackCoordinatorScript(scriptEditorTarget, version);
+      if (res?.content !== undefined) {
+        scriptsByProgram = { ...scriptsByProgram, [scriptEditorTarget]: res.content };
+        scriptEditorDraft = res.content;
+      }
+      info = `Restored ${scriptEditorTarget} script to version ${version}.`;
+      // Reload versions
+      const vRes = await api.settings.listCoordinatorScriptVersions(scriptEditorTarget);
+      scriptVersions = Array.isArray(vRes?.versions) ? vRes.versions : [];
+      scriptCurrentVersion = vRes?.currentVersion ?? 1;
+      selectedVersionNumber = 0;
+    } catch (err: any) {
+      error = `Rollback failed: ${err.message ?? err}`;
+    }
+  }
+
+  async function deleteVersion(version: number) {
+    if (!scriptEditorTarget) return;
+    error = "";
+    try {
+      await api.settings.deleteCoordinatorScriptVersion(scriptEditorTarget, version);
+      scriptVersions = scriptVersions.filter((v) => v.version !== version);
+      selectedVersionNumber = 0;
+      scriptEditorDraft = scriptsByProgram[scriptEditorTarget] ?? "";
+    } catch (err: any) {
+      error = `Delete version failed: ${err.message ?? err}`;
+    }
+  }
+
+  function versionTimeAgo(isoDate: string): string {
+    const ms = Date.now() - new Date(isoDate).getTime();
+    const s = Math.floor(ms / 1000);
+    if (s < 60) return "just now";
+    const m = Math.floor(s / 60);
+    if (m < 60) return `${m}m ago`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h}h ago`;
+    const d = Math.floor(h / 24);
+    return `${d}d ago`;
   }
 
   async function saveScriptEditor() {
@@ -95,7 +164,11 @@
       await api.settings.setCoordinatorScript(scriptEditorTarget, scriptEditorDraft);
       scriptsByProgram = { ...scriptsByProgram, [scriptEditorTarget]: scriptEditorDraft };
       info = `Saved ${scriptEditorTarget} script.`;
-      closeScriptEditor();
+      // Reload versions after save
+      const vRes = await api.settings.listCoordinatorScriptVersions(scriptEditorTarget);
+      scriptVersions = Array.isArray(vRes?.versions) ? vRes.versions : [];
+      scriptCurrentVersion = vRes?.currentVersion ?? 1;
+      selectedVersionNumber = 0;
     } catch (err: any) {
       error = `Save script failed: ${err.message ?? err}`;
     } finally {
@@ -175,9 +248,6 @@
                   {/if}
                 </div>
               </div>
-              <div class="script-card-preview">
-                {previewScript(scriptsByProgram[prog.value] ?? "")}
-              </div>
               <div class="script-card-actions">
                 <button class="btn secondary" onclick={() => openScriptEditor(prog.value)}>Edit</button>
                 {#if prog.value !== "global"}
@@ -218,14 +288,30 @@
           Update the <strong>{scriptEditorTarget}</strong> script applied after the global coordinator script.
         {/if}
       </p>
+      {#if scriptVersions.length > 0}
+        <div class="version-selector">
+          <select bind:value={selectedVersionNumber} onchange={onVersionSelect}>
+            <option value={0}>v{scriptCurrentVersion} · current</option>
+            {#each scriptVersions as v}
+              <option value={v.version}>v{v.version} · {versionTimeAgo(v.created_at)}</option>
+            {/each}
+          </select>
+          {#if viewingOldVersion}
+            <button class="btn-sm restore-btn" onclick={() => rollbackToVersion(selectedVersionNumber)}>Restore</button>
+            <button class="btn-sm danger" onclick={() => deleteVersion(selectedVersionNumber)}>Delete</button>
+          {/if}
+        </div>
+      {/if}
       <label>
         Script
-        <textarea class="script-editor-textarea" bind:value={scriptEditorDraft} spellcheck="false"></textarea>
+        <textarea class="script-editor-textarea" bind:value={scriptEditorDraft} spellcheck="false" readonly={viewingOldVersion}></textarea>
       </label>
       <div class="actions">
-        <button class="btn" onclick={saveScriptEditor} disabled={scriptsSaving}>
-          {scriptsSaving ? "Saving..." : "Save Script"}
-        </button>
+        {#if !viewingOldVersion}
+          <button class="btn" onclick={saveScriptEditor} disabled={scriptsSaving}>
+            {scriptsSaving ? "Saving..." : "Save Script"}
+          </button>
+        {/if}
         <button class="btn secondary" onclick={closeScriptEditor} disabled={scriptsSaving}>Cancel</button>
       </div>
     </div>
@@ -309,17 +395,6 @@
     color: #64c896;
     border: 1px solid rgba(100, 200, 150, 0.3);
   }
-  .script-card-preview {
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--bg-base);
-    color: var(--text-secondary);
-    padding: 10px;
-    font-size: var(--font-size-sm);
-    line-height: 1.4;
-    word-break: break-word;
-    min-height: 48px;
-  }
   .script-card-actions {
     display: flex;
     gap: 6px;
@@ -381,4 +456,9 @@
   .zoom-control { display: flex; align-items: center; gap: 4px; margin-left: auto; }
   .zoom-icon { font-size: 12px; opacity: 0.5; }
   .zoom-control input[type="range"] { width: 80px; accent-color: var(--accent); }
+
+  .version-selector { display: flex; gap: 6px; align-items: center; }
+  .version-selector select { width: auto; min-width: 140px; padding: 4px 6px; font-size: var(--font-size-sm); }
+  .restore-btn { background: var(--accent) !important; color: #fff !important; border-color: var(--accent) !important; }
+  .btn-sm.danger { color: var(--danger, #e55); }
 </style>
