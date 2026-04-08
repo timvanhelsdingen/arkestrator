@@ -111,18 +111,26 @@ export function createWorkerRoutes(
       }
     }
 
-    // Inject a virtual "Server" worker for API bridges (Meshy, Stability, etc.)
+    // Inject a virtual "Server" worker for cloud API bridges (Meshy, Stability, etc.)
+    // Exclude bridges that are already tracked as virtual bridges in the hub (e.g. ComfyUI)
+    // since those show under the machine worker where they run.
     const enabledApiBridges = apiBridgesRepo?.listEnabled() ?? [];
-    if (enabledApiBridges.length > 0) {
+    const virtualBridgePrograms = new Set(
+      hub.getVirtualBridges().map((vb) => vb.program.toLowerCase()),
+    );
+    const serverOnlyBridges = enabledApiBridges.filter(
+      (ab) => !virtualBridgePrograms.has(ab.name.toLowerCase()),
+    );
+    if (serverOnlyBridges.length > 0) {
       const serverName = "Arkestrator Server";
       const now = new Date().toISOString();
-      const apiBridgePrograms = enabledApiBridges.map((b) => b.displayName);
+      const apiBridgePrograms = serverOnlyBridges.map((b) => b.displayName);
 
       enriched.push({
         id: "server-worker",
         name: serverName,
         status: "online",
-        activeBridgeCount: enabledApiBridges.length,
+        activeBridgeCount: serverOnlyBridges.length,
         knownPrograms: apiBridgePrograms,
         workerModeEnabled: true,
         isServerWorker: true,
@@ -131,7 +139,7 @@ export function createWorkerRoutes(
         rule: getWorkerRule(settingsRepo, serverName),
       });
 
-      for (const ab of enabledApiBridges) {
+      for (const ab of serverOnlyBridges) {
         const hasKey = !!apiBridgesRepo!.getApiKey(ab.id);
         bridgeList.push({
           id: `api-bridge:${ab.name}`,

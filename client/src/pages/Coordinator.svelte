@@ -591,9 +591,10 @@
     if (!canManage) return;
     readinessLoading = true;
     try {
-      const [bridgesRes, headlessRes] = await Promise.all([
+      const [bridgesRes, headlessRes, apiBridgesRes] = await Promise.all([
         api.bridgeCommands.listBridges(),
         api.headlessPrograms.list(),
+        api.apiBridges.list().catch(() => []),
       ]);
       const bridgeCounts: Record<string, number> = {};
       for (const bridge of Array.isArray(bridgesRes?.bridges) ? bridgesRes.bridges : []) {
@@ -618,6 +619,11 @@
       const knownKeys = new Set<string>();
       for (const key of Object.keys(bridgeCounts)) if (key) knownKeys.add(key);
       for (const key of Object.keys(nextHeadless)) if (key) knownKeys.add(key);
+      // Include API bridges (Meshy, Stability, etc.) as bridge programs
+      for (const ab of Array.isArray(apiBridgesRes) ? apiBridgesRes : []) {
+        const name = normalizeProgramKey(String((ab as any)?.name ?? ""));
+        if (name) knownKeys.add(name);
+      }
       // Include programs from skills so you can manage skills even without a live bridge
       for (const skill of serverSkills) {
         const sp = String(skill.program ?? "").trim().toLowerCase();
