@@ -147,6 +147,12 @@ export const ApiBridgePresetInfo = z.object({
   presetId: z.string(),
   displayName: z.string(),
   defaultBaseUrl: z.string(),
+  /** Authentication type hint from remote bridge metadata */
+  authType: ApiBridgeAuthType.optional(),
+  /** Description from bridge.json */
+  description: z.string().optional(),
   actions: z.array(ApiBridgeAction),
+  /** True if a local TypeScript handler exists (full execution support) */
+  hasHandler: z.boolean().optional(),
 });
 export type ApiBridgePresetInfo = z.infer<typeof ApiBridgePresetInfo>;

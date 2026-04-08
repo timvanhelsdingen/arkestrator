@@ -20,7 +20,10 @@
     presetId: string;
     displayName: string;
     defaultBaseUrl: string;
+    authType?: string;
+    description?: string;
     actions: Array<{ name: string; description: string }>;
+    hasHandler?: boolean;
   }
 
   let bridges = $state<ApiBridge[]>([]);
@@ -94,6 +97,7 @@
       formName = preset.presetId;
       formDisplayName = preset.displayName;
       formBaseUrl = preset.defaultBaseUrl;
+      formAuthType = preset.authType ?? "bearer";
     }
   }
 
@@ -245,18 +249,23 @@
 {#if presets.length > 0}
   <section>
     <h3>Available Presets</h3>
-    <p class="desc">Built-in integrations with popular APIs. Click "Add Preset Bridge" above to configure one.</p>
+    <p class="desc">Integrations with popular APIs. Click "Add Preset Bridge" above to configure one.</p>
     <div class="preset-list">
       {#each presets as preset}
         <div class="preset-item">
           <div class="preset-info">
             <span class="preset-name">{preset.displayName}</span>
+            {#if preset.description}
+              <span class="preset-desc">{preset.description}</span>
+            {/if}
             <span class="preset-url">{preset.defaultBaseUrl}</span>
           </div>
           <div class="preset-actions">
-            {#each preset.actions as action}
-              <span class="preset-action">{action.name}</span>
-            {/each}
+            {#if preset.actions.length > 0}
+              {#each preset.actions as action}
+                <span class="preset-action">{action.name}</span>
+              {/each}
+            {/if}
           </div>
         </div>
       {/each}
@@ -302,17 +311,15 @@
         <input type="password" bind:value={formApiKey} placeholder={editingId ? "(unchanged)" : "Enter API key"} />
       </label>
 
-      {#if formType === "custom"}
-        <label>
-          Auth Type
-          <select bind:value={formAuthType}>
-            <option value="bearer">Bearer Token</option>
-            <option value="header">Custom Header</option>
-            <option value="query">Query Parameter</option>
-            <option value="none">None</option>
-          </select>
-        </label>
-      {/if}
+      <label>
+        Auth Type
+        <select bind:value={formAuthType}>
+          <option value="bearer">Bearer Token</option>
+          <option value="header">Custom Header</option>
+          <option value="query">Query Parameter</option>
+          <option value="none">None</option>
+        </select>
+      </label>
 
       {#if formError}
         <div class="form-error">{formError}</div>
@@ -519,6 +526,11 @@
     font-size: var(--font-size-sm);
     color: var(--text-primary);
     font-weight: 600;
+  }
+  .preset-desc {
+    font-size: 11px;
+    color: var(--text-secondary);
+    line-height: 1.3;
   }
   .preset-url {
     font-size: 11px;

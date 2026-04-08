@@ -22,7 +22,10 @@
     presetId: string;
     displayName: string;
     defaultBaseUrl: string;
+    authType?: string;
+    description?: string;
     actions: Array<{ name: string; description: string; parameters: Record<string, any> }>;
+    hasHandler?: boolean;
   }
 
   let bridges = $state<ApiBridge[]>([]);
@@ -97,6 +100,7 @@
       formName = preset.presetId;
       formDisplayName = preset.displayName;
       formBaseUrl = preset.defaultBaseUrl;
+      formAuthType = preset.authType ?? "bearer";
     }
   }
 
@@ -249,11 +253,16 @@
         {#each presets as preset}
           <div class="preset-card">
             <strong>{preset.displayName}</strong>
+            {#if preset.description}
+              <span class="preset-desc">{preset.description}</span>
+            {/if}
             <span class="mono">{preset.defaultBaseUrl}</span>
             <div class="preset-actions">
-              {#each preset.actions as action}
-                <span class="action-tag" title={action.description}>{action.name}</span>
-              {/each}
+              {#if preset.actions.length > 0}
+                {#each preset.actions as action}
+                  <span class="action-tag" title={action.description}>{action.name}</span>
+                {/each}
+              {/if}
             </div>
           </div>
         {/each}
@@ -297,17 +306,15 @@
         <input type="password" bind:value={formApiKey} placeholder={editingBridge ? "(unchanged)" : "Enter API key"} />
       </label>
 
-      {#if formType === "custom"}
-        <label>
-          Auth Type
-          <select bind:value={formAuthType}>
-            <option value="bearer">Bearer Token</option>
-            <option value="header">Custom Header</option>
-            <option value="query">Query Parameter</option>
-            <option value="none">None</option>
-          </select>
-        </label>
-      {/if}
+      <label>
+        Auth Type
+        <select bind:value={formAuthType}>
+          <option value="bearer">Bearer Token</option>
+          <option value="header">Custom Header</option>
+          <option value="query">Query Parameter</option>
+          <option value="none">None</option>
+        </select>
+      </label>
 
       <div class="form-actions">
         <button class="btn primary" onclick={saveForm} disabled={formSaving}>
@@ -361,6 +368,7 @@
   .preset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
   .preset-card { padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-surface); }
   .preset-card strong { display: block; font-size: 14px; margin-bottom: 2px; }
+  .preset-desc { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 2px; }
   .preset-actions { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 8px; }
   .action-tag { font-size: 10px; padding: 1px 6px; border-radius: 3px; background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text-secondary); font-family: var(--font-mono, monospace); }
 

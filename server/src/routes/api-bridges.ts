@@ -50,8 +50,20 @@ export function createApiBridgeRoutes(
   // List available preset templates (public — no sensitive data, needed by wizard before full auth)
   router.get("/presets", async (_c) => {
     // Dynamic import to ensure presets are registered
-    const { listPresets } = await import("../api-bridges/index.js");
+    const { listPresets, refreshRemotePresets } = await import("../api-bridges/index.js");
+    // Ensure remote presets are loaded (uses cache if fresh)
+    await refreshRemotePresets();
     return _c.json(listPresets());
+  });
+
+  // Force-refresh presets from GitHub (admin only)
+  router.post("/presets/refresh", async (c) => {
+    const user = requireAdmin(c, usersRepo);
+    if (!user) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+
+    const { forceRefreshRemotePresets, listPresets } = await import("../api-bridges/index.js");
+    await forceRefreshRemotePresets();
+    return c.json(listPresets());
   });
 
   // Get single bridge
@@ -90,10 +102,10 @@ export function createApiBridgeRoutes(
       return errorResponse(c, 409, `Bridge name '${parsed.data.name}' already exists`, "CONFLICT");
     }
 
-    // Validate preset ID if type is preset
+    // Validate preset ID if type is preset (accept both local handlers and remote presets)
     if (parsed.data.type === "preset" && parsed.data.presetId) {
-      const { getPresetHandler } = await import("../api-bridges/index.js");
-      if (!getPresetHandler(parsed.data.presetId)) {
+      const { isKnownPreset } = await import("../api-bridges/index.js");
+      if (!isKnownPreset(parsed.data.presetId)) {
         return errorResponse(c, 400, `Unknown preset: ${parsed.data.presetId}`, "BAD_REQUEST");
       }
     }
