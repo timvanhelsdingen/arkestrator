@@ -1656,8 +1656,10 @@ function buildBridgeOrchestrationPrompt(
       "The following external API services are available via MCP tools. " +
       "These run entirely on the server — no client bridge connection needed.\n\n" +
       lines.join("\n") + "\n\n" +
-      "Use `list_api_bridges` to see full parameter schemas, then `execute_api_bridge(bridge, action, params)` to call them. " +
-      "Results include output file URLs that can be downloaded.";
+      "Use `list_api_bridges` to see full parameter schemas, then `execute_api_bridge(bridge, action, params)` to call them.\n" +
+      "The result includes `outputFiles` with download URLs. **Always download output files** to the " +
+      "requested directory using curl/wget (e.g. `curl -L -o /path/model.glb \"<url>\"`). " +
+      "Never just return URLs — download the actual files.";
   }
 
   // Always append skills reminder as the final section so every bridge job sees it

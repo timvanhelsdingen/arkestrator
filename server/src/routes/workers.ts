@@ -114,7 +114,7 @@ export function createWorkerRoutes(
     // Inject a virtual "Server" worker for API bridges (Meshy, Stability, etc.)
     const enabledApiBridges = apiBridgesRepo?.listEnabled() ?? [];
     if (enabledApiBridges.length > 0) {
-      const serverName = hostname();
+      const serverName = "Arkestrator Server";
       const now = new Date().toISOString();
       const apiBridgePrograms = enabledApiBridges.map((b) => b.displayName);
 
