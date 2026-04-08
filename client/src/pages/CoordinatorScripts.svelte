@@ -15,31 +15,10 @@
   let scriptsByProgram = $state<Record<string, string>>({});
   let scriptsSaving = $state(false);
 
-  // Script editor side panel
+  // Script editor modal
   type ScriptEditorTarget = string | null; // program name or null
   let scriptEditorTarget = $state<ScriptEditorTarget>(null);
   let scriptEditorDraft = $state("");
-  let editorPanelWidth = $state(520);
-
-  // Client prompt overrides
-  const CLIENT_PROMPT_OVERRIDES_STORAGE_KEY = "arkestrator-coordinator-client-prompt-overrides-v1";
-  let clientPromptOverrideGlobal = $state("");
-  let clientOverridesByProgram = $state<Record<string, string>>({});
-
-  function startEditorResize(e: MouseEvent) {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startW = editorPanelWidth;
-    function onMove(ev: MouseEvent) {
-      editorPanelWidth = Math.max(360, Math.min(800, startW - (ev.clientX - startX)));
-    }
-    function onUp() {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    }
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-  }
 
   function normalizeProgramKey(value: string): string {
     return String(value ?? "").trim().toLowerCase();
@@ -92,46 +71,6 @@
     } catch (err: any) {
       error = `Failed to load scripts: ${err.message ?? err}`;
     }
-  }
-
-  function loadClientPromptOverrides() {
-    let global = "";
-    let byProgram: Record<string, string> = {};
-    try {
-      const raw = localStorage.getItem(CLIENT_PROMPT_OVERRIDES_STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as Record<string, unknown>;
-        global = String(parsed?.global ?? "").trim();
-        const byProgramRaw = parsed?.byProgram;
-        if (byProgramRaw && typeof byProgramRaw === "object" && !Array.isArray(byProgramRaw)) {
-          for (const [key, value] of Object.entries(byProgramRaw as Record<string, unknown>)) {
-            const k = normalizeProgramKey(key);
-            const text = String(value ?? "").trim();
-            if (k && text) byProgram[k] = text;
-          }
-        }
-      }
-    } catch {
-      global = "";
-      byProgram = {};
-    }
-    clientPromptOverrideGlobal = global;
-    clientOverridesByProgram = byProgram;
-  }
-
-  function saveClientPromptOverrides() {
-    const payload: Record<string, unknown> = {};
-    const global = clientPromptOverrideGlobal.trim();
-    if (global) payload.global = global;
-    const cleaned: Record<string, string> = {};
-    for (const [k, v] of Object.entries(clientOverridesByProgram)) {
-      const text = v.trim();
-      if (text) cleaned[normalizeProgramKey(k)] = text;
-    }
-    if (Object.keys(cleaned).length > 0) payload.byProgram = cleaned;
-    localStorage.setItem(CLIENT_PROMPT_OVERRIDES_STORAGE_KEY, JSON.stringify(payload));
-    clientOverridesByProgram = cleaned;
-    clientPromptOverrideGlobal = global;
   }
 
   function openScriptEditor(program: string) {
@@ -187,7 +126,6 @@
     info = "";
     try {
       await Promise.all([loadPrograms(), loadScripts()]);
-      loadClientPromptOverrides();
     } catch (err: any) {
       error = err.message ?? String(err);
     } finally {
@@ -197,118 +135,94 @@
 </script>
 
 <div class="scripts-page">
-  <div class="scripts-body">
-    <div class="scripts-main">
-      <h2>Coordinator Scripts</h2>
-      {#if !canManage}
-        <div class="panel">
-          <p>You don't have permission to manage coordinator scripts.</p>
-        </div>
-      {:else}
-        <div class="scripts-toolbar">
-          <button class="btn secondary" onclick={refreshAll} disabled={loading}>
-            {loading ? "Loading..." : "Refresh"}
-          </button>
-        </div>
+  <div class="scripts-main">
+    <h2>Coordinator Scripts</h2>
+    {#if !canManage}
+      <div class="panel">
+        <p>You don't have permission to manage coordinator scripts.</p>
+      </div>
+    {:else}
+      <div class="scripts-toolbar">
+        <button class="btn secondary" onclick={refreshAll} disabled={loading}>
+          {loading ? "Loading..." : "Refresh"}
+        </button>
+      </div>
 
-        {#if error}<div class="error">{error}</div>{/if}
-        {#if info}<div class="info">{info}</div>{/if}
+      {#if error}<div class="error">{error}</div>{/if}
+      {#if info}<div class="info">{info}</div>{/if}
 
-        {#if isAdmin}
-          <div class="script-cards">
-            {#each programs as prog (prog.value)}
-              <div class="script-card">
-                <div class="script-card-header">
-                  <span class="script-card-title">{prog.label}</span>
-                  <div class="script-card-badges">
-                    {#if prog.value === "global"}
-                      <span class="badge type-badge global">Global</span>
-                    {:else if prog.isApi}
-                      <span class="badge type-badge api">API</span>
-                    {:else}
-                      <span class="badge type-badge dcc">DCC</span>
-                    {/if}
-                  </div>
-                </div>
-                <div class="script-card-preview">
-                  {previewScript(scriptsByProgram[prog.value] ?? "")}
-                </div>
-                <div class="script-card-actions">
-                  <button class="btn secondary" onclick={() => openScriptEditor(prog.value)}>Edit</button>
-                  {#if prog.value !== "global"}
-                    <button class="btn secondary" onclick={() => resetScript(prog.value)}>Reset</button>
+      {#if isAdmin}
+        <div class="script-cards">
+          {#each programs as prog (prog.value)}
+            <div class="script-card">
+              <div class="script-card-header">
+                <span class="script-card-title">{prog.label}</span>
+                <div class="script-card-badges">
+                  {#if prog.value === "global"}
+                    <span class="badge type-badge global">Global</span>
+                  {:else if prog.isApi}
+                    <span class="badge type-badge api">API</span>
+                  {:else}
+                    <span class="badge type-badge dcc">DCC</span>
                   {/if}
                 </div>
               </div>
-            {/each}
-          </div>
-        {:else}
-          <div class="panel">
-            <h3>Server Scripts</h3>
-            <p class="desc">Server-side coordinator scripts are admin-managed.</p>
-          </div>
-        {/if}
-
-        <!-- Client Prompt Overrides -->
-        <section class="panel" style="margin-top: 16px;">
-          <h3>Client Bridge Prompt Overrides</h3>
-          <p class="desc">
-            Add local client-only instructions that are appended after server coordinator scripts when you submit jobs.
-            These do not modify server scripts or training vault data.
-          </p>
-          <label>
-            Global Client Override (optional)
-            <textarea
-              rows="6"
-              bind:value={clientPromptOverrideGlobal}
-              spellcheck="false"
-              placeholder="Instructions added to all bridge runs from this client."
-            ></textarea>
-          </label>
-          <div class="actions" style="margin-top: 8px;">
-            <button class="btn" onclick={() => { saveClientPromptOverrides(); info = "Saved client prompt overrides."; }}>
-              Save Client Overrides
-            </button>
-          </div>
-          <p class="mini" style="margin-top: 6px;">
-            Client coordination policy: {connection.allowClientCoordination ? "enabled by admin" : "disabled by admin"}.
-            Your account preference: {connection.clientCoordinationEnabled ? "enabled" : "disabled"}.
-          </p>
-        </section>
+              <div class="script-card-preview">
+                {previewScript(scriptsByProgram[prog.value] ?? "")}
+              </div>
+              <div class="script-card-actions">
+                <button class="btn secondary" onclick={() => openScriptEditor(prog.value)}>Edit</button>
+                {#if prog.value !== "global"}
+                  <button class="btn secondary" onclick={() => resetScript(prog.value)}>Reset</button>
+                {/if}
+              </div>
+            </div>
+          {/each}
+        </div>
+      {:else}
+        <div class="panel">
+          <h3>Server Scripts</h3>
+          <p class="desc">Server-side coordinator scripts are admin-managed.</p>
+        </div>
       {/if}
-    </div>
-
-    <!-- Script editor side panel (resizable) -->
-    {#if isAdmin && scriptEditorTarget}
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div class="sidebar-resize-handle" onmousedown={startEditorResize}></div>
-      <aside class="editor-panel" style="width: {editorPanelWidth}px;">
-        <section class="panel script-editor-panel">
-          <h3>
-            {scriptEditorTarget === "global" ? "Global Coordinator Script" : `${scriptEditorTarget.charAt(0).toUpperCase() + scriptEditorTarget.slice(1)} Coordinator Script`}
-          </h3>
-          <p class="desc">
-            {#if scriptEditorTarget === "global"}
-              Update the global script applied before bridge-specific instructions.
-            {:else}
-              Update the <strong>{scriptEditorTarget}</strong> script applied after the global coordinator script.
-            {/if}
-          </p>
-          <label>
-            Script
-            <textarea class="script-editor-textarea" bind:value={scriptEditorDraft} spellcheck="false"></textarea>
-          </label>
-          <div class="actions">
-            <button class="btn" onclick={saveScriptEditor} disabled={scriptsSaving}>
-              {scriptsSaving ? "Saving..." : "Save Script"}
-            </button>
-            <button class="btn secondary" onclick={closeScriptEditor} disabled={scriptsSaving}>Close</button>
-          </div>
-        </section>
-      </aside>
     {/if}
   </div>
 </div>
+
+<!-- Script editor modal -->
+{#if isAdmin && scriptEditorTarget}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="script-modal-overlay" onclick={closeScriptEditor}>
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="script-modal-dialog" onclick={(e) => e.stopPropagation()}>
+      <div class="script-modal-header">
+        <h3>
+          {scriptEditorTarget === "global" ? "Global Coordinator Script" : `${scriptEditorTarget.charAt(0).toUpperCase() + scriptEditorTarget.slice(1)} Coordinator Script`}
+        </h3>
+        <button class="btn-sm" onclick={closeScriptEditor}>X</button>
+      </div>
+      <p class="desc">
+        {#if scriptEditorTarget === "global"}
+          Update the global script applied before bridge-specific instructions.
+        {:else}
+          Update the <strong>{scriptEditorTarget}</strong> script applied after the global coordinator script.
+        {/if}
+      </p>
+      <label>
+        Script
+        <textarea class="script-editor-textarea" bind:value={scriptEditorDraft} spellcheck="false"></textarea>
+      </label>
+      <div class="actions">
+        <button class="btn" onclick={saveScriptEditor} disabled={scriptsSaving}>
+          {scriptsSaving ? "Saving..." : "Save Script"}
+        </button>
+        <button class="btn secondary" onclick={closeScriptEditor} disabled={scriptsSaving}>Cancel</button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 <style>
   .scripts-page {
@@ -316,7 +230,7 @@
     height: 100%;
     display: flex;
     flex-direction: column;
-    overflow: hidden;
+    overflow: auto;
     max-width: 1100px;
   }
   h2 { font-size: var(--font-size-lg); margin-bottom: 12px; }
@@ -330,15 +244,8 @@
     flex-shrink: 0;
   }
 
-  .scripts-body {
-    display: flex;
-    flex: 1;
-    overflow: hidden;
-    min-height: 0;
-  }
   .scripts-main {
     flex: 1;
-    overflow-y: auto;
     min-width: 0;
   }
 
@@ -414,12 +321,12 @@
 
   .panel { border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-surface); padding: 12px; margin-bottom: 12px; }
   .desc { font-size: var(--font-size-sm); color: var(--text-secondary); margin-bottom: 8px; line-height: 1.4; }
-  .mini { font-size: 11px; color: var(--text-muted); }
   .error { margin-bottom: 10px; color: var(--status-failed); font-size: var(--font-size-sm); }
   .info { margin-bottom: 10px; color: var(--text-secondary); font-size: var(--font-size-sm); }
   .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
   .btn { padding: 6px 12px; border-radius: var(--radius-sm); background: var(--accent); color: #fff; border: none; }
   .btn.secondary { border: 1px solid var(--border); background: var(--bg-base); color: var(--text-secondary); }
+  .btn-sm { padding: 4px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg-base); color: var(--text-secondary); font-size: var(--font-size-sm); }
   .badge { font-size: 11px; padding: 2px 6px; border-radius: 4px; }
   label { display: flex; flex-direction: column; gap: 4px; font-size: var(--font-size-sm); color: var(--text-secondary); }
   textarea, input:not([type="checkbox"]):not([type="radio"]), select {
@@ -427,21 +334,41 @@
   }
   textarea { font-family: var(--font-mono); line-height: 1.45; resize: both; max-width: 100%; min-height: 96px; }
 
-  /* Resizable editor side panel */
-  .sidebar-resize-handle {
-    width: 4px; cursor: col-resize; background: transparent; flex-shrink: 0; transition: background 0.15s;
+  /* Script editor modal */
+  .script-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
-  .sidebar-resize-handle:hover, .sidebar-resize-handle:active { background: var(--accent); }
-  .editor-panel {
-    display: flex; flex-direction: column; border-left: 1px solid var(--border); overflow-y: auto; flex-shrink: 0;
+  .script-modal-dialog {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 16px;
+    width: 640px;
+    max-width: 90vw;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow: hidden;
   }
-  .script-editor-panel {
-    height: 100%; display: flex; flex-direction: column; overflow: hidden;
+  .script-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
   }
-  .script-editor-panel label {
-    display: flex; flex-direction: column; gap: 4px; flex: 1; min-height: 0;
+  .script-modal-header h3 {
+    margin: 0;
   }
   .script-editor-textarea {
-    flex: 1; min-height: 200px; resize: none;
+    flex: 1;
+    min-height: 300px;
+    resize: vertical;
   }
 </style>

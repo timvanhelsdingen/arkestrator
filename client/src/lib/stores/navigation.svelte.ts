@@ -1,4 +1,4 @@
-export type Page = "chat" | "jobs" | "admin" | "workers" | "projects" | "skills" | "coordinator-scripts" | "training" | "settings";
+export type Page = "chat" | "jobs" | "admin" | "workers" | "projects" | "coordinator" | "settings";
 
 class NavigationState {
   current = $state<Page>("chat");

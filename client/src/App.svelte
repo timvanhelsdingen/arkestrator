@@ -17,9 +17,7 @@
   import Admin from "./pages/Admin.svelte";
   import Workers from "./pages/Workers.svelte";
   import Projects from "./pages/Projects.svelte";
-  import Skills from "./pages/Skills.svelte";
-  import CoordinatorScripts from "./pages/CoordinatorScripts.svelte";
-  import Training from "./pages/Training.svelte";
+  import SkillsAndTraining from "./pages/SkillsAndTraining.svelte";
   import Settings from "./pages/Settings.svelte";
   import Toast from "./lib/components/ui/Toast.svelte";
   import brandLogo from "./assets/brand/arkestrator-logo_brandname.svg";
@@ -305,12 +303,8 @@
         <Workers />
       {:else if nav.current === "projects"}
         <Projects />
-      {:else if nav.current === "skills"}
-        <Skills />
-      {:else if nav.current === "coordinator-scripts"}
-        <CoordinatorScripts />
-      {:else if nav.current === "training"}
-        <Training />
+      {:else if nav.current === "coordinator"}
+        <SkillsAndTraining />
       {:else if nav.current === "settings"}
         <Settings />
       {/if}
