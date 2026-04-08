@@ -31,6 +31,7 @@ export interface Config {
   transferTtlMs: number;
   transferMaxSizeMb: number;
   httpTransferThresholdBytes: number;
+  directServeAllowedPaths: string[];
   corsOrigins: string[];
   trustProxyHeaders: boolean;
   tlsCertPath?: string;
@@ -121,6 +122,7 @@ export function loadConfig(): Config {
     transferTtlMs: parseInt(process.env.TRANSFER_TTL_MS ?? String(60 * 60 * 1000), 10),
     transferMaxSizeMb: parseInt(process.env.TRANSFER_MAX_SIZE_MB ?? "2000", 10),
     httpTransferThresholdBytes: parseInt(process.env.HTTP_TRANSFER_THRESHOLD_BYTES ?? String(5 * 1024 * 1024), 10),
+    directServeAllowedPaths: parsePathList(process.env.DIRECT_SERVE_ALLOWED_PATHS),
     corsOrigins: process.env.CORS_ORIGINS
       ? process.env.CORS_ORIGINS.split(",").map((o) => o.trim())
       : [],

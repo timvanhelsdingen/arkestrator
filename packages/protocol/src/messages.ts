@@ -644,9 +644,46 @@ export const TransferInitiateMessage = makeMessage(
     source: z.string().optional(),
     /** Base URL for downloading files — append /{fileIndex}?key=<apiKey>. */
     downloadBaseUrl: z.string(),
+    /** Direct P2P download URL (try first, fall back to downloadBaseUrl). */
+    p2pUrl: z.string().optional(),
   }),
 );
 export type TransferInitiateMessage = z.infer<typeof TransferInitiateMessage>;
+
+/** Server → Client: request the client to serve local files for a P2P transfer. */
+export const TransferServeRequestMessage = makeMessage(
+  "transfer_serve_request",
+  z.object({
+    /** Transfer ID this serve request belongs to. */
+    transferId: z.string(),
+    /** Local file paths on the source machine to serve. */
+    files: z.array(
+      z.object({
+        path: z.string(),
+        size: z.number().int().nonnegative(),
+      }),
+    ),
+  }),
+);
+export type TransferServeRequestMessage = z.infer<typeof TransferServeRequestMessage>;
+
+/** Client → Server: report that local file server is ready for P2P transfer. */
+export const TransferServeReadyMessage = makeMessage(
+  "transfer_serve_ready",
+  z.object({
+    /** Transfer ID. */
+    transferId: z.string(),
+    /** LAN IP address of the source client's file server. */
+    host: z.string(),
+    /** Port the file server is listening on. */
+    port: z.number().int().positive(),
+    /** One auth token per file — destination appends as ?token=<value>. */
+    tokens: z.array(z.string()),
+    /** Error message if serving could not start. */
+    error: z.string().optional(),
+  }),
+);
+export type TransferServeReadyMessage = z.infer<typeof TransferServeReadyMessage>;
 
 /** Bridge/Client → Server: download progress reporting. */
 export const TransferProgressMessage = makeMessage(
@@ -798,6 +835,8 @@ export const Message = z.discriminatedUnion("type", [
   ClientHeadlessCapabilitiesMessage,
   TransferInitiateMessage,
   TransferProgressMessage,
+  TransferServeRequestMessage,
+  TransferServeReadyMessage,
   TaskProgressMessage,
   SkillsUpdatedMessage,
   ErrorMessage,

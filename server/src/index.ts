@@ -753,7 +753,7 @@ async function main() {
   });
 
   // 9. Create Hono app
-  const app = createApp({ db, jobsRepo, agentsRepo, apiKeysRepo, usersRepo, policiesRepo, auditRepo, projectsRepo, templatesRepo, workersRepo, usageRepo, depsRepo, syncManager, transferManager, hub, headlessProgramsRepo, settingsRepo, skillsRepo, skillStore, skillEffectivenessRepo, skillIndex, jobInterventionsRepo, config, resourceLeaseManager, processTracker, dispatchJob: (id) => worker.dispatchById(id), apiBridgesRepo });
+  const { app, handleTransferServeReady } = createApp({ db, jobsRepo, agentsRepo, apiKeysRepo, usersRepo, policiesRepo, auditRepo, projectsRepo, templatesRepo, workersRepo, usageRepo, depsRepo, syncManager, transferManager, hub, headlessProgramsRepo, settingsRepo, skillsRepo, skillStore, skillEffectivenessRepo, skillIndex, jobInterventionsRepo, config, resourceLeaseManager, processTracker, dispatchJob: (id) => worker.dispatchById(id), apiBridgesRepo });
 
   // Handler deps for WebSocket messages
   const handlerDeps = {
@@ -778,6 +778,7 @@ async function main() {
     skillEffectivenessRepo,
     taskExecutor,
     apiBridgesRepo,
+    onTransferServeReady: handleTransferServeReady,
   };
 
   // 10. Start server with Bun.serve (handles both HTTP and WebSocket)
