@@ -8,6 +8,7 @@
   interface BridgeEntry {
     id: string;
     name: string;
+    type?: string;
     description: string;
     author: string;
     official: boolean;
@@ -238,7 +239,9 @@
     standalone: "Standalone",
   };
 
-  let updatableBridges = $derived(registry.filter((b) => hasUpdate(b) && b.downloadUrl && b.installType !== "project"));
+  // Filter out API-type bridges — those belong in the API sub-tab, not the program installer
+  let programRegistry = $derived(registry.filter((b) => b.type !== "api"));
+  let updatableBridges = $derived(programRegistry.filter((b) => hasUpdate(b) && b.downloadUrl && b.installType !== "project"));
 
   async function updateAllBridges() {
     updatingAll = true;
@@ -464,7 +467,7 @@
   {/if}
 
   <div class="bridge-grid">
-    {#each registry as bridge (bridge.id)}
+    {#each programRegistry as bridge (bridge.id)}
       {@const isInstalled = !!installed[bridge.id]}
       {@const updateAvailable = hasUpdate(bridge)}
       {@const isInstalling = installing === bridge.id}
