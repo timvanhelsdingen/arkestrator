@@ -1004,7 +1004,7 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ skillIds }),
       }) as Promise<{ stats: Record<string, { totalUsed: number; goodOutcomes: number; averageOutcomes: number; poorOutcomes: number; pendingOutcomes: number; successRate: number }> }>,
-    exportZip: async (slugs?: string[]) => {
+    exportZip: async (slugs?: string[], includeDeps = true) => {
       const { saveFileWithDialog } = await import("../utils/format");
       const headers: Record<string, string> = {};
       if (connection.sessionToken) {
@@ -1013,10 +1013,12 @@ export const api = {
         headers["Authorization"] = `Bearer ${connection.apiKey}`;
       }
       headers["Content-Type"] = "application/json";
+      const bodyObj: Record<string, unknown> = { includeDeps };
+      if (slugs?.length) bodyObj.slugs = slugs;
       const res = await fetch(`${connection.url}/api/skills/export-zip`, {
         method: "POST",
         headers,
-        body: JSON.stringify(slugs?.length ? { slugs } : {}),
+        body: JSON.stringify(bodyObj),
       });
       if (!res.ok) throw new Error(`Export failed: ${res.status}`);
       const blob = await res.blob();

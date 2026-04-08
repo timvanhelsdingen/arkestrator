@@ -293,9 +293,7 @@
   const filteredSkills = $derived.by(() => {
     const q = skillsFilter.toLowerCase().trim();
     // Filter by selected program only (global skills shown on their own page)
-    let list = serverSkills.filter(
-      (s) => s.program === program,
-    );
+    let list = serverSkills.filter((s) => s.program === program);
     if (skillFilterCategory) {
       list = list.filter((s) => s.category === skillFilterCategory);
     }

@@ -28,7 +28,11 @@
   let batchIndex = $state(0);
   let batchDone = $state(0);
   let batchErrors = $state<string[]>([]);
+  let batchSkipped = $state(0);
   let publishing = $state(false);
+
+  // Dependency inclusion
+  let includeDeps = $state(true);
 
   // Load user info if token exists
   $effect(() => {
@@ -58,12 +62,92 @@
     localSkills.find((s: any) => s.slug === selectedSlug && (!selectedProgram || s.program === selectedProgram))
   );
 
+  // ---------------------------------------------------------------------------
+  // Dependency resolution (client-side, operates on the in-memory localSkills)
+  // ---------------------------------------------------------------------------
+
+  function resolveLocalDeps(rootSlug: string, rootProgram: string): any[] {
+    const visited = new Set<string>();
+    const result: any[] = [];
+    visited.add(`${rootSlug}::${rootProgram}`);
+
+    const root = localSkills.find((s: any) => s.slug === rootSlug && s.program === rootProgram);
+    if (!root?.relatedSkills?.length) return result;
+
+    for (const depSlug of root.relatedSkills) {
+      walkDeps(depSlug, rootProgram, visited, result);
+    }
+    return result;
+  }
+
+  function walkDeps(slug: string, preferProgram: string, visited: Set<string>, result: any[]) {
+    // Prefer same program, then global, then any
+    let skill = localSkills.find((s: any) => s.slug === slug && s.program === preferProgram);
+    if (!skill) skill = localSkills.find((s: any) => s.slug === slug && s.program === "global");
+    if (!skill) skill = localSkills.find((s: any) => s.slug === slug);
+    if (!skill) return;
+
+    const k = `${skill.slug}::${skill.program}`;
+    if (visited.has(k)) return;
+    visited.add(k);
+
+    if (skill.relatedSkills?.length) {
+      for (const depSlug of skill.relatedSkills) {
+        walkDeps(depSlug, skill.program, visited, result);
+      }
+    }
+    result.push(skill);
+  }
+
+  // Resolved deps for single-skill mode
+  let resolvedDeps = $derived.by(() => {
+    if (!selectedSkill || !includeDeps) return [];
+    return resolveLocalDeps(selectedSkill.slug, selectedSkill.program);
+  });
+
+  // For batch mode, resolve all deps across all preselected skills
+  let batchResolvedDeps = $derived.by(() => {
+    if (!isBatch || !includeDeps || !preselect) return [];
+    const seen = new Set<string>();
+    const deps: any[] = [];
+    for (const ps of preselect) {
+      seen.add(`${ps.slug}::${ps.program}`);
+    }
+    for (const ps of preselect) {
+      const skillDeps = resolveLocalDeps(ps.slug, ps.program);
+      for (const dep of skillDeps) {
+        const k = `${dep.slug}::${dep.program}`;
+        if (!seen.has(k)) {
+          seen.add(k);
+          deps.push(dep);
+        }
+      }
+    }
+    return deps;
+  });
+
+  // Full publish list (deps first, then main skills)
+  let publishList = $derived.by(() => {
+    if (isBatch) {
+      const mainSkills = (preselect ?? []).map(ps =>
+        localSkills.find((s: any) => s.slug === ps.slug && s.program === ps.program)
+      ).filter(Boolean);
+      return includeDeps ? [...batchResolvedDeps, ...mainSkills] : mainSkills;
+    } else {
+      if (!selectedSkill) return [];
+      return includeDeps ? [...resolvedDeps, selectedSkill] : [selectedSkill];
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Auth helpers
+  // ---------------------------------------------------------------------------
+
   async function openGitHubAuth() {
     const baseUrl = settings.baseUrl || "https://arkestrator.com";
     try {
       await open(`${baseUrl}/auth/github?from=desktop`);
     } catch {
-      // Fallback to window.open if Tauri shell not available
       window.open(`${baseUrl}/auth/github?from=desktop`, "_blank");
     }
   }
@@ -81,6 +165,10 @@
     communityUser = null;
   }
 
+  // ---------------------------------------------------------------------------
+  // Publish
+  // ---------------------------------------------------------------------------
+
   async function publishOne(skill: any) {
     await communityApi.publish({
       title: skill.title,
@@ -89,45 +177,45 @@
       category: skill.category || "custom",
       description: skill.description || "",
       keywords: skill.keywords || [],
+      relatedSkills: skill.relatedSkills || [],
       content: skill.content || "",
     });
   }
 
   async function publish() {
-    if (isBatch) {
-      // Batch publish all preselected skills
-      publishing = true;
-      batchDone = 0;
-      batchErrors = [];
-      for (let i = 0; i < preselect!.length; i++) {
-        batchIndex = i;
-        const ps = preselect![i];
-        const skill = localSkills.find((s: any) => s.slug === ps.slug && s.program === ps.program);
-        if (!skill) { batchErrors.push(`${ps.program}/${ps.slug}: not found`); continue; }
-        try {
-          await publishOne(skill);
-          batchDone++;
-        } catch (err: any) {
-          batchErrors.push(`${skill.title}: ${err?.message}`);
+    const list = publishList;
+    if (list.length === 0) return;
+
+    publishing = true;
+    batchDone = 0;
+    batchErrors = [];
+    batchSkipped = 0;
+
+    for (let i = 0; i < list.length; i++) {
+      batchIndex = i;
+      const skill = list[i];
+      if (!skill) { batchErrors.push(`Skill not found`); continue; }
+      try {
+        await publishOne(skill);
+        batchDone++;
+      } catch (err: any) {
+        const msg = err?.message || "Unknown error";
+        // If already exists, count as skipped rather than error
+        if (msg.toLowerCase().includes("already exists") || msg.toLowerCase().includes("duplicate")) {
+          batchSkipped++;
+        } else {
+          batchErrors.push(`${skill.title || skill.slug}: ${msg}`);
         }
       }
-      publishing = false;
-      if (batchDone > 0) toast.success(`Published ${batchDone} skill${batchDone > 1 ? "s" : ""} to community`);
-      if (batchErrors.length) toast.error(`${batchErrors.length} failed`);
-      else onclose();
-    } else {
-      if (!selectedSkill) return;
-      publishing = true;
-      try {
-        await publishOne(selectedSkill);
-        toast.success(`Published "${selectedSkill.title}" to community!`);
-        onclose();
-      } catch (err: any) {
-        toast.error(`Publish failed: ${err?.message}`);
-      } finally {
-        publishing = false;
-      }
     }
+
+    publishing = false;
+    const parts: string[] = [];
+    if (batchDone > 0) parts.push(`Published ${batchDone} skill${batchDone > 1 ? "s" : ""}`);
+    if (batchSkipped > 0) parts.push(`${batchSkipped} already published`);
+    if (parts.length > 0) toast.success(parts.join(", "));
+    if (batchErrors.length) toast.error(`${batchErrors.length} failed`);
+    else if (batchDone > 0) onclose();
   }
 
   function handleOverlayClick(e: MouseEvent) {
@@ -137,6 +225,9 @@
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === "Escape") onclose();
   }
+
+  // Total dep count for display
+  let depCount = $derived(isBatch ? batchResolvedDeps.length : resolvedDeps.length);
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
@@ -231,6 +322,34 @@
               </div>
             {/if}
           {/if}
+
+          <!-- Dependency inclusion toggle -->
+          {#if depCount > 0}
+            <label class="deps-toggle">
+              <input type="checkbox" bind:checked={includeDeps} />
+              <span>Include {depCount} dependenc{depCount === 1 ? "y" : "ies"}</span>
+            </label>
+            {#if includeDeps}
+              <div class="deps-list">
+                {#each (isBatch ? batchResolvedDeps : resolvedDeps) as dep}
+                  <div class="dep-item">
+                    <span class="dep-slug">{dep.program}/{dep.slug}</span>
+                    <span class="dep-title">{dep.title}</span>
+                  </div>
+                {/each}
+              </div>
+            {/if}
+          {/if}
+
+          <!-- Publish progress (shown when publishing with deps) -->
+          {#if publishing && publishList.length > 1}
+            <div class="publish-progress">
+              <div class="progress-bar">
+                <div class="progress-fill" style="width: {((batchIndex + 1) / publishList.length) * 100}%"></div>
+              </div>
+              <span class="progress-text">{batchIndex + 1} / {publishList.length}</span>
+            </div>
+          {/if}
         </div>
       {/if}
     </div>
@@ -239,9 +358,9 @@
       {#if hasToken && (selectedSkill || isBatch)}
         <button class="btn btn-accent" onclick={publish} disabled={publishing}>
           {#if publishing}
-            {isBatch ? `Publishing ${batchIndex + 1}/${preselect!.length}...` : "Publishing..."}
+            Publishing {batchIndex + 1}/{publishList.length}...
           {:else}
-            {isBatch ? `Publish ${preselect!.length} Skills` : "Publish"}
+            Publish{publishList.length > 1 ? ` ${publishList.length} Skills` : ""}
           {/if}
         </button>
       {/if}
@@ -424,4 +543,71 @@
   .batch-err { color: var(--status-failed); font-size: 11px; }
   .batch-errors { margin-top: 8px; }
   .batch-err-msg { font-size: 11px; color: var(--status-failed); margin: 2px 0; }
+
+  /* Dependency controls */
+  .deps-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 12px;
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+  .deps-toggle input[type="checkbox"] {
+    accent-color: var(--accent);
+  }
+  .deps-list {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-top: 6px;
+    padding: 8px;
+    background: var(--bg-base);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    max-height: 140px;
+    overflow-y: auto;
+  }
+  .dep-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    padding: 2px 0;
+  }
+  .dep-slug {
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+  }
+  .dep-title {
+    color: var(--text-secondary);
+    text-align: right;
+  }
+
+  /* Publish progress */
+  .publish-progress {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .progress-bar {
+    flex: 1;
+    height: 4px;
+    background: var(--bg-base);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    background: var(--accent);
+    transition: width 0.2s ease;
+  }
+  .progress-text {
+    font-size: 11px;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
 </style>
