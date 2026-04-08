@@ -82,6 +82,7 @@
   let skillsPulling = $state(false);
   let selectedSkillKeys = $state(new Set<string>());
   let importSkillInput = $state<HTMLInputElement | undefined>(undefined);
+  let refreshingSkills = $state(new Set<string>());
 
   // Community skills
   type SkillsView = "local" | "community";
@@ -511,6 +512,32 @@
     }
   }
 
+  async function refreshSkillFromSource(skill: SkillEntry) {
+    const key = `${skill.program}:${skill.slug}`;
+    refreshingSkills = new Set([...refreshingSkills, key]);
+    try {
+      // For community skills, pass communityId so the server can fetch from community API
+      const opts: { communityId?: string; communityBaseUrl?: string } = {};
+      if (skill.source === "community") {
+        const cid = communitySkills.findCommunityId(skill.slug, skill.program);
+        if (!cid) {
+          error = "Cannot find community ID for this skill. Try reinstalling from community.";
+          return;
+        }
+        opts.communityId = cid;
+      }
+      await api.skills.refreshFromSource(skill.slug, skill.program, opts);
+      info = `Updated "${skill.title}" from source.`;
+      await loadSkills();
+    } catch (err: any) {
+      error = err.message ?? "Failed to refresh skill from source";
+    } finally {
+      const next = new Set(refreshingSkills);
+      next.delete(key);
+      refreshingSkills = next;
+    }
+  }
+
   async function pushSkillToServer(skill: SkillEntry) {
     try {
       await api.skills.create({
@@ -578,6 +605,10 @@
     try {
       await loadSkills();
       await loadPrograms();
+      // Check for community updates in the background (non-blocking)
+      if (communityEnabled && communitySkills.installedCount > 0) {
+        communitySkills.checkForUpdates().catch(() => {});
+      }
     } catch (err: any) {
       error = err.message ?? String(err);
     } finally {
@@ -768,6 +799,8 @@
               selected={selectedSkillKeys.has(key)}
               {canManage}
               {communityEnabled}
+              hasUpdate={skill.source === "community" && communitySkills.hasUpdateForLocal(skill.slug, skill.program)}
+              refreshing={refreshingSkills.has(`${skill.program}:${skill.slug}`)}
               onselect={() => {
                 const next = new Set(selectedSkillKeys);
                 if (next.has(key)) next.delete(key); else next.add(key);
@@ -777,6 +810,7 @@
               onedit={() => editSkillFromTable(skill.slug, skill.program)}
               ondelete={() => deleteSkill(skill.slug, skill.program)}
               onshare={() => publishSkillFromRow(skill)}
+              onrefresh={() => refreshSkillFromSource(skill)}
             />
           {/each}
         </div>
@@ -908,6 +942,12 @@
           {#if canManage && !skillEditMode && !viewingOldVersion}
             <button class="btn-sm" onclick={startSkillEdit} disabled={skillViewData?.locked} title={skillViewData?.locked ? "Skill is locked" : ""}>Edit</button>
             <button class="btn-sm" onclick={toggleSkillLock}>{skillViewData?.locked ? "Unlock" : "Lock"}</button>
+          {/if}
+          {#if skillViewData && (skillViewData.source === "bridge-repo" || skillViewData.source === "registry" || skillViewData.source === "community")}
+            {@const rkey = `${skillViewData.program}:${skillViewData.slug}`}
+            <button class="btn-sm" onclick={() => refreshSkillFromSource(skillViewData!)} disabled={refreshingSkills.has(rkey)}>
+              {refreshingSkills.has(rkey) ? "Updating..." : "Update from Source"}
+            </button>
           {/if}
           <button class="btn-sm" onclick={exportViewedSkill}>Export</button>
           <button class="btn-sm" onclick={closeSkillView}>X</button>

@@ -111,6 +111,22 @@ class CommunitySkillsState {
     return Object.keys(this.updatesAvailable).length;
   }
 
+  /** Find communityId for a local skill by slug+program, or undefined if not from community. */
+  findCommunityId(localSlug: string, localProgram: string): string | undefined {
+    for (const [communityId, entry] of Object.entries(this._manifest)) {
+      if (entry.localSlug === localSlug && entry.localProgram === localProgram) {
+        return communityId;
+      }
+    }
+    return undefined;
+  }
+
+  /** Check if a local skill (by slug+program) has a community update available. */
+  hasUpdateForLocal(localSlug: string, localProgram: string): boolean {
+    const cid = this.findCommunityId(localSlug, localProgram);
+    return cid ? cid in this.updatesAvailable : false;
+  }
+
   // ---------------------------------------------------------------------------
   // Browse actions
   // ---------------------------------------------------------------------------

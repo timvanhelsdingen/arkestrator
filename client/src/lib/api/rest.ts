@@ -1019,6 +1019,13 @@ export const api = {
     pullAll: () => request("/api/skills/pull-all", { method: "POST" }),
     pullProgram: (program: string) =>
       request(`/api/skills/pull/${encodeURIComponent(program)}`, { method: "POST" }),
+    refreshFromSource: (slug: string, program?: string, opts?: { communityId?: string; communityBaseUrl?: string }) => {
+      const qs = program ? `?program=${encodeURIComponent(program)}` : "";
+      return request(`/api/skills/refresh/${encodeURIComponent(slug)}${qs}`, {
+        method: "POST",
+        body: JSON.stringify(opts ?? {}),
+      });
+    },
     refreshIndex: () => request("/api/skills/refresh-index", { method: "POST" }),
     wipeAll: () => request("/api/skills/wipe-all", { method: "POST" }),
     importFromGitHub: (repoUrl: string, program = "global", subPath?: string) =>
