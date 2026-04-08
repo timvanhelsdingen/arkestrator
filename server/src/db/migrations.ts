@@ -430,6 +430,25 @@ const COLUMN_ADDITIONS = [
   // Track which app version created/updated each skill for compatibility filtering
   `ALTER TABLE skills ADD COLUMN app_version TEXT`,
   `ALTER TABLE skill_versions ADD COLUMN app_version TEXT`,
+  // API Bridges — server-side handlers for external REST APIs (Meshy, Stability, etc.)
+  `CREATE TABLE IF NOT EXISTS api_bridges (
+    id              TEXT PRIMARY KEY,
+    name            TEXT NOT NULL UNIQUE,
+    display_name    TEXT NOT NULL,
+    type            TEXT NOT NULL CHECK(type IN ('preset','custom')),
+    preset_id       TEXT,
+    base_url        TEXT NOT NULL,
+    auth_type       TEXT NOT NULL DEFAULT 'bearer' CHECK(auth_type IN ('bearer','header','query','none')),
+    auth_header     TEXT NOT NULL DEFAULT 'Authorization',
+    auth_prefix     TEXT NOT NULL DEFAULT 'Bearer ',
+    api_key         TEXT,
+    endpoints       TEXT NOT NULL DEFAULT '{}',
+    default_options TEXT NOT NULL DEFAULT '{}',
+    poll_config     TEXT,
+    enabled         INTEGER NOT NULL DEFAULT 1,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL
+  )`,
 ];
 
 // Reset any jobs stuck in 'running' state (server crashed while they were active)

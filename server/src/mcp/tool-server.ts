@@ -56,6 +56,8 @@ export interface McpDeps {
   skillStore?: import("../skills/skill-store.js").SkillStore;
   /** Handoff notes repo for inter-agent communication. */
   handoffRepo?: import("../db/handoff.repo.js").HandoffRepo;
+  /** API bridges repo for external REST API integrations. */
+  apiBridgesRepo?: import("../db/api-bridges.repo.js").ApiBridgesRepo;
 }
 
 const CLIENT_API_ALLOW_PREFIXES = [
@@ -71,6 +73,7 @@ const CLIENT_API_ALLOW_PREFIXES = [
   "/api/settings/coordinator-reference-paths",
   "/api/settings/coordinator-playbook-sources",
   "/api/settings/coordinator-playbooks",
+  "/api/api-bridges",
   "/api/settings/coordinator-training-schedule",
   "/api/settings/coordinator-training/run-now",
   "/api/settings/coordinator-editors",
@@ -768,6 +771,16 @@ export function createMcpServer(deps: McpDeps): McpServer {
         ]),
       );
 
+      // Include enabled API bridges
+      const apiBridges = deps.apiBridgesRepo
+        ? deps.apiBridgesRepo.listEnabled().map((b) => ({
+            name: b.name,
+            display_name: b.displayName,
+            type: b.type,
+            preset_id: b.presetId,
+          }))
+        : [];
+
       return {
         content: [{
           type: "text" as const,
@@ -776,6 +789,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
               target_programs: targetPrograms,
               live_bridges_by_program: groupedLiveBridges,
               headless_programs: headlessPrograms,
+              api_bridges: apiBridges,
             },
             null,
             2,
@@ -2087,6 +2101,98 @@ export function createMcpServer(deps: McpDeps): McpServer {
         : `${modified.length} change(s) detected since ${latest.createdAt}:\n` +
           modified.map((c) => `  ${c.status}: ${c.path}`).join("\n");
       return { content: [{ type: "text" as const, text }] };
+    },
+  );
+
+  // ─── API Bridge tools ────────────────────────────────────────────────────
+
+  // Tool: list_api_bridges
+  server.tool(
+    "list_api_bridges",
+    "List all configured API bridges (external REST APIs like Meshy for 3D generation, Stability for images, etc.) with their available actions and parameter schemas.",
+    {},
+    async () => {
+      if (!deps.apiBridgesRepo) {
+        return { content: [{ type: "text" as const, text: "API bridges not available." }] };
+      }
+      const bridges = deps.apiBridgesRepo.listEnabled();
+      if (bridges.length === 0) {
+        return { content: [{ type: "text" as const, text: "No API bridges configured. Ask the user to set up API bridges in Settings." }] };
+      }
+
+      // Dynamically import to avoid circular deps and keep the import lazy
+      const { getPresetHandler, listPresets } = await import("../api-bridges/index.js");
+
+      const result = bridges.map((b) => {
+        const handler = b.type === "preset" && b.presetId ? getPresetHandler(b.presetId) : undefined;
+        return {
+          name: b.name,
+          display_name: b.displayName,
+          type: b.type,
+          preset_id: b.presetId,
+          base_url: b.baseUrl,
+          actions: handler ? handler.getActions() : Object.keys(b.endpoints).map((name) => ({ name, description: `Custom endpoint: ${name}` })),
+        };
+      });
+
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+      };
+    },
+  );
+
+  // Tool: execute_api_bridge
+  server.tool(
+    "execute_api_bridge",
+    "Execute an action on an API bridge (external REST API). This is synchronous — blocks until the API call completes (including polling for async APIs). " +
+    "Use list_api_bridges to discover available bridges and their actions with parameter schemas.",
+    {
+      bridge: z.string().describe('API bridge name (e.g. "meshy")'),
+      action: z.string().describe('Action to execute (e.g. "text_to_3d_preview", "image_to_3d")'),
+      params: z.record(z.string(), z.unknown()).default({}).describe("Action parameters (see list_api_bridges for schemas)"),
+    },
+    async ({ bridge, action, params }) => {
+      if (!deps.apiBridgesRepo) {
+        return { content: [{ type: "text" as const, text: "API bridges not available." }], isError: true };
+      }
+
+      const bridgeConfig = deps.apiBridgesRepo.getByName(bridge);
+      if (!bridgeConfig) {
+        return { content: [{ type: "text" as const, text: `API bridge "${bridge}" not found. Use list_api_bridges to see available bridges.` }], isError: true };
+      }
+      if (!bridgeConfig.enabled) {
+        return { content: [{ type: "text" as const, text: `API bridge "${bridge}" is disabled.` }], isError: true };
+      }
+
+      const apiKey = deps.apiBridgesRepo.getApiKey(bridgeConfig.id);
+      if (!apiKey && bridgeConfig.authType !== "none") {
+        return { content: [{ type: "text" as const, text: `API bridge "${bridge}" has no API key configured. Ask the user to add one in Settings.` }], isError: true };
+      }
+
+      // Resolve handler
+      const { getPresetHandler } = await import("../api-bridges/index.js");
+      const { CustomApiBridgeHandler } = await import("../api-bridges/custom-handler.js");
+
+      const handler = bridgeConfig.type === "preset" && bridgeConfig.presetId
+        ? getPresetHandler(bridgeConfig.presetId)
+        : new CustomApiBridgeHandler();
+
+      if (!handler) {
+        return { content: [{ type: "text" as const, text: `No handler found for preset "${bridgeConfig.presetId}"` }], isError: true };
+      }
+
+      // Execute synchronously
+      const logParts: string[] = [];
+      const result = await handler.execute(bridgeConfig, apiKey ?? "", action, params, {
+        onLog: (text) => logParts.push(text),
+        onProgress: (percent, statusText) => logParts.push(`[${percent ?? "?"}%] ${statusText}`),
+      });
+
+      const text = JSON.stringify(result, null, 2);
+      return {
+        content: [{ type: "text" as const, text }],
+        isError: !result.success,
+      };
     },
   );
 

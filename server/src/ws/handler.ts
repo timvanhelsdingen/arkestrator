@@ -51,6 +51,7 @@ export interface HandlerDeps {
   skillIndex?: import("../skills/skill-index.js").SkillIndex;
   skillEffectivenessRepo?: import("../db/skill-effectiveness.repo.js").SkillEffectivenessRepo;
   taskExecutor?: import("../agents/task-executor.js").TaskExecutor;
+  apiBridgesRepo?: import("../db/api-bridges.repo.js").ApiBridgesRepo;
 }
 
 function send(ws: ServerWebSocket<WsData>, message: object) {
@@ -288,6 +289,7 @@ export function handleMessage(
               skillStore: deps.skillStore,
               skillIndex: deps.skillIndex,
               skillEffectivenessRepo: deps.skillEffectivenessRepo,
+              apiBridgesRepo: deps.apiBridgesRepo,
             } satisfies Partial<SpawnerDeps> as SpawnerDeps;
             const toolCall = LocalAgenticToolCall.parse({ type: "tool_call", tool, args });
             const result = await executeLocalAgenticToolCall(

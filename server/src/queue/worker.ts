@@ -44,6 +44,7 @@ export interface WorkerDeps {
   skillEffectivenessRepo?: import("../db/skill-effectiveness.repo.js").SkillEffectivenessRepo;
   skillIndex?: import("../skills/skill-index.js").SkillIndex;
   routingOutcomesRepo?: import("../db/routing-outcomes.repo.js").RoutingOutcomesRepo;
+  apiBridgesRepo?: import("../db/api-bridges.repo.js").ApiBridgesRepo;
   resourceLeaseManager: WorkerResourceLeaseManager;
   localLlmGate: LocalLlmGate;
   taskExecutor: TaskExecutor;
@@ -277,6 +278,7 @@ export class WorkerLoop {
       handoffRepo: this.deps.handoffRepo,
       skillEffectivenessRepo: this.deps.skillEffectivenessRepo,
       skillIndex: this.deps.skillIndex,
+      apiBridgesRepo: this.deps.apiBridgesRepo,
       routingOutcomesRepo: this.deps.routingOutcomesRepo,
       workersRepo: this.deps.workersRepo,
       resourceLeaseManager: this.deps.resourceLeaseManager,

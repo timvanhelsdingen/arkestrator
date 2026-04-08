@@ -529,6 +529,21 @@ export const api = {
     list: () => request("/api/headless-programs"),
   },
 
+  apiBridges: {
+    list: () => request("/api/api-bridges"),
+    presets: () => request("/api/api-bridges/presets"),
+    get: (id: string) => request(`/api/api-bridges/${id}`),
+    create: (data: Record<string, unknown>) =>
+      request("/api/api-bridges", { method: "POST", body: JSON.stringify(data) }),
+    update: (id: string, data: Record<string, unknown>) =>
+      request(`/api/api-bridges/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    delete: (id: string) =>
+      request(`/api/api-bridges/${id}`, { method: "DELETE" }),
+    test: (id: string) =>
+      request(`/api/api-bridges/${id}/test`, { method: "POST" }),
+    actions: (id: string) => request(`/api/api-bridges/${id}/actions`),
+  },
+
   bridgeCommands: {
     listBridges: () => request("/api/bridge-command/bridges"),
     execute: (

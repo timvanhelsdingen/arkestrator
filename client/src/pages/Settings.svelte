@@ -7,8 +7,9 @@
   import SettingsBridgesTab from "../lib/components/settings/SettingsBridgesTab.svelte";
   import SettingsLlmTab from "../lib/components/settings/SettingsLlmTab.svelte";
   import SettingsCommunityTab from "../lib/components/settings/SettingsCommunityTab.svelte";
+  import SettingsApiBridgesTab from "../lib/components/settings/SettingsApiBridgesTab.svelte";
 
-  type SettingsTab = "general" | "account" | "bridges" | "llm" | "community";
+  type SettingsTab = "general" | "account" | "bridges" | "api-bridges" | "llm" | "community";
   let settingsTab = $state<SettingsTab>("general");
 
   let username = $state(connection.lastUsername || "");
@@ -71,7 +72,10 @@
       </button>
     {/if}
     <button class="settings-tab" class:active={settingsTab === "bridges"} onclick={() => (settingsTab = "bridges")}>
-      Bridges
+      Program Bridges
+    </button>
+    <button class="settings-tab" class:active={settingsTab === "api-bridges"} onclick={() => (settingsTab = "api-bridges")}>
+      API Bridges
     </button>
     <button class="settings-tab" class:active={settingsTab === "llm"} onclick={() => (settingsTab = "llm")}>
       Local LLM
@@ -89,6 +93,8 @@
       <SettingsAccountSection />
     {:else if settingsTab === "bridges"}
       <SettingsBridgesTab />
+    {:else if settingsTab === "api-bridges"}
+      <SettingsApiBridgesTab />
     {:else if settingsTab === "llm"}
       <SettingsLlmTab />
     {:else if settingsTab === "community"}

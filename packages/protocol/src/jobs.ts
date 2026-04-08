@@ -17,7 +17,7 @@ export type JobMode = z.infer<typeof JobMode>;
 
 // --- Task Spec (for non-agentic task jobs) ---
 
-export const TaskExecutionType = z.enum(["bridge_command", "worker_local", "worker_headless"]);
+export const TaskExecutionType = z.enum(["bridge_command", "worker_local", "worker_headless", "api_call"]);
 export type TaskExecutionType = z.infer<typeof TaskExecutionType>;
 
 export const TaskSpec = z.object({
@@ -37,6 +37,12 @@ export const TaskSpec = z.object({
   timeoutMs: z.number().int().positive().default(600_000),
   /** Optional label for progress display (e.g., "Rendering frames 1-100") */
   label: z.string().optional(),
+  /** Target API bridge name (for api_call execution type) */
+  apiBridgeName: z.string().optional(),
+  /** Action to invoke on the API bridge (e.g. "text_to_3d") */
+  apiBridgeAction: z.string().optional(),
+  /** Parameters for the API bridge action */
+  apiBridgeParams: z.record(z.string(), z.unknown()).optional(),
 });
 export type TaskSpec = z.infer<typeof TaskSpec>;
 
