@@ -2181,18 +2181,26 @@ export function createMcpServer(deps: McpDeps): McpServer {
         return { content: [{ type: "text" as const, text: `No handler found for preset "${bridgeConfig.presetId}"` }], isError: true };
       }
 
-      // Execute synchronously
+      // Execute synchronously (may block for minutes while polling async APIs)
       const logParts: string[] = [];
-      const result = await handler.execute(bridgeConfig, apiKey ?? "", action, params, {
-        onLog: (text) => logParts.push(text),
-        onProgress: (percent, statusText) => logParts.push(`[${percent ?? "?"}%] ${statusText}`),
-      });
+      try {
+        const result = await handler.execute(bridgeConfig, apiKey ?? "", action, params, {
+          onLog: (text) => logParts.push(text),
+          onProgress: (percent, statusText) => logParts.push(`[${percent ?? "?"}%] ${statusText}`),
+        });
 
-      const text = JSON.stringify(result, null, 2);
-      return {
-        content: [{ type: "text" as const, text }],
-        isError: !result.success,
-      };
+        const text = JSON.stringify(result, null, 2);
+        return {
+          content: [{ type: "text" as const, text }],
+          isError: !result.success,
+        };
+      } catch (err: any) {
+        const logs = logParts.length > 0 ? `\nLogs:\n${logParts.join("\n")}` : "";
+        return {
+          content: [{ type: "text" as const, text: `API bridge execution failed: ${err.message ?? String(err)}${logs}` }],
+          isError: true,
+        };
+      }
     },
   );
 
