@@ -11,6 +11,7 @@
   import AgentConfigs from "./pages/AgentConfigs.svelte";
   import Machines from "./pages/Machines.svelte";
   import Bridges from "./pages/Bridges.svelte";
+  import ApiBridges from "./pages/ApiBridges.svelte";
   import Policies from "./pages/Policies.svelte";
   import AuditLog from "./pages/AuditLog.svelte";
   import Knowledge from "./pages/Knowledge.svelte";
@@ -103,6 +104,8 @@
           <Machines />
         {:else if nav.current === "bridges" && auth.canManageWorkers}
           <Bridges />
+        {:else if nav.current === "api-bridges" && auth.canManageWorkers}
+          <ApiBridges />
         {:else if nav.current === "policies" && auth.canManagePolicies}
           <Policies />
         {:else if nav.current === "knowledge" && (auth.canEditCoordinator || auth.canManageSecurity)}

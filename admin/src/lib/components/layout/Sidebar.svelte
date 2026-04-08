@@ -28,6 +28,7 @@
     { page: "agents", label: "Agents", icon: "cpu", canAccess: () => auth.canManageAgents },
     { page: "machines", label: "Machines", icon: "monitor", canAccess: () => auth.canManageWorkers },
     { page: "bridges", label: "Bridges", icon: "plug", canAccess: () => auth.canManageWorkers },
+    { page: "api-bridges", label: "API Bridges", icon: "zap", canAccess: () => auth.canManageWorkers },
     { page: "policies", label: "Filters", icon: "filter", canAccess: () => auth.canManagePolicies },
     { page: "knowledge", label: "Skills & Training", icon: "zap", canAccess: () => auth.canEditCoordinator || auth.canManageSecurity },
     { page: "templates", label: "Templates", icon: "fileText", canAccess: () => auth.canEditCoordinator || auth.canManageSecurity },

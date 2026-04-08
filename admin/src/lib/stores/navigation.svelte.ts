@@ -4,6 +4,7 @@ export type Page =
   | "agents"
   | "machines"
   | "bridges"
+  | "api-bridges"
   | "policies"
   | "knowledge"
   | "templates"
