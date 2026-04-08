@@ -349,57 +349,76 @@
         When disabled, only your own jobs can use your local bridges.
       </p>
       <div class="pref-toggles">
-        <label class="toggle-label">
-          <input
-            type="checkbox"
-            checked={connection.workerModeEnabled}
-            onchange={(e: Event) => {
-              connection.workerModeEnabled = (e.target as HTMLInputElement).checked;
+        <label class="toggle-row">
+          <span class="toggle-text">Available as worker for other machines</span>
+          <button
+            class="toggle-switch"
+            class:on={connection.workerModeEnabled}
+            role="switch"
+            aria-checked={connection.workerModeEnabled}
+            onclick={() => {
+              connection.workerModeEnabled = !connection.workerModeEnabled;
               connection.saveSession();
               if (connection.url && connection.apiKey) {
                 disconnect();
                 void connect(connection.url, connection.apiKey);
               }
             }}
-          />
-          <span>Available as worker for other machines</span>
+          >
+            <span class="toggle-knob"></span>
+          </button>
         </label>
-        <label class="toggle-label">
-          <input
-            type="checkbox"
-            checked={connection.idleWorkerEnabled}
-            onchange={(e: Event) => {
-              connection.idleWorkerEnabled = (e.target as HTMLInputElement).checked;
+        <label class="toggle-row">
+          <span class="toggle-text">Auto-enable worker mode when idle</span>
+          <button
+            class="toggle-switch"
+            class:on={connection.idleWorkerEnabled}
+            role="switch"
+            aria-checked={connection.idleWorkerEnabled}
+            onclick={() => {
+              connection.idleWorkerEnabled = !connection.idleWorkerEnabled;
               connection.saveSession();
             }}
-          />
-          <span>Auto-enable worker mode when idle</span>
+          >
+            <span class="toggle-knob"></span>
+          </button>
         </label>
         {#if connection.idleWorkerEnabled}
-          <label class="toggle-label inline-setting">
-            <span>Idle timeout:</span>
-            <input
-              type="number"
-              min="1"
-              max="120"
-              value={connection.idleWorkerMinutes}
-              onchange={(e: Event) => {
-                connection.idleWorkerMinutes = Math.max(1, Math.min(120, Number((e.target as HTMLInputElement).value) || 15));
-                connection.saveSession();
-              }}
-              style="width: 60px; padding: 2px 6px;"
-            />
-            <span>minutes</span>
-          </label>
+          <div class="idle-timeout-row">
+            <span class="toggle-text">Idle timeout</span>
+            <div class="idle-timeout-input">
+              <input
+                type="number"
+                min="1"
+                max="120"
+                value={connection.idleWorkerMinutes}
+                onchange={(e: Event) => {
+                  connection.idleWorkerMinutes = Math.max(1, Math.min(120, Number((e.target as HTMLInputElement).value) || 15));
+                  connection.saveSession();
+                }}
+              />
+              <span class="idle-unit">min</span>
+            </div>
+          </div>
         {/if}
-        <label class="toggle-label">
-          <input
-            type="checkbox"
-            checked={launchOnStartup}
+      </div>
+    </div>
+
+    <div class="pref-card">
+      <div class="pref-card-header">Startup</div>
+      <div class="pref-toggles">
+        <label class="toggle-row">
+          <span class="toggle-text">Launch Arkestrator on system startup</span>
+          <button
+            class="toggle-switch"
+            class:on={launchOnStartup}
             disabled={launchOnStartupLoading}
-            onchange={(e) => setLaunchOnStartup((e.target as HTMLInputElement).checked)}
-          />
-          <span>Launch Arkestrator on system startup</span>
+            role="switch"
+            aria-checked={launchOnStartup}
+            onclick={() => setLaunchOnStartup(!launchOnStartup)}
+          >
+            <span class="toggle-knob"></span>
+          </button>
         </label>
         {#if launchOnStartupResult}
           <span class="result">{launchOnStartupResult}</span>
@@ -407,7 +426,7 @@
       </div>
     </div>
 
-    <div class="pref-card">
+    <div class="pref-card" style="grid-column: 1 / -1;">
       <div class="pref-card-header">Default Project Directory</div>
       <p class="desc">
         Where agents save files when no project is open in a bridge.
@@ -645,7 +664,7 @@
     background: var(--bg-base);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
-    padding: 14px;
+    padding: 16px;
   }
   .pref-card-header {
     font-size: var(--font-size-sm);
@@ -656,21 +675,78 @@
   .pref-toggles {
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    align-items: flex-start;
+    gap: 0;
+    align-items: stretch;
   }
-  .toggle-label {
+  .toggle-row {
     display: flex;
     align-items: center;
-    gap: 8px;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+  }
+  .toggle-row:last-child { border-bottom: none; }
+  .toggle-text {
     font-size: var(--font-size-sm);
     color: var(--text-secondary);
-    cursor: pointer;
-    justify-content: flex-start;
   }
-  .toggle-label input[type="checkbox"] {
-    margin: 0;
+  .toggle-switch {
+    position: relative;
+    width: 36px;
+    height: 20px;
+    border-radius: 10px;
+    background: var(--bg-elevated, #3a3a3c);
+    border: none;
+    cursor: pointer;
+    padding: 0;
     flex-shrink: 0;
+    transition: background 0.2s ease;
+  }
+  .toggle-switch.on {
+    background: var(--accent);
+  }
+  .toggle-switch:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .toggle-knob {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #fff;
+    transition: transform 0.2s ease;
+    pointer-events: none;
+  }
+  .toggle-switch.on .toggle-knob {
+    transform: translateX(16px);
+  }
+  .idle-timeout-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .idle-timeout-row:last-child { border-bottom: none; }
+  .idle-timeout-input {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .idle-timeout-input input {
+    width: 52px;
+    padding: 3px 6px;
+    text-align: center;
+  }
+  .idle-unit {
+    font-size: var(--font-size-xs, 11px);
+    color: var(--text-muted);
   }
   .dir-input-row {
     display: flex;
