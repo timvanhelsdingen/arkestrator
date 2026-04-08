@@ -6,35 +6,17 @@
     skill,
     effectiveness,
     selected = false,
-    canManage = false,
-    communityEnabled = false,
     hasUpdate = false,
-    refreshing = false,
     onselect,
     onview,
-    onedit,
-    ondelete,
-    onshare,
-    onrefresh,
   }: {
     skill: SkillEntry;
     effectiveness?: SkillEffectiveness | null;
     selected?: boolean;
-    canManage?: boolean;
-    communityEnabled?: boolean;
     hasUpdate?: boolean;
-    refreshing?: boolean;
     onselect?: () => void;
     onview?: () => void;
-    onedit?: () => void;
-    ondelete?: () => void;
-    onshare?: () => void;
-    onrefresh?: () => void;
   } = $props();
-
-  const isRefreshable = $derived(
-    skill.source === "bridge-repo" || skill.source === "registry" || skill.source === "community"
-  );
 
   const ratedCount = $derived(
     effectiveness ? effectiveness.totalUsed - (effectiveness.pendingOutcomes ?? 0) : 0
@@ -95,23 +77,6 @@
     {/if}
   </div>
 
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="card-actions" onclick={(e) => e.stopPropagation()}>
-    <button class="btn btn-sm" onclick={onview}>View</button>
-    {#if canManage}
-      <button class="btn btn-sm" onclick={onedit} disabled={skill.locked} title={skill.locked ? "Skill is locked" : ""}>Edit</button>
-      <button class="btn btn-sm btn-danger" onclick={ondelete}>Delete</button>
-    {/if}
-    {#if isRefreshable && onrefresh}
-      <button class="btn btn-sm {hasUpdate ? 'btn-accent' : ''}" onclick={onrefresh} disabled={refreshing} title="Update from source">
-        {refreshing ? "Updating..." : hasUpdate ? "Update" : "Refresh"}
-      </button>
-    {/if}
-    {#if communityEnabled && onshare}
-      <button class="btn btn-sm" onclick={onshare} title="Share to community">Share</button>
-    {/if}
-  </div>
 </div>
 
 <style>
@@ -242,46 +207,4 @@
   .success-badge.warn { color: #e2b93d; background: rgba(226, 185, 61, 0.12); }
   .success-badge.bad { color: #e05252; background: rgba(224, 82, 82, 0.12); }
 
-  .card-actions {
-    display: flex;
-    gap: 4px;
-    flex-wrap: wrap;
-    padding-top: 4px;
-  }
-  .btn {
-    padding: 2px 8px;
-    border-radius: 3px;
-    font-size: 0.8em;
-    cursor: pointer;
-    border: 1px solid var(--border);
-    background: var(--bg-subtle, rgba(255,255,255,0.08));
-    color: inherit;
-    transition: all 0.15s;
-  }
-  .btn:hover {
-    background: var(--bg-hover, rgba(255,255,255,0.12));
-  }
-  .btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-  .btn-danger {
-    color: var(--status-failed);
-    border-color: var(--status-failed);
-    background: transparent;
-  }
-  .btn-danger:hover {
-    background: rgba(244, 71, 71, 0.1);
-  }
-  .btn-accent {
-    color: #e2b93d;
-    border-color: #e2b93d;
-    background: transparent;
-  }
-  .btn-accent:hover {
-    background: rgba(226, 185, 61, 0.1);
-  }
-  .btn-sm {
-    padding: 2px 8px;
-  }
 </style>
