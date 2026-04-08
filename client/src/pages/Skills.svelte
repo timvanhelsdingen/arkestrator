@@ -112,7 +112,12 @@
 
   const skillPrograms = $derived.by(() => {
     const set = new Set<string>();
-    for (const s of serverSkills) if (s.program) set.add(s.program);
+    for (const s of serverSkills) {
+      if (!s.program) continue;
+      if (skillFilterType === "api" && !apiBridgeNames.has(s.program.toLowerCase())) continue;
+      if (skillFilterType === "dcc" && s.program !== "global" && apiBridgeNames.has(s.program.toLowerCase())) continue;
+      set.add(s.program);
+    }
     return Array.from(set).sort();
   });
 
@@ -174,6 +179,13 @@
 
   const viewingOldVersion = $derived(selectedVersionNumber > 0 && selectedVersionNumber !== skillCurrentVersion);
   const selectedVersionData = $derived(skillVersions.find(v => v.version === selectedVersionNumber));
+
+  // Clear program selection if it no longer matches the type filter
+  $effect(() => {
+    if (skillFilterProgram && !skillPrograms.includes(skillFilterProgram)) {
+      skillFilterProgram = "";
+    }
+  });
 
   // Clear selection when filters change
   $effect(() => {
