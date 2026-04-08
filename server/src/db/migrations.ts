@@ -451,6 +451,16 @@ const COLUMN_ADDITIONS = [
     created_at      TEXT NOT NULL,
     updated_at      TEXT NOT NULL
   )`,
+  // Coordinator script versioning — snapshot history for rollback
+  `CREATE TABLE IF NOT EXISTS coordinator_script_versions (
+    id         TEXT PRIMARY KEY,
+    program    TEXT NOT NULL,
+    version    INTEGER NOT NULL,
+    content    TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(program, version)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_coord_script_versions_program ON coordinator_script_versions(program)`,
 ];
 
 // Reset any jobs stuck in 'running' state (server crashed while they were active)
