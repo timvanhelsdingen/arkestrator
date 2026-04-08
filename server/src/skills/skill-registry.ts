@@ -27,6 +27,8 @@ interface BridgeSkillEntry {
 interface BridgeRegistryEntry {
   id: string;
   program: string;
+  /** Directory in the bridges repo (e.g. "api/meshy"). Falls back to program name. */
+  dir?: string;
   skills?: BridgeSkillEntry[];
 }
 
@@ -75,7 +77,10 @@ export async function fetchBridgeRegistry(): Promise<BridgeRegistryData> {
           const dir = entry.dir ?? entry.id;
           const r = await fetch(`${BRIDGE_RAW_BASE_URL}/${dir}/bridge.json`);
           if (!r.ok) throw new Error(`${r.status}`);
-          return (await r.json()) as BridgeRegistryEntry;
+          const data = (await r.json()) as BridgeRegistryEntry;
+          // Carry over the dir from registry.json so pullBridgeSkills can build correct URLs
+          if (!data.dir) data.dir = dir;
+          return data;
         }),
       );
       bridges = results
@@ -153,8 +158,11 @@ export async function pullBridgeSkills(
   const registry = await fetchBridgeRegistry();
   const bridge = registry.bridges?.find((b) => b.program === normalized);
 
+  // Use the dir from the registry entry (e.g. "api/meshy") or fall back to program name
+  const bridgeDir = bridge?.dir ?? normalized;
+
   // 3. Try to fetch coordinator.md regardless of registry entry
-  const baseUrl = `${BRIDGE_RAW_BASE}/${normalized}`;
+  const baseUrl = `${BRIDGE_RAW_BASE}/${bridgeDir}`;
   try {
     const coordinatorRes = await fetch(`${baseUrl}/coordinator.md`);
     if (coordinatorRes.ok) {

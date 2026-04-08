@@ -931,7 +931,10 @@ export function buildLocalAgenticBasePrompt(
       `- ${ab.displayName} (${ab.name}): ${ab.actions.join(", ")}`,
     );
     sections.push(
-      `API bridges (server-side, use execute_api_bridge tool):\n${lines.join("\n")}`,
+      `API bridges (server-side) — EXECUTE IMMEDIATELY:\n${lines.join("\n")}\n` +
+      `IMPORTANT: Call execute_api_bridge(bridge, action, params) right away. Do NOT call list_api_bridges or search for skills first. ` +
+      `Output files are auto-downloaded to disk in the background. Pass optional download_dir to control save location. ` +
+      `ALWAYS verify with ls -lh after the call. If response is empty, still check the download directory — files may be downloading.`,
     );
   }
 
@@ -1652,14 +1655,21 @@ function buildBridgeOrchestrationPrompt(
     const lines = apiBridges.map((ab) =>
       `- **${ab.displayName}** (\`${ab.name}\`): ${ab.actions.join(", ")}`,
     );
-    result += "\n\n## API Bridges (Server-Side)\n" +
+    result += "\n\n## API Bridges (Server-Side) — EXECUTE IMMEDIATELY\n" +
       "The following external API services are available via MCP tools. " +
       "These run entirely on the server — no client bridge connection needed.\n\n" +
       lines.join("\n") + "\n\n" +
-      "Use `list_api_bridges` to see full parameter schemas, then `execute_api_bridge(bridge, action, params)` to call them.\n" +
-      "The result includes `outputFiles` with download URLs. **Always download output files** to the " +
-      "requested directory using curl/wget (e.g. `curl -L -o /path/model.glb \"<url>\"`). " +
-      "Never just return URLs — download the actual files.";
+      "**IMPORTANT: When the user's request involves an API bridge action, call `execute_api_bridge(bridge, action, params)` IMMEDIATELY.** " +
+      "Do NOT call `list_api_bridges` first — the available actions are listed above. " +
+      "Do NOT search for skills or load additional context before executing. " +
+      "The action parameter schemas are discoverable via `list_api_bridges` only if you need detailed param info not evident from the action name.\n\n" +
+      "Output files are **automatically downloaded** to disk by the server in the background. The response includes `downloadedTo` (directory) " +
+      "and `localPath` on each file. Pass optional `download_dir` to control where files are saved.\n\n" +
+      "**CRITICAL — Verification step:** After execute_api_bridge returns, ALWAYS run `ls -lh <downloadedTo>` to verify files appeared on disk. " +
+      "Downloads happen in the background and may take a moment for large files. If the response appears empty or times out, " +
+      "**still check the download directory** — the API call may have succeeded and files may be downloading. " +
+      "Wait 30 seconds and check again if needed. Do NOT report failure without first verifying the filesystem.\n\n" +
+      "Your job is: (1) call execute_api_bridge, (2) run `ls -lh` on the download directory to confirm files, (3) report success with file paths.";
   }
 
   // Always append skills reminder as the final section so every bridge job sees it
