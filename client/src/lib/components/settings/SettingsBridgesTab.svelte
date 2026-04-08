@@ -14,8 +14,9 @@
     }
   });
 
-  let onlineBridges = $derived(workersStore.bridges.filter(b => b.connected));
-  let offlineBridges = $derived(workersStore.bridges.filter(b => !b.connected));
+  let programBridges = $derived(workersStore.bridges.filter(b => b.bridgeVersion !== "api-bridge"));
+  let onlineBridges = $derived(programBridges.filter(b => b.connected));
+  let offlineBridges = $derived(programBridges.filter(b => !b.connected));
 </script>
 
 <section>
@@ -28,7 +29,7 @@
   <h3>Connected Bridges</h3>
   <p class="desc">Bridges currently connected to the server. Bridges auto-refresh when this tab is opened.</p>
 
-  {#if workersStore.bridges.length === 0}
+  {#if programBridges.length === 0}
     <div class="empty-state">No bridges connected. Install a bridge plugin and open the target application.</div>
   {:else}
     <div class="bridge-status-summary">
@@ -38,7 +39,7 @@
       {/if}
     </div>
     <div class="bridge-list">
-      {#each workersStore.bridges as bridge}
+      {#each programBridges as bridge}
         <div class="bridge-item" class:offline={!bridge.connected}>
           <div class="bridge-item-left">
             <Badge text={bridge.program ?? "bridge"} variant={bridge.program ?? "default"} />

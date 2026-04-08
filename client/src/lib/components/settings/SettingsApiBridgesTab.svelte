@@ -3,6 +3,8 @@
   import { api } from "../../api/rest";
   import Badge from "../ui/Badge.svelte";
 
+  let { mode = "all" }: { mode?: "rest" | "mcp" | "all" } = $props();
+
   interface McpConfig {
     transport: "stdio" | "sse";
     command?: string;
@@ -76,8 +78,16 @@
     }, {})
   );
 
-  // Custom (non-preset) bridges
-  let customBridges = $derived(bridges.filter((b) => b.type === "custom"));
+  // Custom (non-preset) bridges, filtered by mode
+  let customBridges = $derived(bridges.filter((b) => {
+    if (b.type !== "custom") return false;
+    if (mode === "rest") return !b.mcpConfig;
+    if (mode === "mcp") return !!b.mcpConfig;
+    return true;
+  }));
+
+  // Presets are REST-only, so hide in MCP mode
+  let filteredPresets = $derived(mode === "mcp" ? [] : presets);
 
   $effect(() => {
     if (connection.isAuthenticated && !loaded) {
@@ -133,7 +143,7 @@
     formApiKey = "";
     formAuthType = "bearer";
     formError = "";
-    formBridgeMode = "rest";
+    formBridgeMode = mode === "mcp" ? "mcp" : "rest";
     formMcpTransport = "stdio";
     formMcpCommand = "";
     formMcpArgs = "";
@@ -287,11 +297,25 @@
 </script>
 
 <section>
-  <h3>API & MCP Bridges</h3>
-  <p class="desc">
-    Connect to external APIs and MCP servers as bridge targets. Unlike program bridges (Blender, Godot, etc.) which run inside DCC apps,
-    API bridges call external services directly from the server — no plugin installation required.
-  </p>
+  {#if mode === "mcp"}
+    <h3>MCP Servers</h3>
+    <p class="desc">
+      Connect to Model Context Protocol (MCP) servers. MCP bridges expose tools from external servers
+      that agents can invoke during task execution.
+    </p>
+  {:else if mode === "rest"}
+    <h3>API Bridges</h3>
+    <p class="desc">
+      Connect to external REST APIs as bridge targets. API bridges call external services directly
+      from the server — no plugin installation required.
+    </p>
+  {:else}
+    <h3>API & MCP Bridges</h3>
+    <p class="desc">
+      Connect to external APIs and MCP servers as bridge targets. Unlike program bridges (Blender, Godot, etc.) which run inside DCC apps,
+      API bridges call external services directly from the server — no plugin installation required.
+    </p>
+  {/if}
 
   {#if loading}
     <div class="empty-state">Loading...</div>
@@ -310,9 +334,9 @@
   {/if}
 
   <!-- Preset cards -->
-  {#if presets.length > 0 || customBridges.length > 0}
+  {#if filteredPresets.length > 0 || customBridges.length > 0}
     <div class="bridge-grid">
-      {#each presets as preset (preset.presetId)}
+      {#each filteredPresets as preset (preset.presetId)}
         {@const bridge = bridgeByPreset[preset.presetId]}
         {@const isInstalled = !!bridge}
 
@@ -416,7 +440,7 @@
 
   <div class="actions-bar">
     <button class="btn secondary" onclick={openAddCustom}>
-      Add Custom Bridge
+      {mode === "mcp" ? "Add MCP Server" : mode === "rest" ? "Add API Bridge" : "Add Custom Bridge"}
     </button>
     <button class="btn secondary" onclick={loadData}>
       Refresh
@@ -431,7 +455,7 @@
     <div class="form-modal" onclick={(e) => e.stopPropagation()} role="dialog">
       <h3>{editingId ? "Edit" : "Add"} {formType === "preset" ? "Preset" : "Custom"} Bridge</h3>
 
-      {#if formType === "custom"}
+      {#if formType === "custom" && mode === "all"}
         <label>
           Bridge Mode
           <div class="mode-toggle">
