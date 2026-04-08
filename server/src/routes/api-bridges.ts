@@ -47,14 +47,11 @@ export function createApiBridgeRoutes(
     return c.json(result);
   });
 
-  // List available preset templates
-  router.get("/presets", async (c) => {
-    if (!await isAuthenticated(c, usersRepo, apiKeysRepo)) {
-      return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
-    }
+  // List available preset templates (public — no sensitive data, needed by wizard before full auth)
+  router.get("/presets", async (_c) => {
     // Dynamic import to ensure presets are registered
     const { listPresets } = await import("../api-bridges/index.js");
-    return c.json(listPresets());
+    return _c.json(listPresets());
   });
 
   // Get single bridge
