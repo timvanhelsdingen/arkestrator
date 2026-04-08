@@ -436,9 +436,8 @@
 
   // ─── Init ──────────────────────────────────────────────────────────────
 
-  // Only load installed bridges on mount (local, fast).
-  // Registry fetch from GitHub is deferred to user clicking "Check for Updates".
-  loadInstalled();
+  // Auto-load registry (and installed bridges) on mount.
+  loadRegistry();
 </script>
 
 <section class="bridge-installer">
@@ -451,7 +450,7 @@
         </button>
       {/if}
       <button class="btn secondary" onclick={loadRegistry} disabled={loading}>
-        {loading ? "Loading..." : registry.length > 0 ? "Check for Updates" : "Load Plugins"}
+        {loading ? "Loading..." : "Check for Updates"}
       </button>
     </div>
   </div>
@@ -460,8 +459,8 @@
     <div class="error">{error}</div>
   {/if}
 
-  {#if registry.length === 0 && !loading}
-    <p class="desc">Click "Load Plugins" to fetch the bridge plugin registry from GitHub.</p>
+  {#if registry.length === 0 && !loading && !error}
+    <p class="desc">Loading bridge plugin registry...</p>
   {/if}
 
   <div class="bridge-grid">
