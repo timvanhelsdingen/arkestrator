@@ -809,13 +809,20 @@
               {skill}
               effectiveness={skillEffectiveness[skill.id] ?? null}
               selected={selectedSkillKeys.has(key)}
+              {canManage}
+              {communityEnabled}
               hasUpdate={skill.source === "community" && communitySkills.hasUpdateForLocal(skill.slug, skill.program)}
+              refreshing={refreshingSkills.has(`${skill.program}:${skill.slug}`)}
               onselect={() => {
                 const next = new Set(selectedSkillKeys);
                 if (next.has(key)) next.delete(key); else next.add(key);
                 selectedSkillKeys = next;
               }}
               onview={() => viewSkill(skill.slug, skill.program)}
+              onedit={() => editSkillFromTable(skill.slug, skill.program)}
+              ondelete={() => deleteSkill(skill.slug, skill.program)}
+              onshare={() => publishSkillFromRow(skill)}
+              onrefresh={() => refreshSkillFromSource(skill)}
             />
           {/each}
         </div>
@@ -953,12 +960,6 @@
             <button class="btn-sm" onclick={() => refreshSkillFromSource(skillViewData!)} disabled={refreshingSkills.has(rkey)}>
               {refreshingSkills.has(rkey) ? "Updating..." : "Update from Source"}
             </button>
-          {/if}
-          {#if canManage && !skillEditMode && skillViewData}
-            <button class="btn-sm danger" onclick={() => { deleteSkill(skillViewData!.slug, skillViewData!.program); closeSkillView(); }}>Delete</button>
-          {/if}
-          {#if communityEnabled && skillViewData}
-            <button class="btn-sm" onclick={() => publishSkillFromRow(skillViewData!)}>Share</button>
           {/if}
           <button class="btn-sm" onclick={exportViewedSkill}>Export</button>
           <button class="btn-sm" onclick={closeSkillView}>X</button>
