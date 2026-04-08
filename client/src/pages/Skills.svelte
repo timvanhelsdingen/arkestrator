@@ -672,13 +672,13 @@
           <option value={kw}>{kw}</option>
         {/each}
       </select>
-      <input type="text" placeholder="Search skills..." bind:value={skillsFilter} class="filter-search" />
       {#if activeFilterCount > 0}
         <button class="btn secondary filter-clear" onclick={clearAllFilters}>
           Clear ({activeFilterCount})
         </button>
       {/if}
     </div>
+    <input type="text" placeholder="Search skills..." bind:value={skillsFilter} class="filter-search" />
 
     <!-- Skills header with view toggle and actions -->
     <div class="skills-header">
@@ -1116,7 +1116,7 @@
     display: flex;
     flex-direction: column;
     overflow-y: auto;
-    max-width: 1100px;
+    /* no max-width — fill available space like Scripts tab */
   }
   h2 { font-size: var(--font-size-lg); margin-bottom: 12px; }
   h3 { font-size: var(--font-size-base); margin-bottom: 8px; color: var(--text-secondary); }
@@ -1142,8 +1142,8 @@
     min-width: 120px;
   }
   .filter-search {
-    flex: 1;
     min-width: 160px;
+    max-width: 260px;
     padding: 6px 8px;
     font-size: var(--font-size-sm);
     background: var(--bg-base);
@@ -1163,10 +1163,12 @@
   .error { margin-bottom: 10px; color: var(--status-failed); font-size: var(--font-size-sm); }
   .info { margin-bottom: 10px; color: var(--text-secondary); font-size: var(--font-size-sm); }
   .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
-  .btn { padding: 6px 12px; border-radius: var(--radius-sm); background: var(--accent); color: #fff; border: none; }
+  .btn { padding: 4px 10px; font-size: var(--font-size-sm); border-radius: var(--radius-sm); background: var(--accent); color: #fff; border: none; cursor: pointer; }
+  .btn:hover { opacity: 0.85; }
   .btn.secondary { border: 1px solid var(--border); background: var(--bg-base); color: var(--text-secondary); }
+  .btn.secondary:hover { background: var(--bg-hover, rgba(255,255,255,0.12)); }
   label { display: flex; flex-direction: column; gap: 4px; font-size: var(--font-size-sm); color: var(--text-secondary); }
-  textarea, input:not([type="checkbox"]):not([type="radio"]), select {
+  textarea, input:not([type="checkbox"]):not([type="radio"]), select:not(.filter-select):not(.skill-filter-select) {
     width: 100%; background: var(--bg-base); color: var(--text-primary); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px;
   }
   input[type="checkbox"] { width: auto; padding: 0; }
