@@ -15,7 +15,7 @@ import { newId } from "../utils/id.js";
 import { createHash } from "crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "fs";
 import { join, relative } from "path";
-import { tmpdir } from "os";
+import { tmpdir, homedir } from "os";
 import { principalHasPermission, type AuthPrincipal } from "../middleware/auth.js";
 import type { UserPermissionKey } from "../utils/user-permissions.js";
 import { checkCommandScripts, checkFilePaths, checkScriptFilePaths } from "../policies/enforcer.js";
@@ -2144,14 +2144,16 @@ export function createMcpServer(deps: McpDeps): McpServer {
   // Tool: execute_api_bridge
   server.tool(
     "execute_api_bridge",
-    "Execute an action on an API bridge (external REST API). This is synchronous — blocks until the API call completes (including polling for async APIs). " +
-    "Use list_api_bridges to discover available bridges and their actions with parameter schemas.",
+    "Execute an action on an API bridge (external REST API). Blocks until the API call completes (including polling for async APIs). " +
+    "Output files are AUTOMATICALLY DOWNLOADED to disk — the response includes local file paths. " +
+    "Pass download_dir to control where files are saved, otherwise they go to the default project directory.",
     {
       bridge: z.string().describe('API bridge name (e.g. "meshy")'),
       action: z.string().describe('Action to execute (e.g. "text_to_3d_preview", "image_to_3d")'),
       params: z.record(z.string(), z.unknown()).default({}).describe("Action parameters (see list_api_bridges for schemas)"),
+      download_dir: z.string().optional().describe("Directory to save output files to. If omitted, uses default project directory."),
     },
-    async ({ bridge, action, params }) => {
+    async ({ bridge, action, params, download_dir }) => {
       if (!deps.apiBridgesRepo) {
         return { content: [{ type: "text" as const, text: "API bridges not available." }], isError: true };
       }
@@ -2199,15 +2201,50 @@ export function createMcpServer(deps: McpDeps): McpServer {
         if (result.error) compact.error = result.error;
         if (result.externalTaskId) compact.externalTaskId = result.externalTaskId;
         if (result.externalStatus) compact.externalStatus = result.externalStatus;
+
+        // Auto-download output files to disk (fire-and-forget to avoid HTTP timeout)
         if (result.outputFiles && result.outputFiles.length > 0) {
+          const { getDefaultProjectDir } = await import("../agents/engines.js");
+          const baseDir = download_dir
+            || deps.settingsRepo?.get("default_project_dir")
+            || getDefaultProjectDir()
+            || join(homedir(), "Documents", "Arkestrator");
+          const downloadDir = download_dir
+            ? download_dir
+            : join(baseDir, "downloads", bridge, action);
+
+          mkdirSync(downloadDir, { recursive: true });
+
+          // Return file info with expected local paths immediately
           compact.outputFiles = result.outputFiles.map((f) => ({
-            url: f.url,
             filename: f.filename,
+            localPath: join(downloadDir, f.filename),
             mimeType: f.mimeType,
-            ...(f.sizeBytes != null ? { sizeBytes: f.sizeBytes } : {}),
           }));
-          compact.downloadHint = "Use curl or wget to download these files to the desired directory.";
+          compact.downloadedTo = downloadDir;
+          compact.downloadStatus = "downloading";
+
+          // Fire-and-forget: download files in the background so the MCP
+          // response returns fast and doesn't time out the HTTP transport.
+          const filesToDownload = result.outputFiles.map((f) => ({
+            url: f.url,
+            localPath: join(downloadDir, f.filename),
+          }));
+          (async () => {
+            for (const f of filesToDownload) {
+              try {
+                const resp = await fetch(f.url);
+                if (resp.ok) {
+                  const buffer = Buffer.from(await resp.arrayBuffer());
+                  writeFileSync(f.localPath, buffer);
+                }
+              } catch {
+                // Best-effort download — agent can verify with ls
+              }
+            }
+          })();
         }
+
         // Include a summary of the raw API data (omit large nested objects)
         if (result.data && typeof result.data === "object") {
           const d = result.data as Record<string, unknown>;

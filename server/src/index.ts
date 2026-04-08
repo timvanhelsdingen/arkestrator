@@ -696,6 +696,29 @@ async function main() {
   // Register presets (Meshy, etc.)
   await import("./api-bridges/index.js");
 
+  // Pull skills for enabled API bridges (they don't connect via WebSocket so auto-pull won't trigger)
+  for (const ab of apiBridgesRepo.listEnabled()) {
+    const program = ab.presetId || ab.name;
+    if (!skillsPulledThisSession.has(program)) {
+      skillsPulledThisSession.add(program);
+      pullBridgeSkills(program, skillsRepo, settingsRepo, false, skillStore)
+        .then((r) => {
+          if (r.pulled > 0) {
+            logger.info("skills", `Auto-pulled ${r.pulled} skills for API bridge ${program}`);
+            hub.broadcastToType("client", {
+              type: "skills_updated",
+              id: "",
+              payload: { program, pulled: r.pulled, source: "auto-pull" },
+            });
+          }
+        })
+        .catch((err) => {
+          skillsPulledThisSession.delete(program); // retry next startup
+          logger.warn("skills", `Failed to pull skills for API bridge ${program}: ${err?.message}`);
+        });
+    }
+  }
+
   const taskExecutor = new TaskExecutor({ hub, jobsRepo, headlessProgramsRepo, resourceLeaseManager, apiBridgeExecutor });
 
   // 8c. Create worker loop
