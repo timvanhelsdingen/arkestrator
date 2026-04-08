@@ -312,6 +312,27 @@ export function createSkillsRoutes(
     return c.json({ ok: true, message: "Skill index refreshed" });
   });
 
+  // POST /wipe-all — delete all skills (factory reset)
+  router.post("/wipe-all", async (c) => {
+    const auth = await requireWriteAccess(c);
+    if (!auth) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+
+    const all = skillsRepo.listAll();
+    let deleted = 0;
+    for (const skill of all) {
+      if (skillsRepo.deleteAny(skill.slug, skill.program)) deleted++;
+    }
+    // Also wipe skill files from disk if skillStore is available
+    if (skillStore) {
+      for (const skill of all) {
+        try { await skillStore.deleteAny(skill.slug, skill.program); } catch { /* already gone */ }
+      }
+    }
+    skillIndex.refresh();
+    logger.info("skills", `Wiped all skills: ${deleted} deleted`);
+    return c.json({ ok: true, deleted });
+  });
+
   // GET /registry — fetch available skills from the bridge repo registry
   router.get("/registry", async (c) => {
     const auth = await requireAuth(c);

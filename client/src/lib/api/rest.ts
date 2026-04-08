@@ -1009,6 +1009,7 @@ export const api = {
     pullProgram: (program: string) =>
       request(`/api/skills/pull/${encodeURIComponent(program)}`, { method: "POST" }),
     refreshIndex: () => request("/api/skills/refresh-index", { method: "POST" }),
+    wipeAll: () => request("/api/skills/wipe-all", { method: "POST" }),
     importFromGitHub: (repoUrl: string, program = "global", subPath?: string) =>
       request("/api/skills/import", {
         method: "POST",
