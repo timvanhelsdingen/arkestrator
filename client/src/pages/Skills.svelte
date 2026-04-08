@@ -112,7 +112,12 @@
 
   const skillPrograms = $derived.by(() => {
     const set = new Set<string>();
-    for (const s of serverSkills) if (s.program) set.add(s.program);
+    for (const s of serverSkills) {
+      if (!s.program) continue;
+      if (skillFilterType === "api" && !apiBridgeNames.has(s.program.toLowerCase())) continue;
+      if (skillFilterType === "dcc" && s.program !== "global" && apiBridgeNames.has(s.program.toLowerCase())) continue;
+      set.add(s.program);
+    }
     return Array.from(set).sort();
   });
 
@@ -174,6 +179,13 @@
 
   const viewingOldVersion = $derived(selectedVersionNumber > 0 && selectedVersionNumber !== skillCurrentVersion);
   const selectedVersionData = $derived(skillVersions.find(v => v.version === selectedVersionNumber));
+
+  // Clear program selection if it no longer matches the type filter
+  $effect(() => {
+    if (skillFilterProgram && !skillPrograms.includes(skillFilterProgram)) {
+      skillFilterProgram = "";
+    }
+  });
 
   // Clear selection when filters change
   $effect(() => {
@@ -503,7 +515,7 @@
     skillsPulling = true;
     try {
       const result = await api.skills.pullAll();
-      info = `Pulled ${result?.total ?? 0} skills from bridge repo.`;
+      info = `Updated ${result?.total ?? 0} skills from repo.`;
       await loadSkills();
     } catch (err: any) {
       error = err.message ?? "Failed to pull skills";
@@ -726,7 +738,7 @@
           {skillsLoading ? "Loading..." : "Refresh"}
         </button>
         <button class="btn secondary" onclick={pullAllSkills} disabled={skillsPulling}>
-          {skillsPulling ? "Pulling..." : "Pull from Bridge Repo"}
+          {skillsPulling ? "Updating..." : "Update All from Repo"}
         </button>
         {#if canManage}
           <button class="btn" onclick={() => { skillCreateOpen = !skillCreateOpen; skillCreateProgram = skillFilterProgram || "global"; }}>
@@ -787,7 +799,7 @@
         <p class="muted" style="text-align:center; padding: 16px;">Loading...</p>
       {:else if filteredSkills.length === 0}
         <p class="muted" style="text-align:center; padding: 16px;">
-          {#if serverSkills.length === 0}No skills loaded. <button class="btn-link" onclick={pullAllSkills}>Pull from Bridge Repo</button>{:else}No match.{/if}
+          {#if serverSkills.length === 0}No skills loaded. <button class="btn-link" onclick={pullAllSkills}>Update All from Repo</button>{:else}No match.{/if}
         </p>
       {:else}
         <div class="skill-card-grid" style="grid-template-columns: repeat(auto-fill, minmax({skillCardSize}px, 1fr))">
@@ -797,20 +809,13 @@
               {skill}
               effectiveness={skillEffectiveness[skill.id] ?? null}
               selected={selectedSkillKeys.has(key)}
-              {canManage}
-              {communityEnabled}
               hasUpdate={skill.source === "community" && communitySkills.hasUpdateForLocal(skill.slug, skill.program)}
-              refreshing={refreshingSkills.has(`${skill.program}:${skill.slug}`)}
               onselect={() => {
                 const next = new Set(selectedSkillKeys);
                 if (next.has(key)) next.delete(key); else next.add(key);
                 selectedSkillKeys = next;
               }}
               onview={() => viewSkill(skill.slug, skill.program)}
-              onedit={() => editSkillFromTable(skill.slug, skill.program)}
-              ondelete={() => deleteSkill(skill.slug, skill.program)}
-              onshare={() => publishSkillFromRow(skill)}
-              onrefresh={() => refreshSkillFromSource(skill)}
             />
           {/each}
         </div>
@@ -948,6 +953,12 @@
             <button class="btn-sm" onclick={() => refreshSkillFromSource(skillViewData!)} disabled={refreshingSkills.has(rkey)}>
               {refreshingSkills.has(rkey) ? "Updating..." : "Update from Source"}
             </button>
+          {/if}
+          {#if canManage && !skillEditMode && skillViewData}
+            <button class="btn-sm danger" onclick={() => { deleteSkill(skillViewData!.slug, skillViewData!.program); closeSkillView(); }}>Delete</button>
+          {/if}
+          {#if communityEnabled && skillViewData}
+            <button class="btn-sm" onclick={() => publishSkillFromRow(skillViewData!)}>Share</button>
           {/if}
           <button class="btn-sm" onclick={exportViewedSkill}>Export</button>
           <button class="btn-sm" onclick={closeSkillView}>X</button>
@@ -1105,6 +1116,7 @@
     display: flex;
     flex-direction: column;
     overflow-y: auto;
+    max-width: 1100px;
   }
   h2 { font-size: var(--font-size-lg); margin-bottom: 12px; }
   h3 { font-size: var(--font-size-base); margin-bottom: 8px; color: var(--text-secondary); }
@@ -1112,29 +1124,28 @@
   /* Filter bar */
   .filter-bar {
     display: flex;
-    gap: 6px;
+    gap: 8px;
     align-items: center;
     flex-wrap: wrap;
-    padding: 6px 0;
+    padding: 8px 0;
     margin-bottom: 12px;
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
   }
   .filter-select {
-    padding: 4px 6px;
-    font-size: 11px;
+    padding: 5px 8px;
+    font-size: var(--font-size-sm);
     background: var(--bg-deep, rgba(0,0,0,0.2));
     color: var(--text-primary);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm, 4px);
-    min-width: 0;
-    width: auto;
+    min-width: 120px;
   }
   .filter-search {
-    min-width: 120px;
-    max-width: 200px;
-    padding: 4px 6px;
-    font-size: 11px;
+    flex: 1;
+    min-width: 160px;
+    padding: 6px 8px;
+    font-size: var(--font-size-sm);
     background: var(--bg-base);
     color: var(--text-primary);
     border: 1px solid var(--border);
