@@ -9,6 +9,7 @@
   interface BridgeEntry {
     id: string;
     name: string;
+    type?: string;
     description: string;
     program: string;
     installType: string;
