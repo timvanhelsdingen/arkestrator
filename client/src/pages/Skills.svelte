@@ -225,6 +225,7 @@
   }
 
   function publishSkillFromRow(skill: SkillEntry) {
+    closeSkillView();
     communitySkills.publishPreselect = [{ slug: skill.slug, program: skill.program || "global" }];
     communitySkills.publishModalOpen = true;
   }
