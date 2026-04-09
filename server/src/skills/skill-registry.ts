@@ -166,11 +166,15 @@ export async function pullBridgeSkills(
   try {
     const coordinatorRes = await fetch(`${baseUrl}/coordinator.md`);
     if (coordinatorRes.ok) {
-      const content = await coordinatorRes.text();
-      if (content.trim()) {
+      const rawCoordinator = await coordinatorRes.text();
+      if (rawCoordinator.trim()) {
         // Don't overwrite user-edited skills
         const existing = skillsRepo.getAny?.(`${normalized}-coordinator`, normalized);
         if (!existing || existing.source !== "user") {
+          // Try to parse as SKILL.md format to extract version
+          const parsedCoord = parseSkillFile(rawCoordinator);
+          const coordContent = parsedCoord ? parsedCoord.body : rawCoordinator;
+          const coordVersion = parsedCoord?.frontmatter.version;
           const input = {
             name: `${normalized}-coordinator`,
             slug: `${normalized}-coordinator`,
@@ -179,12 +183,13 @@ export async function pullBridgeSkills(
             title: `${normalized.charAt(0).toUpperCase() + normalized.slice(1)} Coordinator`,
             description: `Coordinator script for ${normalized} (from bridge repo)`,
             keywords: [normalized, "coordinator", "bridge"],
-            content,
+            content: coordContent,
             source: "bridge-repo",
             sourcePath: `${baseUrl}/coordinator.md`,
             priority: 70,
             autoFetch: true,
             enabled: true,
+            ...(coordVersion !== undefined && { version: coordVersion }),
           };
           if (skillStore) {
             await skillStore.upsertBySlugAndProgram(input);
@@ -210,12 +215,17 @@ export async function pullBridgeSkills(
           errors.push(`Failed to fetch skill ${skillEntry.slug}: ${skillRes.status} ${skillRes.statusText}`);
           continue;
         }
-        const content = await skillRes.text();
-        if (!content.trim()) continue;
+        const rawContent = await skillRes.text();
+        if (!rawContent.trim()) continue;
 
         // Don't overwrite user-edited skills
         const existing = skillsRepo.getAny?.(skillEntry.slug, normalized);
         if (existing && existing.source === "user") continue;
+
+        // Try to parse as SKILL.md format to extract version and body
+        const parsed = parseSkillFile(rawContent);
+        const content = parsed ? parsed.body : rawContent;
+        const skillVersion = parsed?.frontmatter.version;
 
         // Only coordinator skills are auto-fetched into prompt.
         // Workflow skills (materials, modeling, etc.) are on-demand via
@@ -238,6 +248,7 @@ export async function pullBridgeSkills(
           priority: 50,
           autoFetch: isCoordinator || isVerification,
           enabled: true,
+          ...(skillVersion !== undefined && { version: skillVersion }),
         };
         if (skillStore) {
           await skillStore.upsertBySlugAndProgram(skillInput);

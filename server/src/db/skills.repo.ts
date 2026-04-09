@@ -83,6 +83,8 @@ export interface CreateSkillInput {
   priority?: number;
   autoFetch?: boolean;
   enabled?: boolean;
+  /** Seed version from SKILL.md frontmatter. Defaults to 1 (DB default). */
+  version?: number;
 }
 
 /** Fields accepted when updating a skill. All optional. */
@@ -170,12 +172,12 @@ export class SkillsRepo {
       "SELECT * FROM skills WHERE slug = ? AND program = ? LIMIT 1",
     );
     this.insertStmt = db.prepare(`
-      INSERT INTO skills (id, name, slug, program, category, title, description, keywords, content, playbooks, related_skills, source, source_path, priority, auto_fetch, enabled, app_version, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO skills (id, name, slug, program, category, title, description, keywords, content, playbooks, related_skills, source, source_path, priority, auto_fetch, enabled, version, app_version, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     this.upsertStmt = db.prepare(`
-      INSERT INTO skills (id, name, slug, program, category, title, description, keywords, content, playbooks, related_skills, source, source_path, priority, auto_fetch, enabled, app_version, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO skills (id, name, slug, program, category, title, description, keywords, content, playbooks, related_skills, source, source_path, priority, auto_fetch, enabled, version, app_version, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(slug, program) DO UPDATE SET
         name = excluded.name, category = excluded.category, title = excluded.title,
         description = excluded.description, keywords = excluded.keywords, content = excluded.content,
@@ -231,7 +233,7 @@ export class SkillsRepo {
       JSON.stringify(input.playbooks ?? []), JSON.stringify(input.relatedSkills ?? []),
       src, input.sourcePath ?? null, input.priority ?? 50,
       (input.autoFetch ?? false) ? 1 : 0, (input.enabled ?? true) ? 1 : 0,
-      SERVER_VERSION, now, now,
+      input.version ?? 1, SERVER_VERSION, now, now,
     );
     return this.get(input.slug, program)!;
   }
@@ -333,7 +335,7 @@ export class SkillsRepo {
       JSON.stringify(input.playbooks ?? []), JSON.stringify(input.relatedSkills ?? []),
       input.source ?? "user", input.sourcePath ?? null, input.priority ?? 50,
       (input.autoFetch ?? false) ? 1 : 0, (input.enabled ?? true) ? 1 : 0,
-      SERVER_VERSION, now, now,
+      input.version ?? 1, SERVER_VERSION, now, now,
     );
     return this.get(input.slug, program)!;
   }
