@@ -20,7 +20,8 @@ import { getClaudeRuntimeDecision } from "../utils/claude-runtime.js";
 import type { SpawnUserSpec } from "../utils/spawn.js";
 import { readFileSync, readdirSync, existsSync, mkdirSync, writeFileSync, unlinkSync } from "fs";
 import { homedir, tmpdir } from "os";
-import { join } from "path";
+import { join, resolve } from "path";
+import { parseSkillFile, skillFileToSkillFields } from "../skills/skill-file.js";
 import type { WorkersRepo } from "../db/workers.repo.js";
 import type { HeadlessProgramsRepo } from "../db/headless-programs.repo.js";
 import type { WebSocketHub } from "../ws/hub.js";
@@ -1232,6 +1233,7 @@ const COORDINATOR_SCRIPT_DEFAULTS: Record<string, string> = {
   global: DEFAULT_ORCHESTRATOR_PROMPT,
 };
 
+
 // ---- Bridge-specific prompts removed in v0.1.61 ----
 // Coordinator content for blender, godot, houdini, comfyui, unity, unreal
 // now lives in the arkestrator-bridges repo as coordinator.md files.
@@ -1300,6 +1302,9 @@ export function seedCoordinatorScripts(dir: string, skillsRepo?: import("../db/s
         });
       }
       // Pattern skills come from bridge repos — no longer seeded as built-in.
+
+      // Seed repo skills from server/skills/ directory (SKILL.md files shipped with the repo)
+      seedRepoSkills(skillsRepo);
     }
 
     // Also write global to disk for backward compat
@@ -1338,6 +1343,61 @@ export function seedCoordinatorScripts(dir: string, skillsRepo?: import("../db/s
  */
 export function getCoordinatorScriptDefault(program: string): string | undefined {
   return COORDINATOR_SCRIPT_DEFAULTS[program];
+}
+
+/**
+ * Seed repo skills from server/skills/ directory.
+ * Directory structure: server/skills/{program}/{slug}/SKILL.md
+ * Repo skills use source="repo" and track a content hash to detect user modifications.
+ * If the user edited a repo skill, only metadata is updated — their content is preserved.
+ */
+function seedRepoSkills(skillsRepo: import("../db/skills.repo.js").SkillsRepo): void {
+  // Resolve relative to CWD (where the server runs from, i.e. the repo root or server/)
+  // Try server/skills/ first (running from repo root), then skills/ (running from server/)
+  let skillsDir = resolve("server/skills");
+  if (!existsSync(skillsDir)) {
+    skillsDir = resolve("skills");
+  }
+  if (!existsSync(skillsDir)) return;
+
+  try {
+    // Walk: skills/{program}/{slug}/SKILL.md
+    for (const programEntry of readdirSync(skillsDir, { withFileTypes: true })) {
+      if (!programEntry.isDirectory()) continue;
+      const programDir = join(skillsDir, programEntry.name);
+
+      for (const slugEntry of readdirSync(programDir, { withFileTypes: true })) {
+        if (!slugEntry.isDirectory()) continue;
+        const skillFile = join(programDir, slugEntry.name, "SKILL.md");
+        if (!existsSync(skillFile)) continue;
+
+        try {
+          const raw = readFileSync(skillFile, "utf-8");
+          const parsed = parseSkillFile(raw);
+          if (!parsed) {
+            logger.warn("repo-skills", `Failed to parse ${skillFile}`);
+            continue;
+          }
+
+          const fields = skillFileToSkillFields(parsed);
+          const contentHash = Bun.hash(fields.content).toString(16);
+
+          skillsRepo.upsertRepoSkill({
+            ...fields,
+            // Override program from directory structure (authoritative)
+            program: programEntry.name,
+            slug: slugEntry.name,
+            source: "repo",
+            repoContentHash: contentHash,
+          });
+        } catch (err) {
+          logger.warn("repo-skills", `Error loading ${skillFile}: ${err}`);
+        }
+      }
+    }
+  } catch (err) {
+    logger.warn("repo-skills", `Error scanning repo skills: ${err}`);
+  }
 }
 
 // seedBuiltinPatternSkills removed in v0.1.61 — pattern skills come from bridge repos.

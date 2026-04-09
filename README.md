@@ -27,9 +27,9 @@ Most AI coding tools are stateless — they forget everything between sessions. 
                                           └────────────────┘
 ```
 
-**Skills** are learned patterns — naming conventions, tool usage, project structure, common patterns — stored in a searchable knowledge base. When you submit a job, Arkestrator automatically finds and injects relevant skills into the agent's context. Rate the outcome, and the system learns what works and what doesn't.
+**Skills** are learned patterns — naming conventions, tool usage, project structure, common workflows — stored in a searchable knowledge base. When you submit a job, Arkestrator automatically finds and injects relevant skills into the agent's context. Rate the outcome, and the system learns what works and what doesn't.
 
-Point Arkestrator at a project folder and it analyzes your existing work to bootstrap skills before you even submit your first job. See [Skills](docs/skills.md) and [Coordinator](docs/coordinator.md) for the full picture.
+Point Arkestrator at a project folder and it analyzes your existing work to bootstrap skills before you even submit your first job. Browse and install community-contributed skills from [arkestrator.com](https://arkestrator.com), or publish your own. See [Skills](docs/skills.md) and [Coordinator](docs/coordinator.md) for the full picture.
 
 ## Why Not Just Use Claude Code / Codex / MCP Directly?
 
@@ -37,13 +37,15 @@ Those tools are great — Arkestrator makes them better:
 
 | | Raw CLI Agent | MCP-Only | Arkestrator |
 |---|---|---|---|
-| Works inside DCC apps | No | Limited | Yes — official + community bridge plugins |
-| Job queue with priorities | No | No | Yes — dependencies, retries, pause/resume |
+| Works inside DCC apps | No | Limited | Yes — DCC bridges + API bridges |
+| Job queue with priorities | No | No | Yes — dependencies, retries, sub-jobs, pause/resume |
 | Multi-machine routing | No | No | Yes — DCC on workstation, AI on server |
 | Live editor context | No | Manual | Automatic — selected nodes, open scenes, scripts |
 | Learns from your projects | No | No | Yes — skills, training, effectiveness tracking |
-| Multiple AI engines | One at a time | One at a time | Any engine, hot-swap per job |
-| Team controls | No | No | Users, API keys, policies, audit log |
+| Multiple AI engines | One at a time | One at a time | Any engine, hot-swap per job, auto-routing |
+| Generative API services | No | No | Yes — Meshy, Runway, Flux, ComfyUI, and more |
+| Community skills | No | No | Yes — browse, install, and share from arkestrator.com |
+| Team controls | No | No | Users, API keys, 2FA, policies, audit log |
 
 Arkestrator also exposes its own **MCP endpoint**, so external AI clients (like Claude Code) can submit jobs and execute bridge commands through the standard protocol.
 
@@ -51,9 +53,9 @@ Arkestrator also exposes its own **MCP endpoint**, so external AI clients (like 
 
 Three components, connected over WebSocket:
 
-1. **Server** — Manages the job queue, spawns AI agents, routes commands, enforces policies
-2. **Client** — Desktop app. Submit prompts, monitor jobs, manage agents, train skills
-3. **Bridges** — Lightweight plugins inside each DCC app that push editor context and apply results
+1. **Server** — Manages the job queue, spawns AI agents, routes commands, enforces policies, runs training
+2. **Client** — Desktop app. Submit prompts, chat with agents, monitor jobs, manage skills, train on your projects
+3. **Bridges** — Lightweight plugins inside each DCC app (or API integrations for generative services) that push context and apply results
 
 ```
                     ┌──────────────────────┐
@@ -69,14 +71,19 @@ Three components, connected over WebSocket:
                     │                      │
                     │  Queue · Route · Run │
                     │  Skills · Training   │
-                    └──────────┬───────────┘
-                               │
-           ┌───────────────────┼───────────────────┐
-           │           │           │           │
-     ┌─────▼─────┐ ┌──▼──┐ ┌─────▼─────┐ ┌──▼──────┐
-     │   Godot   │ │Blender│ │  Houdini  │ │  More   │
-     │  (bridge) │ │(bridge)│ │  (bridge) │ │ bridges │
-     └───────────┘ └───────┘ └───────────┘ └─────────┘
+                    └─────┬────────┬───────┘
+                          │        │
+          ┌───────────────┘        └───────────────┐
+          │            DCC Bridges                  │       API Bridges
+          │                                        │
+    ┌─────┴─────┐ ┌────────┐ ┌─────────┐    ┌─────┴──────┐ ┌─────────┐
+    │  Godot    │ │Blender │ │Houdini  │    │  Unreal    │ │  Unity  │
+    │  (bridge) │ │(bridge)│ │(bridge) │    │  (bridge)  │ │ (bridge)│
+    └───────────┘ └────────┘ └─────────┘    └────────────┘ └─────────┘
+    ┌───────────┐ ┌────────┐ ┌─────────────────────────────────────────┐
+    │  Fusion   │ │ComfyUI │ │  Meshy · Runway · Flux · Kling · Luma  │
+    │  (bridge) │ │(bridge)│ │  Ideogram · Tripo · ElevenLabs · Suno  │
+    └───────────┘ └────────┘ └─────────────────────────────────────────┘
 
   AI Engines: Claude Code · Codex · Gemini · Grok · Ollama · Any CLI
 ```
@@ -88,13 +95,41 @@ Three components, connected over WebSocket:
 
 ## Key Features
 
-**Orchestration** — Multi-engine support (Claude Code, Codex, Gemini, Grok, Ollama, any CLI), auto-routing, job queue with priorities/dependencies/retries, multi-machine routing, three workspace modes, headless execution. [Details](docs/how-it-works.md)
+### Orchestration
 
-**Bridges** — Various availble bridges for all types of different applications with a library that keeps growing. =  live editor context, cross-bridge commands, context menu integration, built-in bridge installer. [Details](docs/usage-bridges.md) Bridges are easy to build yourself with some technical knowhow, or with help of AI. Submit your own to the bridge repo, or improve ones that already exist.
+Multi-engine support (Claude Code, Codex, Gemini, Grok, Ollama, any CLI agent), auto-routing that picks the right engine based on prompt complexity, fallback chains for escalation from local to cloud, job queue with priorities, dependencies, sub-jobs, retries, and pause/resume. Agents can spawn child jobs and coordinate across multiple bridges. Three workspace modes (`repo`, `command`, `sync`) for different execution strategies. Headless execution for background/CLI workflows. [Details](docs/how-it-works.md)
 
-**Skills & Training** — Self-improving skill system, training pipeline from project analysis, coordinator scripts per DCC app, playbook task templates, effectiveness tracking. [Details](docs/skills.md)
+### Bridges
 
-**Admin & Security** — Web admin panel, MCP endpoint, fine-grained permissions per user and API key, 2FA, audit logging. [Details](docs/usage-server.md)
+Seven DCC bridges — Godot, Blender, Houdini, Unreal Engine, Unity, Fusion/DaVinci Resolve, and ComfyUI — with a growing library. Bridges push live editor context (selected nodes, open scenes, active scripts) every few seconds, support right-click context menu integration, and enable cross-bridge commands so an agent working in one app can trigger actions in another. The desktop client includes a built-in bridge installer that auto-detects your DCC installations for one-click setup. Bridges are straightforward to build, and contributions are welcome at the [bridge repo](https://github.com/timvanhelsdingen/arkestrator-bridges). [Details](docs/usage-bridges.md)
+
+### API Bridges
+
+Webhook integrations for generative AI services — Meshy (3D), Runway (video), Flux (images), Kling AI (video), Luma AI (video & 3D), Ideogram (images), Tripo (3D), ElevenLabs (audio), Suno (music), and ComfyUI (generative workflows). API bridges support async polling for long-running generation tasks and return downloadable output files. Configure preset or custom integrations with flexible auth and endpoint templates.
+
+### Skills & Training
+
+A self-improving skill system that learns from your projects. Skills are ranked using a hybrid algorithm (50% lexical, 30% semantic, 20% effectiveness) and automatically injected into agent context at job time. The training pipeline analyzes your project files and extracts patterns into new skills, with three intensity levels and configurable scheduling. Coordinator scripts (global and per-program) define execution policies, and playbooks provide per-program task libraries matched semantically against your prompts. Effectiveness tracking records how well each skill performs, with a graduated confidence model that balances exploration and exploitation. [Details](docs/skills.md)
+
+### Community Skills
+
+Browse, search, and install community-contributed skills from [arkestrator.com](https://arkestrator.com). Multi-select batch installation with automatic dependency resolution. Publish your own skills back to the community. Update detection keeps your installed skills current.
+
+### Chat & Guidance
+
+A conversational chat mode (SSE-based) for quick interactions without creating jobs — useful for brainstorming, asking questions, or getting suggestions with optional context from recent jobs. For running jobs, send real-time guidance (interventions) to steer the agent mid-execution.
+
+### Client-Side Coordination
+
+Run AI inference locally on your machine using Ollama models. The desktop client detects local hardware capabilities (CPU, RAM, GPU) and can run the agentic loop entirely on your machine — prompts never leave your network. Tool calls are still routed through the server's MCP endpoint for bridge access.
+
+### Admin & Security
+
+Web-based admin panel with user management, role-based API keys (admin/worker/client), TOTP 2FA with recovery codes, regex-based security policies (prompt filters, command filters, file path rules, engine restrictions), per-worker rules, token usage limits, and a full audit log. Configuration snapshots for backup and restore. [Details](docs/usage-server.md)
+
+### MCP Integration
+
+Arkestrator exposes an MCP endpoint with 18 tools covering bridge commands, job management, interventions, skills, and client API forwarding. Add Arkestrator to your Claude Code `.mcp.json` and submit jobs, execute DCC commands, or search skills from any MCP-compatible client. Spawned agents automatically get an MCP config injected so they can interact with bridges and create sub-jobs. [Details](docs/mcp-integration.md)
 
 ## Install
 

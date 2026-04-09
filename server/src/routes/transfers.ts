@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { existsSync } from "node:fs";
 import { stat } from "node:fs/promises";
+import { networkInterfaces } from "node:os";
 import {
   getAuthPrincipal,
   principalHasPermission,
@@ -15,6 +16,19 @@ import type { WebSocketHub } from "../ws/hub.js";
 import type { ApiKeysRepo } from "../db/apikeys.repo.js";
 import type { UsersRepo } from "../db/users.repo.js";
 import type { Config } from "../config.js";
+
+/** Get the server's LAN IP address (first non-internal IPv4). Falls back to localhost. */
+function getServerLanIp(): string {
+  const nets = networkInterfaces();
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name] ?? []) {
+      if (net.family === "IPv4" && !net.internal) {
+        return net.address;
+      }
+    }
+  }
+  return "localhost";
+}
 
 /**
  * HTTP streaming file transfer endpoints.
@@ -47,6 +61,10 @@ export function createTransfersRoutes(
   }
 
   // --- POST / — Create a transfer ---
+  // Supports three modes:
+  //   1. Upload (default): client uploads files to server, server delivers to target
+  //   2. Direct serve (sourcePaths): server serves files from its own filesystem
+  //   3. P2P (sourceWorker + sourcePaths): source client serves files to destination client
   app.post("/", async (c) => {
     const principal = await authenticate(c);
     if (!principal) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
@@ -68,30 +86,112 @@ export function createTransfersRoutes(
       return errorResponse(c, 400, "Missing or empty 'files' array", "INVALID_INPUT");
     }
 
-    // Validate file entries
-    for (let i = 0; i < files.length; i++) {
-      const f = files[i];
-      if (!f.path || typeof f.path !== "string") {
-        return errorResponse(c, 400, `files[${i}].path is required`, "INVALID_INPUT");
-      }
-      if (typeof f.size !== "number" || f.size < 0) {
-        return errorResponse(c, 400, `files[${i}].size must be a non-negative number`, "INVALID_INPUT");
-      }
-    }
+    const sourcePaths: string[] | undefined = Array.isArray(body.sourcePaths) ? body.sourcePaths : undefined;
+    const sourceWorker: string | undefined = body.sourceWorker;
+    const targetType = body.targetType ?? body.target_type ?? "program";
+    const targetWorkerName = body.targetWorkerName ?? body.target_worker;
+    const projectPath = body.projectPath ?? body.project_path;
 
     try {
+      // --- Mode: P2P (sourceWorker + sourcePaths) ---
+      if (sourceWorker && sourcePaths) {
+        // Validate file entries (need path + size for P2P)
+        for (let i = 0; i < files.length; i++) {
+          const f = files[i];
+          if (!f.path || typeof f.path !== "string") {
+            return errorResponse(c, 400, `files[${i}].path is required`, "INVALID_INPUT");
+          }
+          if (typeof f.size !== "number" || f.size < 0) {
+            return errorResponse(c, 400, `files[${i}].size must be a non-negative number`, "INVALID_INPUT");
+          }
+        }
+        if (sourcePaths.length !== files.length) {
+          return errorResponse(c, 400, "sourcePaths length must match files length", "INVALID_INPUT");
+        }
+
+        const meta = await transferManager.createP2PTransfer({
+          files: files.map((f: any) => ({ path: String(f.path), size: Number(f.size) })),
+          sourceWorker,
+          sourcePaths: sourcePaths.map(String),
+          target,
+          targetType,
+          targetWorkerName,
+          projectPath,
+          source: body.source,
+          creatorPrincipal: principalId(principal),
+        });
+
+        // Send transfer_serve_request to source worker
+        await requestSourceServe(meta);
+
+        return c.json({
+          transferId: meta.transferId,
+          mode: "p2p",
+          sourceWorker,
+          files: meta.files.map((f) => ({ path: f.path, size: f.size })),
+          expiresAt: meta.expiresAt,
+        }, 201);
+      }
+
+      // --- Mode: Direct serve (sourcePaths, no sourceWorker) ---
+      if (sourcePaths) {
+        // Validate file entries (only path required, size computed from disk)
+        for (let i = 0; i < files.length; i++) {
+          const f = files[i];
+          if (!f.path || typeof f.path !== "string") {
+            return errorResponse(c, 400, `files[${i}].path is required`, "INVALID_INPUT");
+          }
+        }
+        if (sourcePaths.length !== files.length) {
+          return errorResponse(c, 400, "sourcePaths length must match files length", "INVALID_INPUT");
+        }
+
+        const meta = await transferManager.createDirectTransfer({
+          files: files.map((f: any) => ({ path: String(f.path) })),
+          sourcePaths: sourcePaths.map(String),
+          target,
+          targetType,
+          targetWorkerName,
+          projectPath,
+          source: body.source,
+          creatorPrincipal: principalId(principal),
+        });
+
+        // Files are already available — notify target immediately
+        await notifyTarget(meta.transferId, meta);
+
+        return c.json({
+          transferId: meta.transferId,
+          mode: "direct",
+          files: meta.files.map((f) => ({ path: f.path, size: f.size })),
+          expiresAt: meta.expiresAt,
+        }, 201);
+      }
+
+      // --- Mode: Upload (classic) ---
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i];
+        if (!f.path || typeof f.path !== "string") {
+          return errorResponse(c, 400, `files[${i}].path is required`, "INVALID_INPUT");
+        }
+        if (typeof f.size !== "number" || f.size < 0) {
+          return errorResponse(c, 400, `files[${i}].size must be a non-negative number`, "INVALID_INPUT");
+        }
+      }
+
       const meta = await transferManager.createTransfer({
         files: files.map((f: any) => ({ path: String(f.path), size: Number(f.size) })),
         target,
-        targetType: body.targetType ?? body.target_type ?? "program",
-        targetWorkerName: body.targetWorkerName ?? body.target_worker,
-        projectPath: body.projectPath ?? body.project_path,
+        targetType,
+        targetWorkerName,
+        projectPath,
         source: body.source,
         creatorPrincipal: principalId(principal),
       });
 
       return c.json({
         transferId: meta.transferId,
+        mode: "upload",
         files: meta.files.map((f, i) => ({
           path: f.path,
           uploadUrl: `/api/transfers/${meta.transferId}/files/${i}`,
@@ -190,6 +290,7 @@ export function createTransfersRoutes(
   });
 
   // --- GET /:transferId/files/:index — Download a file ---
+  // Supports direct-serve mode (serves from source path on disk) and upload mode (serves from temp).
   app.get("/:transferId/files/:index", async (c) => {
     const principal = await authenticate(c);
     if (!principal) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
@@ -205,11 +306,13 @@ export function createTransfersRoutes(
     if (fileIndex >= meta.files.length) {
       return errorResponse(c, 400, "File index out of range", "INVALID_INPUT");
     }
-    if (!meta.files[fileIndex].uploaded) {
+
+    // For upload mode, file must be uploaded first
+    if (meta.mode !== "direct" && !meta.files[fileIndex].uploaded) {
       return errorResponse(c, 404, "File not yet uploaded", "NOT_FOUND");
     }
 
-    const filePath = transferManager.getFilePath(transferId, fileIndex);
+    const filePath = transferManager.getServeFilePath(transferId, fileIndex, meta);
     if (!existsSync(filePath)) {
       return errorResponse(c, 404, "File not found on disk", "NOT_FOUND");
     }
@@ -299,9 +402,10 @@ export function createTransfersRoutes(
     return c.json({ deleted: true });
   });
 
-  // --- Helper: notify target when all files are uploaded ---
-  async function notifyTarget(transferId: string, meta: any): Promise<void> {
-    const serverUrl = `${config.tlsCertPath ? "https" : "http"}://localhost:${config.port}`;
+  // --- Helper: notify target when files are ready for download ---
+  async function notifyTarget(transferId: string, meta: any, p2pUrl?: string): Promise<void> {
+    const serverHost = getServerLanIp();
+    const serverUrl = `${config.tlsCertPath ? "https" : "http"}://${serverHost}:${config.port}`;
     const downloadBaseUrl = `${serverUrl}/api/transfers/${transferId}/files`;
 
     const initiatePayload = {
@@ -318,6 +422,7 @@ export function createTransfersRoutes(
         projectPath: meta.projectPath,
         source: meta.source,
         downloadBaseUrl,
+        ...(p2pUrl ? { p2pUrl } : {}),
       },
     };
 
@@ -352,11 +457,85 @@ export function createTransfersRoutes(
     }
 
     if (delivered > 0) {
-      logger.info("transfer", `Notified ${delivered} target(s) for transfer ${transferId}`);
+      logger.info("transfer", `Notified ${delivered} target(s) for transfer ${transferId}${p2pUrl ? " (P2P)" : ""}`);
     } else {
       logger.warn("transfer", `No target found for transfer ${transferId} (target: ${meta.target}, type: ${meta.targetType})`);
     }
   }
 
-  return app;
+  // --- Helper: send transfer_serve_request to source worker for P2P ---
+  async function requestSourceServe(meta: any): Promise<void> {
+    if (!meta.sourceWorker) return;
+
+    const serveRequest = {
+      type: "transfer_serve_request" as const,
+      id: newId(),
+      payload: {
+        transferId: meta.transferId,
+        files: meta.files.map((f: any) => ({
+          path: f.sourcePath ?? f.path,
+          size: f.size,
+        })),
+      },
+    };
+
+    let sent = false;
+    for (const client of hub.getClients()) {
+      const workerName = String(client.workerName ?? "").trim().toLowerCase();
+      if (workerName === meta.sourceWorker.toLowerCase()) {
+        hub.send(client.id, serveRequest);
+        sent = true;
+        break;
+      }
+    }
+
+    if (sent) {
+      logger.info("transfer", `Sent serve request to ${meta.sourceWorker} for P2P transfer ${meta.transferId}`);
+    } else {
+      logger.warn("transfer", `Source worker ${meta.sourceWorker} not connected for P2P transfer ${meta.transferId}`);
+    }
+  }
+
+  /**
+   * Handle transfer_serve_ready from a source client.
+   * Called by the WebSocket handler when a client reports its file server is ready.
+   */
+  async function handleServeReady(payload: {
+    transferId: string;
+    host: string;
+    port: number;
+    tokens: string[];
+    error?: string;
+  }): Promise<void> {
+    const meta = await transferManager.getMeta(payload.transferId);
+    if (!meta) {
+      logger.warn("transfer", `Serve ready for unknown transfer ${payload.transferId}`);
+      return;
+    }
+
+    if (payload.error) {
+      logger.warn("transfer", `P2P serve failed for ${payload.transferId}: ${payload.error} — falling back to server relay`);
+      // Fall back: notify target without P2P URL (they'll use downloadBaseUrl)
+      await notifyTarget(payload.transferId, meta);
+      return;
+    }
+
+    // Build P2P base URL: http://{host}:{port}/transfer/{token}
+    // Each file gets its own token. The client constructs per-file URLs.
+    // We encode the P2P info as a JSON object in p2pUrl for the destination to parse.
+    const p2pInfo = JSON.stringify({
+      host: payload.host,
+      port: payload.port,
+      tokens: payload.tokens,
+    });
+
+    logger.info(
+      "transfer",
+      `P2P serve ready for ${payload.transferId} at ${payload.host}:${payload.port}`,
+    );
+
+    await notifyTarget(payload.transferId, meta, p2pInfo);
+  }
+
+  return { app, handleServeReady };
 }

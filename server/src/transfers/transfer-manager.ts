@@ -9,14 +9,22 @@ export interface TransferFileMeta {
   size: number;
   uploaded: boolean;
   sha256?: string;
+  /** For direct-serve mode: absolute path on the server filesystem. */
+  sourcePath?: string;
 }
+
+export type TransferMode = "upload" | "direct" | "p2p";
 
 export interface TransferMeta {
   transferId: string;
+  /** "upload" = classic (client uploads to server temp), "direct" = server serves from disk, "p2p" = client-to-client */
+  mode: TransferMode;
   files: TransferFileMeta[];
   target: string;
   targetType: "program" | "id" | "worker";
   targetWorkerName?: string;
+  /** For p2p: the source worker name that will serve the files. */
+  sourceWorker?: string;
   projectPath?: string;
   source?: string;
   createdAt: string;
@@ -26,6 +34,34 @@ export interface TransferMeta {
 
 export interface CreateTransferOpts {
   files: Array<{ path: string; size: number }>;
+  target: string;
+  targetType?: "program" | "id" | "worker";
+  targetWorkerName?: string;
+  projectPath?: string;
+  source?: string;
+  creatorPrincipal: string;
+}
+
+export interface CreateDirectTransferOpts {
+  /** Destination paths on the target machine. */
+  files: Array<{ path: string }>;
+  /** Absolute paths on the server filesystem. */
+  sourcePaths: string[];
+  target: string;
+  targetType?: "program" | "id" | "worker";
+  targetWorkerName?: string;
+  projectPath?: string;
+  source?: string;
+  creatorPrincipal: string;
+}
+
+export interface CreateP2PTransferOpts {
+  /** Destination paths on the target machine with sizes. */
+  files: Array<{ path: string; size: number }>;
+  /** Source worker name that has the files. */
+  sourceWorker: string;
+  /** Paths on the source worker's filesystem. */
+  sourcePaths: string[];
   target: string;
   targetType?: "program" | "id" | "worker";
   targetWorkerName?: string;
@@ -71,6 +107,7 @@ export class TransferManager {
     const now = new Date();
     const meta: TransferMeta = {
       transferId,
+      mode: "upload",
       files: opts.files.map((f) => ({
         path: f.path,
         size: f.size,
@@ -89,6 +126,130 @@ export class TransferManager {
     await writeFile(join(dir, "meta.json"), JSON.stringify(meta, null, 2));
     logger.info("transfer", `Created transfer ${transferId}: ${opts.files.length} files, ${(totalBytes / 1024 / 1024).toFixed(1)} MB`);
     return meta;
+  }
+
+  /**
+   * Create a direct-serve transfer: server streams files from its own filesystem.
+   * No temp storage, no upload step, no size limit.
+   */
+  async createDirectTransfer(opts: CreateDirectTransferOpts): Promise<TransferMeta> {
+    if (opts.sourcePaths.length !== opts.files.length) {
+      throw new Error(`sourcePaths length (${opts.sourcePaths.length}) must match files length (${opts.files.length})`);
+    }
+
+    // Validate source files exist and get sizes
+    const filesWithSize: TransferFileMeta[] = [];
+    for (let i = 0; i < opts.sourcePaths.length; i++) {
+      const srcPath = opts.sourcePaths[i];
+      const file = Bun.file(srcPath);
+      const size = file.size;
+      if (size === 0 && !existsSync(srcPath)) {
+        throw new Error(`Source file not found: ${srcPath}`);
+      }
+      filesWithSize.push({
+        path: opts.files[i].path,
+        size,
+        uploaded: true, // already available — no upload needed
+        sourcePath: srcPath,
+      });
+    }
+
+    // Validate paths are within allowed directories
+    if (this.config.directServeAllowedPaths.length > 0) {
+      for (const srcPath of opts.sourcePaths) {
+        const allowed = this.config.directServeAllowedPaths.some((prefix) =>
+          srcPath.startsWith(prefix),
+        );
+        if (!allowed) {
+          throw new Error(
+            `Source path "${srcPath}" is not within allowed directories. Configure DIRECT_SERVE_ALLOWED_PATHS.`,
+          );
+        }
+      }
+    }
+
+    const transferId = crypto.randomUUID();
+    // Create a minimal meta dir (no file data stored)
+    const dir = join(this.config.transferTempDir, transferId);
+    await mkdir(dir, { recursive: true });
+
+    const totalBytes = filesWithSize.reduce((sum, f) => sum + f.size, 0);
+    const now = new Date();
+    const meta: TransferMeta = {
+      transferId,
+      mode: "direct",
+      files: filesWithSize,
+      target: opts.target,
+      targetType: opts.targetType ?? "program",
+      targetWorkerName: opts.targetWorkerName,
+      projectPath: opts.projectPath,
+      source: opts.source,
+      createdAt: now.toISOString(),
+      expiresAt: new Date(now.getTime() + this.config.transferTtlMs).toISOString(),
+      creatorPrincipal: opts.creatorPrincipal,
+    };
+
+    await writeFile(join(dir, "meta.json"), JSON.stringify(meta, null, 2));
+    logger.info(
+      "transfer",
+      `Created direct transfer ${transferId}: ${filesWithSize.length} files, ${(totalBytes / 1024 / 1024).toFixed(1)} MB (serving from disk)`,
+    );
+    return meta;
+  }
+
+  /**
+   * Create a P2P transfer: source client serves files directly to destination client.
+   * Server only stores metadata for coordination — no file data passes through.
+   */
+  async createP2PTransfer(opts: CreateP2PTransferOpts): Promise<TransferMeta> {
+    if (opts.sourcePaths.length !== opts.files.length) {
+      throw new Error(`sourcePaths length (${opts.sourcePaths.length}) must match files length (${opts.files.length})`);
+    }
+
+    const transferId = crypto.randomUUID();
+    const dir = join(this.config.transferTempDir, transferId);
+    await mkdir(dir, { recursive: true });
+
+    const totalBytes = opts.files.reduce((sum, f) => sum + f.size, 0);
+    const now = new Date();
+    const meta: TransferMeta = {
+      transferId,
+      mode: "p2p",
+      files: opts.files.map((f, i) => ({
+        path: f.path,
+        size: f.size,
+        uploaded: false, // not relevant for P2P but kept for compat
+        sourcePath: opts.sourcePaths[i],
+      })),
+      target: opts.target,
+      targetType: opts.targetType ?? "program",
+      targetWorkerName: opts.targetWorkerName,
+      sourceWorker: opts.sourceWorker,
+      projectPath: opts.projectPath,
+      source: opts.source,
+      createdAt: now.toISOString(),
+      expiresAt: new Date(now.getTime() + this.config.transferTtlMs).toISOString(),
+      creatorPrincipal: opts.creatorPrincipal,
+    };
+
+    await writeFile(join(dir, "meta.json"), JSON.stringify(meta, null, 2));
+    logger.info(
+      "transfer",
+      `Created P2P transfer ${transferId}: ${opts.files.length} files, ${(totalBytes / 1024 / 1024).toFixed(1)} MB (source: ${opts.sourceWorker})`,
+    );
+    return meta;
+  }
+
+  /**
+   * Get the file path to serve for a direct transfer.
+   * For direct mode, returns the original source path on disk.
+   * For upload mode, returns the temp dir path.
+   */
+  getServeFilePath(transferId: string, fileIndex: number, meta: TransferMeta): string {
+    if (meta.mode === "direct" && meta.files[fileIndex].sourcePath) {
+      return meta.files[fileIndex].sourcePath!;
+    }
+    return join(this.config.transferTempDir, transferId, `${fileIndex}.bin`);
   }
 
   async getMeta(transferId: string): Promise<TransferMeta | null> {

@@ -1488,6 +1488,272 @@ async fn fs_upload_file(
     Ok(file_size)
 }
 
+// --- P2P File Transfer Server ---
+
+const FILE_SERVE_START_PORT: u16 = 17830;
+const FILE_SERVE_PORT_SPAN: u16 = 20;
+
+#[derive(Deserialize)]
+struct ServeFileEntry {
+    path: String,
+    token: String,
+}
+
+#[derive(Serialize)]
+struct ServeFileResult {
+    port: u16,
+}
+
+/// Spin up a lightweight HTTP file server for P2P transfers.
+/// Serves the given files, each gated by a unique token.
+/// Auto-shuts down after `idle_timeout_secs` of no requests.
+#[tauri::command]
+fn fs_serve_files(
+    files: Vec<ServeFileEntry>,
+    idle_timeout_secs: Option<u64>,
+) -> Result<ServeFileResult, String> {
+    let idle_timeout = Duration::from_secs(idle_timeout_secs.unwrap_or(600));
+
+    // Bind to a port in our range
+    let listener = bind_file_serve_listener()
+        .map_err(|e| format!("Failed to bind file server: {e}"))?;
+    let port = listener
+        .local_addr()
+        .map_err(|e| format!("Failed to read listen address: {e}"))?
+        .port();
+
+    // Build a token → file path lookup
+    let file_map: std::collections::HashMap<String, String> = files
+        .into_iter()
+        .map(|f| (f.token, f.path))
+        .collect();
+    let file_map = Arc::new(file_map);
+
+    // Set non-blocking + timeout for idle shutdown
+    listener
+        .set_nonblocking(true)
+        .map_err(|e| format!("Failed to set non-blocking: {e}"))?;
+
+    let last_request = Arc::new(Mutex::new(Instant::now()));
+
+    let lr = Arc::clone(&last_request);
+    let fm = Arc::clone(&file_map);
+    thread::spawn(move || {
+        loop {
+            // Check idle timeout
+            {
+                let last = lr.lock().unwrap();
+                if last.elapsed() > idle_timeout {
+                    log::info!("P2P file server on port {} shutting down (idle timeout)", port);
+                    return;
+                }
+            }
+
+            match listener.accept() {
+                Ok((stream, _addr)) => {
+                    let fm = Arc::clone(&fm);
+                    let lr = Arc::clone(&lr);
+                    thread::spawn(move || {
+                        handle_file_serve_connection(stream, &fm, &lr);
+                    });
+                }
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(50));
+                }
+                Err(e) => {
+                    log::warn!("P2P file server accept error: {}", e);
+                    thread::sleep(Duration::from_millis(100));
+                }
+            }
+        }
+    });
+
+    log::info!("P2P file server started on 0.0.0.0:{}", port);
+    Ok(ServeFileResult { port })
+}
+
+fn bind_file_serve_listener() -> Result<TcpListener, String> {
+    for offset in 0..FILE_SERVE_PORT_SPAN {
+        let port = FILE_SERVE_START_PORT + offset;
+        match TcpListener::bind(("0.0.0.0", port)) {
+            Ok(listener) => return Ok(listener),
+            Err(_) => continue,
+        }
+    }
+    // Fallback: OS-assigned port
+    TcpListener::bind(("0.0.0.0", 0))
+        .map_err(|e| format!("Failed to bind P2P file server: {e}"))
+}
+
+fn handle_file_serve_connection(
+    mut stream: TcpStream,
+    file_map: &std::collections::HashMap<String, String>,
+    last_request: &Mutex<Instant>,
+) {
+    use std::io::{BufRead, BufReader, Read, Write};
+
+    // Read HTTP request line + headers
+    let mut reader = BufReader::new(match stream.try_clone() {
+        Ok(s) => s,
+        Err(_) => return,
+    });
+
+    let mut request_line = String::new();
+    if reader.read_line(&mut request_line).is_err() {
+        return;
+    }
+
+    // Parse: GET /transfer/<token> HTTP/1.1
+    let parts: Vec<&str> = request_line.trim().split_whitespace().collect();
+    if parts.len() < 2 || parts[0] != "GET" {
+        let _ = stream.write_all(b"HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n\r\n");
+        return;
+    }
+
+    let path = parts[1];
+
+    // Read all headers (look for Range)
+    let mut range_start: u64 = 0;
+    let mut range_end: Option<u64> = None;
+    let mut has_range = false;
+    loop {
+        let mut header_line = String::new();
+        if reader.read_line(&mut header_line).is_err() || header_line.trim().is_empty() {
+            break;
+        }
+        let lower = header_line.to_lowercase();
+        if lower.starts_with("range:") {
+            // Parse "Range: bytes=START-END" or "Range: bytes=START-"
+            if let Some(spec) = lower.strip_prefix("range:") {
+                let spec = spec.trim();
+                if let Some(bytes_spec) = spec.strip_prefix("bytes=") {
+                    let parts: Vec<&str> = bytes_spec.splitn(2, '-').collect();
+                    if let Ok(s) = parts[0].trim().parse::<u64>() {
+                        range_start = s;
+                        has_range = true;
+                    }
+                    if parts.len() > 1 && !parts[1].trim().is_empty() {
+                        if let Ok(e) = parts[1].trim().parse::<u64>() {
+                            range_end = Some(e);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Extract token from path: /transfer/<token> or /transfer/<token>?...
+    let clean_path = path.split('?').next().unwrap_or(path);
+    let token = clean_path.strip_prefix("/transfer/").unwrap_or("");
+
+    if token.is_empty() {
+        let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
+        return;
+    }
+
+    // Look up file
+    let file_path = match file_map.get(token) {
+        Some(p) => p.clone(),
+        None => {
+            let _ = stream.write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n");
+            return;
+        }
+    };
+
+    // Update last request time
+    if let Ok(mut last) = last_request.lock() {
+        *last = Instant::now();
+    }
+
+    // Open file and get size
+    let metadata = match std::fs::metadata(&file_path) {
+        Ok(m) => m,
+        Err(_) => {
+            let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
+            return;
+        }
+    };
+    let file_size = metadata.len();
+
+    let mut file = match std::fs::File::open(&file_path) {
+        Ok(f) => f,
+        Err(_) => {
+            let _ = stream.write_all(b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n");
+            return;
+        }
+    };
+
+    // Handle Range request
+    if has_range {
+        use std::io::Seek;
+        let end = range_end.unwrap_or(file_size - 1).min(file_size - 1);
+        if range_start >= file_size {
+            let resp = format!(
+                "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */{}\r\nContent-Length: 0\r\n\r\n",
+                file_size
+            );
+            let _ = stream.write_all(resp.as_bytes());
+            return;
+        }
+        let content_length = end - range_start + 1;
+        let header = format!(
+            "HTTP/1.1 206 Partial Content\r\n\
+             Content-Type: application/octet-stream\r\n\
+             Content-Range: bytes {}-{}/{}\r\n\
+             Content-Length: {}\r\n\
+             Accept-Ranges: bytes\r\n\
+             Connection: close\r\n\r\n",
+            range_start, end, file_size, content_length
+        );
+        if stream.write_all(header.as_bytes()).is_err() {
+            return;
+        }
+        if file.seek(io::SeekFrom::Start(range_start)).is_err() {
+            return;
+        }
+        let mut remaining = content_length;
+        let mut buf = [0u8; 65536];
+        while remaining > 0 {
+            let to_read = (remaining as usize).min(buf.len());
+            match file.read(&mut buf[..to_read]) {
+                Ok(0) => break,
+                Ok(n) => {
+                    if stream.write_all(&buf[..n]).is_err() {
+                        return;
+                    }
+                    remaining -= n as u64;
+                }
+                Err(_) => return,
+            }
+        }
+    } else {
+        // Full file response
+        let header = format!(
+            "HTTP/1.1 200 OK\r\n\
+             Content-Type: application/octet-stream\r\n\
+             Content-Length: {}\r\n\
+             Accept-Ranges: bytes\r\n\
+             Connection: close\r\n\r\n",
+            file_size
+        );
+        if stream.write_all(header.as_bytes()).is_err() {
+            return;
+        }
+        let mut buf = [0u8; 65536];
+        loop {
+            match file.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    if stream.write_all(&buf[..n]).is_err() {
+                        return;
+                    }
+                }
+                Err(_) => return,
+            }
+        }
+    }
+}
+
 fn show_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
@@ -1658,6 +1924,7 @@ pub fn run() {
             fs_exists,
             fs_download_file,
             fs_upload_file,
+            fs_serve_files,
             bridges::fetch_bridge_registry,
             bridges::download_and_install_bridge,
             bridges::detect_program_paths,

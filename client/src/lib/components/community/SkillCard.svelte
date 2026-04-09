@@ -55,13 +55,13 @@
   {/if}
 
   <div class="card-meta">
-    <span class="meta-author" title={skill.author?.username || "Official"}>
+    <span class="meta-author" title={skill.author?.username || "Arkestrator"}>
       {#if skill.author?.avatar_url}
         <img class="avatar" src={skill.author.avatar_url} alt="" />
       {:else}
-        <span class="avatar-fallback">{(skill.author?.username || "Official")[0].toUpperCase()}</span>
+        <span class="avatar-fallback">{(skill.author?.username || "Arkestrator")[0].toUpperCase()}</span>
       {/if}
-      {skill.author?.username || "Official"}
+      {skill.author?.username || "Arkestrator"}
     </span>
     <span class="meta-item">v{skill.version}</span>
     <span class="meta-item">&#8681; {skill.downloads ?? 0}</span>
@@ -97,8 +97,8 @@
   .skill-card {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    padding: 10px;
+    gap: calc(var(--card-scale, 1) * 4px);
+    padding: calc(var(--card-scale, 1) * 10px);
     border: 1px solid var(--border-light, rgba(255,255,255,0.06));
     border-radius: 6px;
     background: var(--bg-surface, rgba(255,255,255,0.03));
@@ -121,12 +121,12 @@
   .card-header {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: calc(var(--card-scale, 1) * 6px);
     min-width: 0;
   }
   .card-title {
     flex: 1;
-    font-size: var(--font-size-sm);
+    font-size: calc(var(--card-scale, 1) * 12px);
     font-weight: 600;
     color: var(--text-primary);
     background: none;
@@ -143,13 +143,13 @@
 
   .card-badges {
     display: flex;
-    gap: 4px;
+    gap: calc(var(--card-scale, 1) * 4px);
     flex-wrap: wrap;
   }
   .badge {
-    font-size: 10px;
+    font-size: calc(var(--card-scale, 1) * 10px);
     font-weight: 600;
-    padding: 1px 5px;
+    padding: calc(var(--card-scale, 1) * 1px) calc(var(--card-scale, 1) * 5px);
     border-radius: 3px;
     color: #fff;
     text-transform: uppercase;
@@ -162,11 +162,12 @@
   }
   .update-badge {
     background: var(--status-running);
+    font-size: calc(var(--card-scale, 1) * 10px);
   }
 
   .card-desc {
     margin: 0;
-    font-size: var(--font-size-sm);
+    font-size: calc(var(--card-scale, 1) * 12px);
     color: var(--text-muted);
     display: -webkit-box;
     -webkit-line-clamp: 2;
@@ -178,12 +179,12 @@
   .card-meta {
     display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 11px;
+    gap: calc(var(--card-scale, 1) * 8px);
+    font-size: calc(var(--card-scale, 1) * 11px);
     color: var(--text-muted);
     flex-wrap: wrap;
     margin-top: auto;
-    padding-top: 4px;
+    padding-top: calc(var(--card-scale, 1) * 4px);
     border-top: 1px solid var(--border-light, rgba(255,255,255,0.04));
   }
   .meta-author {
@@ -192,19 +193,19 @@
     gap: 4px;
   }
   .avatar {
-    width: 14px;
-    height: 14px;
+    width: calc(var(--card-scale, 1) * 14px);
+    height: calc(var(--card-scale, 1) * 14px);
     border-radius: 50%;
   }
   .avatar-fallback {
-    width: 14px;
-    height: 14px;
+    width: calc(var(--card-scale, 1) * 14px);
+    height: calc(var(--card-scale, 1) * 14px);
     border-radius: 50%;
     background: var(--bg-active);
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 8px;
+    font-size: calc(var(--card-scale, 1) * 8px);
     font-weight: 700;
     color: var(--text-secondary);
   }
@@ -214,14 +215,14 @@
 
   .card-actions {
     display: flex;
-    gap: 4px;
+    gap: calc(var(--card-scale, 1) * 4px);
     flex-wrap: wrap;
-    padding-top: 4px;
+    padding-top: calc(var(--card-scale, 1) * 4px);
   }
   .btn {
-    padding: 2px 8px;
+    padding: calc(var(--card-scale, 1) * 2px) calc(var(--card-scale, 1) * 8px);
     border-radius: 3px;
-    font-size: 0.8em;
+    font-size: calc(var(--card-scale, 1) * 11px);
     cursor: pointer;
     border: 1px solid var(--border);
     background: var(--bg-subtle, rgba(255,255,255,0.08));
@@ -257,6 +258,6 @@
     background: rgba(244, 71, 71, 0.1);
   }
   .btn-sm {
-    padding: 2px 8px;
+    padding: calc(var(--card-scale, 1) * 2px) calc(var(--card-scale, 1) * 8px);
   }
 </style>

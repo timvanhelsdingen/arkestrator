@@ -67,6 +67,7 @@ const CLIENT_API_ALLOW_PREFIXES = [
   "/api/headless-programs",
   "/api/skills",
   "/api/bridge-command",
+  "/api/transfers",
   "/api/workers",
   "/api/projects",
   "/api/settings/coordinator-scripts",

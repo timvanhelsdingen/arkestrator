@@ -8,6 +8,7 @@
   interface BridgeEntry {
     id: string;
     name: string;
+    type?: string;
     description: string;
     author: string;
     official: boolean;
@@ -238,7 +239,9 @@
     standalone: "Standalone",
   };
 
-  let updatableBridges = $derived(registry.filter((b) => hasUpdate(b) && b.downloadUrl && b.installType !== "project"));
+  // Filter out API-type bridges — those belong in the API sub-tab, not the program installer
+  let programRegistry = $derived(registry.filter((b) => b.type !== "api"));
+  let updatableBridges = $derived(programRegistry.filter((b) => hasUpdate(b) && b.downloadUrl && b.installType !== "project"));
 
   async function updateAllBridges() {
     updatingAll = true;
@@ -436,9 +439,8 @@
 
   // ─── Init ──────────────────────────────────────────────────────────────
 
-  // Only load installed bridges on mount (local, fast).
-  // Registry fetch from GitHub is deferred to user clicking "Check for Updates".
-  loadInstalled();
+  // Auto-load registry (and installed bridges) on mount.
+  loadRegistry();
 </script>
 
 <section class="bridge-installer">
@@ -451,7 +453,7 @@
         </button>
       {/if}
       <button class="btn secondary" onclick={loadRegistry} disabled={loading}>
-        {loading ? "Loading..." : registry.length > 0 ? "Check for Updates" : "Load Plugins"}
+        {loading ? "Loading..." : "Check for Updates"}
       </button>
     </div>
   </div>
@@ -460,12 +462,12 @@
     <div class="error">{error}</div>
   {/if}
 
-  {#if registry.length === 0 && !loading}
-    <p class="desc">Click "Load Plugins" to fetch the bridge plugin registry from GitHub.</p>
+  {#if registry.length === 0 && !loading && !error}
+    <p class="desc">Loading bridge plugin registry...</p>
   {/if}
 
   <div class="bridge-grid">
-    {#each registry as bridge (bridge.id)}
+    {#each programRegistry as bridge (bridge.id)}
       {@const isInstalled = !!installed[bridge.id]}
       {@const updateAvailable = hasUpdate(bridge)}
       {@const isInstalling = installing === bridge.id}

@@ -51,6 +51,7 @@ function createConfig(tempDir: string): Config {
     transferTtlMs: 3600000,
     transferMaxSizeMb: 2000,
     httpTransferThresholdBytes: 5242880,
+    directServeAllowedPaths: [],
   };
 }
 

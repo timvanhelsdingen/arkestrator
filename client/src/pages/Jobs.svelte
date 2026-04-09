@@ -13,8 +13,10 @@
   import { agents } from "../lib/stores/agents.svelte";
 
   // Refresh job list when page mounts to catch any missed WS broadcasts
+  function handleGlobalClick() { overflowOpen = false; }
   onMount(() => {
     refreshJobs();
+    document.addEventListener("click", handleGlobalClick);
   });
 
   // Subscribe to job logs when a job is selected, unsubscribe when deselected
@@ -29,6 +31,7 @@
   });
   onDestroy(() => {
     if (prevSubscribedId) unsubscribeJobLogs(prevSubscribedId);
+    document.removeEventListener("click", handleGlobalClick);
   });
 
   function getAgentLabel(job: Job): { short: string; full: string } | null {
@@ -185,6 +188,41 @@
     training: false,
     housekeeping: false,
   });
+
+  let showFilters = $state(false);
+  let overflowOpen = $state(false);
+
+  let hasActiveFilters = $derived(
+    workerFilter !== ALL_OPTION || bridgeFilter !== ALL_OPTION ||
+    userFilter !== ALL_OPTION || !sourceToggles.user ||
+    sourceToggles.training || sourceToggles.housekeeping
+  );
+
+  let activeFilterCount = $derived(() => {
+    let count = 0;
+    if (workerFilter !== ALL_OPTION) count++;
+    if (bridgeFilter !== ALL_OPTION) count++;
+    if (userFilter !== ALL_OPTION) count++;
+    if (!sourceToggles.user || sourceToggles.training || sourceToggles.housekeeping) count++;
+    return count;
+  });
+
+  let statusCounts = $derived(() => {
+    const counts: Record<string, number> = {};
+    for (const job of jobs.all) {
+      counts[job.status] = (counts[job.status] ?? 0) + 1;
+    }
+    return counts;
+  });
+
+  function toggleOverflow(e: Event) {
+    e.stopPropagation();
+    overflowOpen = !overflowOpen;
+  }
+
+  function closeOverflow() {
+    overflowOpen = false;
+  }
 
   /** Classify a job's source type from its metadata */
   function getJobSourceType(job: any): string {
@@ -1136,62 +1174,80 @@
 
 <div class="jobs-page" class:resizing>
   <div class="list-panel" style="width: {listWidth}px">
-    <div class="filters">
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="toolbar">
+      <div class="view-switcher">
+        <button class:active={jobs.viewMode === "active"} onclick={() => switchView("active")}>Active</button>
+        <button class:active={jobs.viewMode === "archived"} onclick={() => switchView("archived")}>Archived</button>
+        <button class:active={jobs.viewMode === "trash"} onclick={() => switchView("trash")}>Trash</button>
+      </div>
       {#if jobs.viewMode === "active"}
-        {#each statuses as s}
-          <button
-            class="filter-btn"
-            class:active={activeFilter === s}
-            onclick={() => setFilter(s)}
-          >
-            {s}
-          </button>
-        {/each}
-      {:else}
-        <button class="filter-btn" onclick={() => switchView("active")}>
-          &larr; Back
-        </button>
-        <span class="view-label">{jobs.viewMode === "archived" ? "Archived Jobs" : "Trashed Jobs"}</span>
+        <div class="status-pills">
+          {#each statuses as s}
+            {@const count = s === "all" ? jobs.all.length : (statusCounts()[s] ?? 0)}
+            <button
+              class="status-pill"
+              class:active={activeFilter === s}
+              onclick={() => setFilter(s)}
+            >
+              {s}{#if s !== "all" && count > 0}<span class="pill-count">{count}</span>{/if}
+            </button>
+          {/each}
+        </div>
       {/if}
-      <div class="filter-spacer"></div>
-      <button
-        class="filter-btn view-tab"
-        class:active={jobs.viewMode === "archived"}
-        onclick={() => switchView(jobs.viewMode === "archived" ? "active" : "archived")}
-        title="Archived jobs"
-      >
-        Archived
-      </button>
-      <button
-        class="filter-btn view-tab"
-        class:active={jobs.viewMode === "trash"}
-        onclick={() => switchView(jobs.viewMode === "trash" ? "active" : "trash")}
-        title="Trashed jobs"
-      >
-        Trash
-      </button>
-      <span class="filter-divider"></span>
-      {#if jobs.viewMode === "active" && jobs.all.some((j) => j.status === "paused")}
-        <button class="btn-start-queue" onclick={startAll}>Start Queue</button>
-      {/if}
-      {#if isAdmin && jobs.viewMode === "active"}
-        <button class="btn-maintenance" onclick={runMaintenance} disabled={maintenanceRunning} title="Run coordinator training">
-          {maintenanceRunning ? "Running..." : "Training"}
+      <div class="toolbar-spacer"></div>
+      <div class="toolbar-overflow" onclick={(e) => e.stopPropagation()}>
+        <button class="btn-overflow" onclick={toggleOverflow} title="Actions">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+            <circle cx="3" cy="8" r="1.5" /><circle cx="8" cy="8" r="1.5" /><circle cx="13" cy="8" r="1.5" />
+          </svg>
         </button>
-        <button class="btn-maintenance" onclick={runHousekeeping} disabled={housekeepingRunning} title="Run housekeeping (learning loop)">
-          {housekeepingRunning ? "Running..." : "Housekeeping"}
-        </button>
-      {/if}
-      <button class="btn-refresh" onclick={refreshCurrentView}>Refresh</button>
+        {#if overflowOpen}
+          <div class="overflow-menu">
+            <button class="overflow-item" onclick={() => { refreshCurrentView(); closeOverflow(); }}>Refresh</button>
+            {#if jobs.viewMode === "active" && jobs.all.some((j) => j.status === "paused")}
+              <button class="overflow-item" onclick={() => { startAll(); closeOverflow(); }}>Start Queue</button>
+            {/if}
+            {#if isAdmin && jobs.viewMode === "active"}
+              <div class="overflow-divider"></div>
+              <button class="overflow-item" onclick={() => { runMaintenance(); closeOverflow(); }} disabled={maintenanceRunning}>
+                {maintenanceRunning ? "Training..." : "Run Training"}
+              </button>
+              <button class="overflow-item" onclick={() => { runHousekeeping(); closeOverflow(); }} disabled={housekeepingRunning}>
+                {housekeepingRunning ? "Running..." : "Run Housekeeping"}
+              </button>
+            {/if}
+          </div>
+        {/if}
+      </div>
     </div>
-    {#if jobs.viewMode === "active"}
-      <div class="advanced-filters">
-        <input
-          class="search-input"
-          type="text"
-          bind:value={searchQuery}
-          placeholder="Search jobs, prompt, ID, machine, bridge, user..."
-        />
+    <div class="search-bar">
+      <input
+        class="search-input"
+        type="text"
+        bind:value={searchQuery}
+        placeholder="Search jobs..."
+      />
+      {#if jobs.viewMode === "active"}
+        <button
+          class="btn-filter-toggle"
+          class:has-filters={hasActiveFilters}
+          onclick={() => (showFilters = !showFilters)}
+          title={hasActiveFilters ? "Filters active" : "Show filters"}
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M1 2a1 1 0 011-1h12a1 1 0 01.8 1.6L10 9.5V14a1 1 0 01-1.5.87l-2-1.14A1 1 0 016 12.86V9.5L1.2 2.6A1 1 0 012 1z" />
+          </svg>
+          {#if hasActiveFilters}
+            <span class="filter-badge">{activeFilterCount()}</span>
+          {/if}
+        </button>
+      {/if}
+      <span class="filter-count">{jobs.viewMode === "active" ? filteredJobs.length : displayJobs.length} shown</span>
+    </div>
+    {#if showFilters && jobs.viewMode === "active"}
+      <div class="filter-drawer">
         <select class="filter-select" bind:value={workerFilter}>
           <option value={ALL_OPTION}>All Machines</option>
           {#each workerOptions as worker}
@@ -1220,11 +1276,6 @@
           {/each}
         </div>
         <button class="btn-clear-filters" onclick={clearAdvancedFilters}>Clear</button>
-        <span class="filter-count">{filteredJobs.length} shown</span>
-      </div>
-    {:else}
-      <div class="advanced-filters">
-        <span class="filter-count">{displayJobs.length} shown</span>
       </div>
     {/if}
     {#if hasSelection}
@@ -1752,67 +1803,170 @@
     user-select: none;
     cursor: col-resize;
   }
-  .filters {
-    display: flex;
-    gap: 2px;
-    padding: 8px;
-    border-bottom: 1px solid var(--border);
-    flex-wrap: wrap;
-  }
-  .filter-btn {
-    padding: 4px 8px;
-    border-radius: var(--radius-sm);
-    font-size: var(--font-size-sm);
-    color: var(--text-secondary);
-    text-transform: capitalize;
-  }
-  .filter-btn:hover { background: var(--bg-hover); }
-  .filter-btn.active { background: var(--accent); color: white; }
-  .filter-spacer { flex: 1; }
-  .btn-start-queue {
-    padding: 4px 12px;
-    background: var(--status-running);
-    color: var(--bg-base);
-    border-radius: var(--radius-sm);
-    font-size: var(--font-size-sm);
-    font-weight: 600;
-  }
-  .btn-start-queue:hover { opacity: 0.85; }
-  .btn-maintenance {
-    padding: 4px 10px;
-    background: var(--bg-surface);
-    color: var(--text-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    font-size: var(--font-size-sm);
-  }
-  .btn-maintenance:hover { background: var(--bg-hover); color: var(--text-primary); }
-  .btn-maintenance:disabled { opacity: 0.5; cursor: default; }
-  .btn-refresh {
-    padding: 4px 8px;
-    border-radius: var(--radius-sm);
-    font-size: var(--font-size-sm);
-    color: var(--text-secondary);
-  }
-  .btn-refresh:hover { background: var(--bg-hover); }
-  .advanced-filters {
+  /* ── Toolbar ── */
+  .toolbar {
     display: flex;
     align-items: center;
     gap: 8px;
     padding: 8px;
     border-bottom: 1px solid var(--border);
-    background: var(--bg-surface);
+  }
+  .view-switcher {
+    display: flex;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .view-switcher button {
+    padding: 4px 10px;
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+    background: var(--bg-base);
+    border: none;
+    border-right: 1px solid var(--border);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .view-switcher button:last-child { border-right: none; }
+  .view-switcher button:hover { background: var(--bg-hover); }
+  .view-switcher button.active {
+    background: var(--accent);
+    color: white;
+  }
+  .status-pills {
+    display: flex;
+    gap: 2px;
     flex-wrap: wrap;
   }
-  .search-input {
-    flex: 1 1 260px;
-    min-width: 220px;
+  .status-pill {
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: capitalize;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .status-pill:hover { background: var(--bg-hover); color: var(--text-secondary); }
+  .status-pill.active { background: var(--accent); color: white; }
+  .pill-count {
+    font-size: 10px;
+    opacity: 0.8;
+  }
+  .toolbar-spacer { flex: 1; }
+  .toolbar-overflow {
+    position: relative;
+    flex-shrink: 0;
+  }
+  .btn-overflow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    transition: all 0.15s;
+  }
+  .btn-overflow:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .overflow-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 4px;
+    min-width: 160px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    z-index: 100;
+    padding: 4px;
+  }
+  .overflow-item {
+    display: block;
+    width: 100%;
+    padding: 6px 10px;
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+    text-align: left;
+    border-radius: 3px;
+    transition: all 0.1s;
+  }
+  .overflow-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .overflow-item:disabled { opacity: 0.5; cursor: default; }
+  .overflow-divider {
+    height: 1px;
+    background: var(--border);
+    margin: 4px 0;
+  }
+
+  /* ── Search bar ── */
+  .search-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     padding: 6px 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .search-input {
+    flex: 1;
+    min-width: 0;
+    padding: 5px 8px;
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     background: var(--bg-base);
     color: var(--text-primary);
     font-size: var(--font-size-sm);
+  }
+  .btn-filter-toggle {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 5px 8px;
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-size: var(--font-size-sm);
+    transition: all 0.15s;
+    position: relative;
+    flex-shrink: 0;
+  }
+  .btn-filter-toggle:hover { background: var(--bg-hover); color: var(--text-secondary); }
+  .btn-filter-toggle.has-filters {
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+  .filter-badge {
+    font-size: 10px;
+    font-weight: 600;
+    background: var(--accent);
+    color: white;
+    border-radius: 8px;
+    min-width: 16px;
+    height: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 4px;
+  }
+  .filter-count {
+    margin-left: auto;
+    color: var(--text-muted);
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+
+  /* ── Filter drawer ── */
+  .filter-drawer {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-surface);
+    flex-wrap: wrap;
   }
   .filter-select {
     min-width: 130px;
@@ -1856,11 +2010,6 @@
   .btn-clear-filters:hover {
     background: var(--bg-hover);
     color: var(--text-primary);
-  }
-  .filter-count {
-    margin-left: auto;
-    color: var(--text-muted);
-    font-size: 11px;
   }
   .bulk-bar {
     display: flex;
@@ -2202,25 +2351,6 @@
     font-size: var(--font-size-sm);
   }
   .btn-bulk-restore:hover { background: var(--status-completed); color: white; }
-  .view-tab {
-    border: 1px solid var(--border);
-  }
-  .view-tab.active {
-    border-color: var(--accent);
-  }
-  .view-label {
-    font-weight: 600;
-    font-size: var(--font-size-sm);
-    color: var(--text-primary);
-    padding: 0 4px;
-  }
-  .filter-divider {
-    width: 1px;
-    height: 16px;
-    background: var(--border);
-    margin: 0 2px;
-    flex-shrink: 0;
-  }
   .detail-id {
     font-family: var(--font-mono);
     font-size: 11px;

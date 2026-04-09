@@ -111,7 +111,10 @@ export function createApp(deps: AppDeps) {
 
   // Security headers
   app.use("*", async (c, next) => {
-    c.header("X-Frame-Options", "DENY");
+    // Allow /admin to be embedded in iframe (Tauri client uses an iframe for the admin panel)
+    if (!c.req.path.startsWith("/admin")) {
+      c.header("X-Frame-Options", "DENY");
+    }
     c.header("X-Content-Type-Options", "nosniff");
     c.header("Referrer-Policy", "strict-origin-when-cross-origin");
     return next();
@@ -195,7 +198,8 @@ export function createApp(deps: AppDeps) {
       deps.settingsRepo,
     ),
   );
-  app.route("/api/transfers", createTransfersRoutes(deps.transferManager, deps.hub, deps.apiKeysRepo, deps.usersRepo, deps.config));
+  const transferRoutes = createTransfersRoutes(deps.transferManager, deps.hub, deps.apiKeysRepo, deps.usersRepo, deps.config);
+  app.route("/api/transfers", transferRoutes.app);
   app.route("/api/headless-programs", createHeadlessProgramRoutes(deps.headlessProgramsRepo, deps.usersRepo, deps.apiKeysRepo));
   if (deps.apiBridgesRepo) {
     app.route("/api/api-bridges", createApiBridgeRoutes(deps.apiBridgesRepo, deps.usersRepo, deps.apiKeysRepo));
@@ -346,5 +350,5 @@ export function createApp(deps: AppDeps) {
     return spaFallback(c);
   });
 
-  return app;
+  return { app, handleTransferServeReady: transferRoutes.handleServeReady };
 }

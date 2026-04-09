@@ -57,6 +57,7 @@ export interface HandlerDeps {
   skillIndex?: import("../skills/skill-index.js").SkillIndex;
   skillEffectivenessRepo?: import("../db/skill-effectiveness.repo.js").SkillEffectivenessRepo;
   taskExecutor?: import("../agents/task-executor.js").TaskExecutor;
+  onTransferServeReady?: (payload: { transferId: string; host: string; port: number; tokens: string[]; error?: string }) => void;
   apiBridgesRepo?: import("../db/api-bridges.repo.js").ApiBridgesRepo;
 }
 
@@ -252,6 +253,11 @@ export function handleMessage(
         break;
       case "transfer_progress":
         handleTransferProgress(ws, msg, deps);
+        break;
+      case "transfer_serve_ready":
+        if (deps.onTransferServeReady) {
+          deps.onTransferServeReady(msg.payload);
+        }
         break;
       case "worker_headless_result":
         handleWorkerHeadlessResult(ws, msg, deps);

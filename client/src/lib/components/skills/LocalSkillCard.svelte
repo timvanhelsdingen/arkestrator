@@ -87,8 +87,8 @@
   .skill-card {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    padding: 10px;
+    gap: calc(var(--card-scale, 1) * 4px);
+    padding: calc(var(--card-scale, 1) * 10px);
     border: 1px solid var(--border-light, rgba(255,255,255,0.06));
     border-radius: 6px;
     background: var(--bg-surface, rgba(255,255,255,0.03));
@@ -106,7 +106,7 @@
   .card-header {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: calc(var(--card-scale, 1) * 6px);
     min-width: 0;
   }
   .card-checkbox {
@@ -114,7 +114,7 @@
   }
   .card-title {
     flex: 1;
-    font-size: var(--font-size-sm);
+    font-size: calc(var(--card-scale, 1) * 12px);
     font-weight: 600;
     color: var(--text-primary);
     background: none;
@@ -130,19 +130,19 @@
   }
   .lock-icon {
     flex-shrink: 0;
-    font-size: 12px;
+    font-size: calc(var(--card-scale, 1) * 12px);
     opacity: 0.5;
   }
 
   .card-badges {
     display: flex;
-    gap: 4px;
+    gap: calc(var(--card-scale, 1) * 4px);
     flex-wrap: wrap;
   }
   .badge {
-    font-size: 10px;
+    font-size: calc(var(--card-scale, 1) * 10px);
     font-weight: 600;
-    padding: 1px 5px;
+    padding: calc(var(--card-scale, 1) * 1px) calc(var(--card-scale, 1) * 5px);
     border-radius: 3px;
     color: #fff;
     text-transform: uppercase;
@@ -155,8 +155,8 @@
   }
   .new-badge {
     flex-shrink: 0;
-    font-size: 9px;
-    padding: 1px 4px;
+    font-size: calc(var(--card-scale, 1) * 9px);
+    padding: calc(var(--card-scale, 1) * 1px) calc(var(--card-scale, 1) * 4px);
     border-radius: 3px;
     color: #4ec9b0;
     background: rgba(78, 201, 176, 0.15);
@@ -164,8 +164,8 @@
   }
   .update-badge {
     flex-shrink: 0;
-    font-size: 9px;
-    padding: 1px 4px;
+    font-size: calc(var(--card-scale, 1) * 9px);
+    padding: calc(var(--card-scale, 1) * 1px) calc(var(--card-scale, 1) * 4px);
     border-radius: 3px;
     color: #e2b93d;
     background: rgba(226, 185, 61, 0.15);
@@ -174,7 +174,7 @@
 
   .card-desc {
     margin: 0;
-    font-size: var(--font-size-sm);
+    font-size: calc(var(--card-scale, 1) * 12px);
     color: var(--text-muted);
     display: -webkit-box;
     -webkit-line-clamp: 2;
@@ -186,12 +186,12 @@
   .card-meta {
     display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 11px;
+    gap: calc(var(--card-scale, 1) * 8px);
+    font-size: calc(var(--card-scale, 1) * 11px);
     color: var(--text-muted);
     flex-wrap: wrap;
     margin-top: auto;
-    padding-top: 4px;
+    padding-top: calc(var(--card-scale, 1) * 4px);
     border-top: 1px solid var(--border-light, rgba(255,255,255,0.04));
   }
   .meta-item {
@@ -201,8 +201,8 @@
     opacity: 0.6;
   }
   .success-badge {
-    font-size: 10px;
-    padding: 1px 5px;
+    font-size: calc(var(--card-scale, 1) * 10px);
+    padding: calc(var(--card-scale, 1) * 1px) calc(var(--card-scale, 1) * 5px);
     border-radius: 3px;
   }
   .success-badge.success { color: #4ec9b0; background: rgba(78, 201, 176, 0.12); }

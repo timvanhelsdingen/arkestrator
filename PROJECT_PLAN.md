@@ -525,6 +525,10 @@ All messages use `{ type, id, payload }` envelope. The `id` is a UUID for reques
 | `worker_headless_command` | `{ senderId, correlationId, program, execution, ... }` | Server routes headless DCC execution to client |
 | `job_intervention_updated` | `{ jobId, intervention, support }` | Intervention state changed |
 | `file_deliver` | `{ files, projectPath, source }` | Cross-machine file delivery to client |
+| `transfer_initiate` | `{ transferId, files, totalBytes, downloadBaseUrl, p2pUrl? }` | HTTP streaming transfer ready for download (supports P2P) |
+| `transfer_progress` | `{ transferId, bytesCompleted, filesCompleted, status }` | Transfer download progress reporting |
+| `transfer_serve_request` | `{ transferId, files }` | Server asks client to serve files for P2P transfer |
+| `transfer_serve_ready` | `{ transferId, host, port, tokens, error? }` | Client reports P2P file server is ready |
 
 ## Environment Variables
 
@@ -637,6 +641,7 @@ The client embeds the admin panel via iframe with `postMessage` session token ha
 - Client: Coordinator page (server/client config, training, script management)
 - Client: Client-dispatch local agentic loop (localAgenticLoop.ts, ollamaClient.ts, clientJobManager.ts) for local-oss job execution via Ollama
 - Client: File Delivery System (file_deliver WS message handler, Tauri fs commands: fs_apply_file_changes, fs_create_directory, fs_write_file, fs_read_file_base64, fs_delete_path, fs_exists)
+- P2P File Transfer System: Three transfer modes — direct serve (server streams from disk, no temp copy/size limit), P2P (client-to-client via ephemeral HTTP file server on port 17830-17850), and upload (classic server relay). Includes transfer_serve_request/transfer_serve_ready signaling, automatic P2P→server fallback, and DIRECT_SERVE_ALLOWED_PATHS security gating.
 - Client: Headless execution routing (worker_headless_command handler, run_worker_headless Tauri command)
 - Client: Bridge Plugin Installer & Distribution (BridgeInstaller.svelte, bridges.rs Rust backend, registry.json, release CI packaging)
 - Client: System tray (close-to-tray, tray menu show/hide/quit) + auto-updater (startup check, download/install/restart)

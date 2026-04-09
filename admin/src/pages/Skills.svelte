@@ -23,6 +23,8 @@
     enabled: boolean;
     locked: boolean;
     appVersion: string | null;
+    repoContentHash: string | null;
+    repoModified?: boolean;
   }
 
   interface EffectivenessStats {
@@ -803,7 +805,7 @@
             <td>{skill.title}</td>
             <td class="muted">{skill.program || "-"}</td>
             <td><span class="badge badge-cat">{skill.category}</span></td>
-            <td><span class="badge {skill.source === 'user' ? 'badge-custom' : skill.source === 'registry' ? 'badge-registry' : skill.source === 'training' ? 'badge-training' : skill.source === 'bridge-repo' ? 'badge-bridge-repo' : 'badge-default'}">{skill.source}</span></td>
+            <td><span class="badge {skill.source === 'user' ? 'badge-custom' : skill.source === 'registry' ? 'badge-registry' : skill.source === 'training' ? 'badge-training' : skill.source === 'bridge-repo' ? 'badge-bridge-repo' : skill.source === 'repo' ? 'badge-repo' : 'badge-default'}">{skill.source}{skill.source === 'repo' && skill.repoModified ? ' (modified)' : ''}</span></td>
             <td class="mono">{eff?.totalUsed ?? "-"}{eff && eff.pendingOutcomes > 0 ? ` (${eff.totalUsed - eff.pendingOutcomes} rated)` : ""}</td>
             <td>
               {#if eff && (eff.totalUsed - eff.pendingOutcomes) > 0}
@@ -882,7 +884,7 @@
         <div><strong>Title:</strong> {detailSkill.title}</div>
         <div><strong>Bridge:</strong> {detailSkill.program || "-"}</div>
         <div><strong>Category:</strong> {detailSkill.category}</div>
-        <div><strong>Source:</strong> {detailSkill.source}</div>
+        <div><strong>Source:</strong> {detailSkill.source}{detailSkill.source === 'repo' && detailSkill.repoModified ? ' (modified)' : ''}</div>
         {#if detailSkill.sourcePath}
           <div><strong>Source Path:</strong> <span class="mono">{detailSkill.sourcePath}</span></div>
         {/if}
@@ -925,7 +927,7 @@
         <div><strong>Title:</strong> {detailSkill.title}</div>
         <div><strong>Bridge:</strong> {detailSkill.program || "-"}</div>
         <div><strong>Category:</strong> {detailSkill.category}</div>
-        <div><strong>Source:</strong> {detailSkill.source}</div>
+        <div><strong>Source:</strong> {detailSkill.source}{detailSkill.source === 'repo' && detailSkill.repoModified ? ' (modified)' : ''}</div>
         <div><strong>Enabled:</strong> {detailSkill.enabled ? "Yes" : "No"}</div>
         <div><strong>Priority:</strong> {detailSkill.priority}</div>
         <div><strong>Auto-fetch:</strong> {detailSkill.autoFetch ? "Yes" : "No"}</div>
@@ -1185,6 +1187,7 @@
   .badge-registry { color: #b07cd8; background: rgba(176, 124, 216, 0.12); }
   .badge-training { color: #d8a07c; background: rgba(216, 160, 124, 0.12); }
   .badge-bridge-repo { color: #7cd89e; background: rgba(124, 216, 158, 0.12); }
+  .badge-repo { color: #7cc8d8; background: rgba(124, 200, 216, 0.12); }
   .badge-playbook { color: #d8c87c; background: rgba(216, 200, 124, 0.12); }
   .hidden-file-input { display: none; }
   .detail-section { margin-bottom: 12px; }

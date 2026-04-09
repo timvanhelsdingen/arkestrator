@@ -3,6 +3,8 @@
   import { api } from "../../api/rest";
   import Badge from "../ui/Badge.svelte";
 
+  let { mode = "all" }: { mode?: "rest" | "mcp" | "all" } = $props();
+
   interface McpConfig {
     transport: "stdio" | "sse";
     command?: string;
@@ -68,6 +70,25 @@
   let testingId = $state<string | null>(null);
   let testResult = $state<{ ok: boolean; status?: number; error?: string } | null>(null);
 
+  // Lookup: presetId → configured bridge
+  let bridgeByPreset = $derived(
+    bridges.reduce<Record<string, ApiBridge>>((acc, b) => {
+      if (b.presetId) acc[b.presetId] = b;
+      return acc;
+    }, {})
+  );
+
+  // Custom (non-preset) bridges, filtered by mode
+  let customBridges = $derived(bridges.filter((b) => {
+    if (b.type !== "custom") return false;
+    if (mode === "rest") return !b.mcpConfig;
+    if (mode === "mcp") return !!b.mcpConfig;
+    return true;
+  }));
+
+  // Presets are REST-only, so hide in MCP mode
+  let filteredPresets = $derived(mode === "mcp" ? [] : presets);
+
   $effect(() => {
     if (connection.isAuthenticated && !loaded) {
       loaded = true;
@@ -92,15 +113,15 @@
     }
   }
 
-  function openAddForm(type: "preset" | "custom") {
+  function openInstallPreset(preset: PresetInfo) {
     editingId = null;
-    formType = type;
-    formPresetId = presets[0]?.presetId ?? "";
-    formName = "";
-    formDisplayName = "";
-    formBaseUrl = "";
+    formType = "preset";
+    formPresetId = preset.presetId;
+    formName = preset.presetId;
+    formDisplayName = preset.displayName;
+    formBaseUrl = preset.defaultBaseUrl;
     formApiKey = "";
-    formAuthType = "bearer";
+    formAuthType = preset.authType ?? "bearer";
     formError = "";
     formBridgeMode = "rest";
     formMcpTransport = "stdio";
@@ -110,10 +131,26 @@
     formMcpUrl = "";
     formMcpHeaders = "";
     showForm = true;
+  }
 
-    if (type === "preset" && presets.length > 0) {
-      selectPreset(presets[0].presetId);
-    }
+  function openAddCustom() {
+    editingId = null;
+    formType = "custom";
+    formPresetId = "";
+    formName = "";
+    formDisplayName = "";
+    formBaseUrl = "";
+    formApiKey = "";
+    formAuthType = "bearer";
+    formError = "";
+    formBridgeMode = mode === "mcp" ? "mcp" : "rest";
+    formMcpTransport = "stdio";
+    formMcpCommand = "";
+    formMcpArgs = "";
+    formMcpEnv = "";
+    formMcpUrl = "";
+    formMcpHeaders = "";
+    showForm = true;
   }
 
   function selectPreset(presetId: string) {
@@ -260,61 +297,30 @@
 </script>
 
 <section>
-  <h3>API & MCP Bridges</h3>
-  <p class="desc">
-    Connect to external APIs and MCP servers as bridge targets. Unlike program bridges (Blender, Godot, etc.) which run inside DCC apps,
-    API bridges call external services directly from the server — no plugin installation required.
-  </p>
+  {#if mode === "mcp"}
+    <h3>MCP Servers</h3>
+    <p class="desc">
+      Connect to Model Context Protocol (MCP) servers. MCP bridges expose tools from external servers
+      that agents can invoke during task execution.
+    </p>
+  {:else if mode === "rest"}
+    <h3>API Bridges</h3>
+    <p class="desc">
+      Connect to external REST APIs as bridge targets. API bridges call external services directly
+      from the server — no plugin installation required.
+    </p>
+  {:else}
+    <h3>API & MCP Bridges</h3>
+    <p class="desc">
+      Connect to external APIs and MCP servers as bridge targets. Unlike program bridges (Blender, Godot, etc.) which run inside DCC apps,
+      API bridges call external services directly from the server — no plugin installation required.
+    </p>
+  {/if}
 
   {#if loading}
     <div class="empty-state">Loading...</div>
   {:else if error}
     <div class="error-state">{error}</div>
-  {:else if bridges.length === 0}
-    <div class="empty-state">
-      No API bridges configured. Add a preset (like Meshy for 3D generation) or connect any custom REST API.
-    </div>
-  {:else}
-    <div class="bridge-list">
-      {#each bridges as bridge}
-        <div class="bridge-item" class:disabled={!bridge.enabled}>
-          <div class="bridge-item-left">
-            <Badge
-              text={bridge.mcpConfig ? "MCP" : bridge.type === "preset" ? bridge.presetId ?? "preset" : "CUSTOM"}
-              variant={bridge.mcpConfig ? "info" : bridge.type === "preset" ? "accent" : "default"}
-            />
-            <div class="bridge-info">
-              <span class="bridge-name">{bridge.displayName}</span>
-              <span class="bridge-url">
-                {#if bridge.mcpConfig}
-                  {bridge.mcpConfig.transport === "stdio"
-                    ? `${bridge.mcpConfig.command} ${(bridge.mcpConfig.args ?? []).join(" ")}`
-                    : bridge.mcpConfig.url ?? ""}
-                {:else}
-                  {bridge.baseUrl ?? ""}
-                {/if}
-              </span>
-            </div>
-          </div>
-          <div class="bridge-item-right">
-            {#if !bridge.mcpConfig && !bridge.hasApiKey && bridge.authType !== "none"}
-              <span class="bridge-warning">No API key</span>
-            {/if}
-            <span class="bridge-state" class:enabled={bridge.enabled}>
-              {bridge.enabled ? "enabled" : "disabled"}
-            </span>
-            <button class="btn-sm" onclick={() => testBridge(bridge)} disabled={testingId === bridge.id}>
-              {testingId === bridge.id ? "..." : "Test"}
-            </button>
-            <button class="btn-sm" onclick={() => openEditForm(bridge)}>Edit</button>
-            <button class="btn-sm" onclick={() => toggleEnabled(bridge)}>
-              {bridge.enabled ? "Disable" : "Enable"}
-            </button>
-            <button class="btn-sm danger" onclick={() => deleteBridge(bridge)}>Delete</button>
-          </div>
-        </div>
-      {/each}
-    </div>
   {/if}
 
   {#if testResult}
@@ -327,46 +333,120 @@
     </div>
   {/if}
 
+  <!-- Preset cards -->
+  {#if filteredPresets.length > 0 || customBridges.length > 0}
+    <div class="bridge-grid">
+      {#each filteredPresets as preset (preset.presetId)}
+        {@const bridge = bridgeByPreset[preset.presetId]}
+        {@const isInstalled = !!bridge}
+
+        <div class="bridge-card" class:installed={isInstalled} class:disabled={isInstalled && !bridge.enabled}>
+          <div class="bridge-card-header">
+            <div class="bridge-card-title">
+              <span class="bridge-name">{preset.displayName}</span>
+              {#if isInstalled}
+                <span class="bridge-state" class:enabled={bridge.enabled}>
+                  {bridge.enabled ? "enabled" : "disabled"}
+                </span>
+              {/if}
+            </div>
+          </div>
+
+          {#if isInstalled}
+            <span class="bridge-url">
+              {bridge.baseUrl ?? preset.defaultBaseUrl}
+            </span>
+            {#if !bridge.hasApiKey && bridge.authType !== "none"}
+              <span class="bridge-warning">No API key configured</span>
+            {/if}
+          {:else}
+            {#if preset.description}
+              <span class="bridge-desc">{preset.description}</span>
+            {/if}
+            <span class="bridge-url">{preset.defaultBaseUrl}</span>
+          {/if}
+
+          {#if preset.actions.length > 0 && !isInstalled}
+            <div class="bridge-action-tags">
+              {#each preset.actions as action}
+                <span class="action-tag">{action.name}</span>
+              {/each}
+            </div>
+          {/if}
+
+          <div class="bridge-card-actions">
+            {#if isInstalled}
+              <button class="btn-sm" onclick={() => testBridge(bridge)} disabled={testingId === bridge.id}>
+                {testingId === bridge.id ? "..." : "Test"}
+              </button>
+              <button class="btn-sm" onclick={() => openEditForm(bridge)}>Edit</button>
+              <button class="btn-sm" onclick={() => toggleEnabled(bridge)}>
+                {bridge.enabled ? "Disable" : "Enable"}
+              </button>
+              <button class="btn-sm danger" onclick={() => deleteBridge(bridge)}>Delete</button>
+            {:else}
+              <button class="btn install" onclick={() => openInstallPreset(preset)}>Install</button>
+            {/if}
+          </div>
+        </div>
+      {/each}
+
+      <!-- Custom (non-preset) bridges -->
+      {#each customBridges as bridge (bridge.id)}
+        <div class="bridge-card installed" class:disabled={!bridge.enabled}>
+          <div class="bridge-card-header">
+            <div class="bridge-card-title">
+              <Badge
+                text={bridge.mcpConfig ? "MCP" : "CUSTOM"}
+                variant={bridge.mcpConfig ? "info" : "default"}
+              />
+              <span class="bridge-name">{bridge.displayName}</span>
+              <span class="bridge-state" class:enabled={bridge.enabled}>
+                {bridge.enabled ? "enabled" : "disabled"}
+              </span>
+            </div>
+          </div>
+
+          <span class="bridge-url">
+            {#if bridge.mcpConfig}
+              {bridge.mcpConfig.transport === "stdio"
+                ? `${bridge.mcpConfig.command} ${(bridge.mcpConfig.args ?? []).join(" ")}`
+                : bridge.mcpConfig.url ?? ""}
+            {:else}
+              {bridge.baseUrl ?? ""}
+            {/if}
+          </span>
+
+          {#if !bridge.mcpConfig && !bridge.hasApiKey && bridge.authType !== "none"}
+            <span class="bridge-warning">No API key configured</span>
+          {/if}
+
+          <div class="bridge-card-actions">
+            <button class="btn-sm" onclick={() => testBridge(bridge)} disabled={testingId === bridge.id}>
+              {testingId === bridge.id ? "..." : "Test"}
+            </button>
+            <button class="btn-sm" onclick={() => openEditForm(bridge)}>Edit</button>
+            <button class="btn-sm" onclick={() => toggleEnabled(bridge)}>
+              {bridge.enabled ? "Disable" : "Enable"}
+            </button>
+            <button class="btn-sm danger" onclick={() => deleteBridge(bridge)}>Delete</button>
+          </div>
+        </div>
+      {/each}
+    </div>
+  {:else if !loading}
+    <div class="empty-state">No presets available.</div>
+  {/if}
+
   <div class="actions-bar">
-    <button class="btn" onclick={() => openAddForm("preset")}>
-      Add Preset Bridge
-    </button>
-    <button class="btn secondary" onclick={() => openAddForm("custom")}>
-      Add Custom Bridge
+    <button class="btn secondary" onclick={openAddCustom}>
+      {mode === "mcp" ? "Add MCP Server" : mode === "rest" ? "Add API Bridge" : "Add Custom Bridge"}
     </button>
     <button class="btn secondary" onclick={loadData}>
       Refresh
     </button>
   </div>
 </section>
-
-<!-- Available Presets -->
-{#if presets.length > 0}
-  <section>
-    <h3>Available Presets</h3>
-    <p class="desc">Integrations with popular APIs. Click "Add Preset Bridge" above to configure one.</p>
-    <div class="preset-list">
-      {#each presets as preset}
-        <div class="preset-item">
-          <div class="preset-info">
-            <span class="preset-name">{preset.displayName}</span>
-            {#if preset.description}
-              <span class="preset-desc">{preset.description}</span>
-            {/if}
-            <span class="preset-url">{preset.defaultBaseUrl}</span>
-          </div>
-          <div class="preset-actions">
-            {#if preset.actions.length > 0}
-              {#each preset.actions as action}
-                <span class="preset-action">{action.name}</span>
-              {/each}
-            {/if}
-          </div>
-        </div>
-      {/each}
-    </div>
-  </section>
-{/if}
 
 <!-- Add/Edit Form Modal -->
 {#if showForm}
@@ -375,18 +455,7 @@
     <div class="form-modal" onclick={(e) => e.stopPropagation()} role="dialog">
       <h3>{editingId ? "Edit" : "Add"} {formType === "preset" ? "Preset" : "Custom"} Bridge</h3>
 
-      {#if formType === "preset" && !editingId}
-        <label>
-          Preset
-          <select bind:value={formPresetId} onchange={() => selectPreset(formPresetId)}>
-            {#each presets as preset}
-              <option value={preset.presetId}>{preset.displayName}</option>
-            {/each}
-          </select>
-        </label>
-      {/if}
-
-      {#if formType === "custom"}
+      {#if formType === "custom" && mode === "all"}
         <label>
           Bridge Mode
           <div class="mode-toggle">
@@ -521,43 +590,52 @@
     margin-bottom: 10px;
   }
 
-  /* Bridge list */
-  .bridge-list {
+  /* Bridge card grid */
+  .bridge-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .bridge-card {
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    margin-bottom: 10px;
-  }
-  .bridge-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 8px 10px;
+    gap: 6px;
+    padding: 12px;
     border-radius: var(--radius-sm);
     background: var(--bg-base);
     border: 1px solid var(--border);
-    gap: 8px;
   }
-  .bridge-item.disabled {
+  .bridge-card.installed {
+    border-color: var(--accent);
+    border-width: 1px;
+  }
+  .bridge-card.disabled {
     opacity: 0.5;
   }
-  .bridge-item-left {
+  .bridge-card-header {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     gap: 8px;
-    min-width: 0;
   }
-  .bridge-info {
+  .bridge-card-title {
     display: flex;
-    flex-direction: column;
+    align-items: center;
+    gap: 6px;
     min-width: 0;
+    flex-wrap: wrap;
   }
   .bridge-name {
     font-size: var(--font-size-sm);
     color: var(--text-primary);
+    font-weight: 600;
     white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+  }
+  .bridge-desc {
+    font-size: 11px;
+    color: var(--text-secondary);
+    line-height: 1.3;
   }
   .bridge-url {
     font-size: 11px;
@@ -567,11 +645,10 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .bridge-item-right {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex-shrink: 0;
+  .bridge-warning {
+    font-size: 11px;
+    color: var(--status-failed);
+    font-weight: 600;
   }
   .bridge-state {
     font-size: 11px;
@@ -580,22 +657,42 @@
     border-radius: 999px;
     border: 1px solid var(--border);
     color: var(--text-muted);
+    white-space: nowrap;
   }
   .bridge-state.enabled {
     border-color: var(--status-completed);
     color: var(--status-completed);
   }
-  .bridge-warning {
-    font-size: 11px;
-    color: var(--status-failed);
-    font-weight: 600;
+
+  /* Action tag badges */
+  .bridge-action-tags {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+  .action-tag {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+  }
+
+  /* Card actions */
+  .bridge-card-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 2px;
+    flex-wrap: wrap;
   }
 
   /* Buttons */
   .actions-bar {
     display: flex;
     gap: 8px;
-    margin-top: 10px;
+    margin-top: 4px;
   }
   .btn {
     padding: 6px 16px;
@@ -614,6 +711,10 @@
   .btn.secondary:hover {
     background: var(--bg-hover);
     color: var(--text-primary);
+  }
+  .btn.install {
+    padding: 4px 14px;
+    font-size: var(--font-size-sm);
   }
   .btn-sm {
     padding: 2px 8px;
@@ -650,55 +751,6 @@
     background: rgba(244, 67, 54, 0.1);
     color: var(--status-failed);
     border: 1px solid var(--status-failed);
-  }
-
-  /* Presets */
-  .preset-list {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-  .preset-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 8px 10px;
-    border-radius: var(--radius-sm);
-    background: var(--bg-base);
-    border: 1px solid var(--border);
-  }
-  .preset-info {
-    display: flex;
-    flex-direction: column;
-  }
-  .preset-name {
-    font-size: var(--font-size-sm);
-    color: var(--text-primary);
-    font-weight: 600;
-  }
-  .preset-desc {
-    font-size: 11px;
-    color: var(--text-secondary);
-    line-height: 1.3;
-  }
-  .preset-url {
-    font-size: 11px;
-    color: var(--text-muted);
-    font-family: var(--font-mono);
-  }
-  .preset-actions {
-    display: flex;
-    gap: 4px;
-    flex-wrap: wrap;
-  }
-  .preset-action {
-    font-size: 10px;
-    padding: 1px 6px;
-    border-radius: var(--radius-sm);
-    background: var(--bg-surface);
-    border: 1px solid var(--border);
-    color: var(--text-secondary);
-    font-family: var(--font-mono);
   }
 
   /* Form modal */

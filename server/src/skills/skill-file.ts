@@ -22,6 +22,7 @@ import type { Skill } from "../db/skills.repo.js";
 /** Standard Agent Skills frontmatter (agentskills.io spec) */
 export interface SkillFrontmatter {
   name: string;
+  version?: number;
   description: string;
   license?: string;
   compatibility?: string;
@@ -104,6 +105,7 @@ export function skillToSkillFile(skill: Skill, effectiveness?: SkillEffectivenes
 
   const frontmatter: SkillFrontmatter = {
     name: skill.slug,
+    version: skill.version ?? 1,
     description: skill.description || skill.title || skill.slug,
   };
 
@@ -116,7 +118,8 @@ export function skillToSkillFile(skill: Skill, effectiveness?: SkillEffectivenes
 
 /**
  * Convert a ParsedSkillFile to fields compatible with Skill DB record.
- * Does not include id, version, createdAt, updatedAt (those are DB-managed).
+ * Does not include id, createdAt, updatedAt (those are DB-managed).
+ * Version is parsed from frontmatter if present (defaults to 1).
  */
 export function skillFileToSkillFields(parsed: ParsedSkillFile): {
   slug: string;
@@ -134,6 +137,7 @@ export function skillFileToSkillFields(parsed: ParsedSkillFile): {
   autoFetch: boolean;
   enabled: boolean;
   appVersion: string | null;
+  version: number;
 } {
   const meta = (parsed.frontmatter.metadata ?? {}) as Record<string, any>;
 
@@ -153,6 +157,7 @@ export function skillFileToSkillFields(parsed: ParsedSkillFile): {
     autoFetch: meta["auto-fetch"] === true,
     enabled: meta.enabled !== false,
     appVersion: (meta["app-version"] as string) || null,
+    version: typeof parsed.frontmatter.version === "number" ? parsed.frontmatter.version : 1,
   };
 }
 
