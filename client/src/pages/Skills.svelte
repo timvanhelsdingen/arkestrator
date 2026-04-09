@@ -420,6 +420,19 @@
     }
   }
 
+  async function toggleSkillEnabled() {
+    if (!skillViewData) return;
+    try {
+      const newEnabled = !skillViewData.enabled;
+      await api.skills.update(skillViewData.slug, { enabled: newEnabled }, skillViewData.program);
+      skillViewData = { ...skillViewData, enabled: newEnabled };
+      info = newEnabled ? "Skill enabled" : "Skill disabled";
+      loadSkills();
+    } catch (err: any) {
+      error = err.message ?? "Failed to toggle skill";
+    }
+  }
+
   async function toggleSkillLock() {
     if (!skillViewData) return;
     try {
@@ -1014,6 +1027,11 @@
           {#if canManage && !skillEditMode && skillViewData}
             <button class="btn-sm danger" onclick={() => { deleteSkill(skillViewData!.slug, skillViewData!.program); closeSkillView(); }}>Delete</button>
           {/if}
+          {#if canManage && skillViewData && !skillEditMode}
+            <button class="btn-sm" class:enabled-btn={skillViewData.enabled} onclick={toggleSkillEnabled}>
+              {skillViewData.enabled ? "Enabled" : "Disabled"}
+            </button>
+          {/if}
           {#if communityEnabled && skillViewData}
             <button class="btn-sm" onclick={() => publishSkillFromRow(skillViewData!)}>Share</button>
           {/if}
@@ -1123,10 +1141,20 @@
               {/each}
             </div>
           {/if}
-          {#if skillViewData.relatedSkills && skillViewData.relatedSkills.length > 0}
+          {@const viewRelatedSkills = (() => {
+            if (skillViewData.relatedSkills?.length) return skillViewData.relatedSkills;
+            // Fallback: parse from content if DB field is empty (pre-fix skills)
+            const c = skillViewData.content || "";
+            const fmMatch = c.match(/^---\s*\n([\s\S]*?)\n---/);
+            if (!fmMatch) return [];
+            const inl = fmMatch[1].match(/related-skills:\s*\[([^\]]*)\]/);
+            if (inl) return inl[1].split(",").map((s: string) => s.trim()).filter(Boolean);
+            return [];
+          })()}
+          {#if viewRelatedSkills.length > 0}
             <div class="skill-detail-section">
               <strong>Related Skills:</strong>
-              {#each skillViewData.relatedSkills as rel}
+              {#each viewRelatedSkills as rel}
                 <button class="btn-link" onclick={() => viewSkill(rel, skillViewData?.program ?? "")}>{rel}</button>
               {/each}
             </div>
@@ -1264,6 +1292,7 @@
   .btn-sm { font-size: 0.8em; padding: 2px 8px; cursor: pointer; background: var(--bg-subtle, rgba(255,255,255,0.08)); border: 1px solid var(--border); border-radius: 3px; color: inherit; }
   .btn-sm:hover { background: var(--bg-hover, rgba(255,255,255,0.12)); }
   .btn-sm.danger { color: var(--danger, #e55); }
+  .btn-sm.enabled-btn { color: var(--status-completed, #4ec9b0); border-color: var(--status-completed, #4ec9b0); }
   .btn-link { background: none; border: none; color: var(--accent); cursor: pointer; text-decoration: underline; padding: 0; font-size: inherit; }
   .skill-create-form { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--border); border-radius: 4px; margin-bottom: 12px; background: var(--bg-subtle, rgba(255,255,255,0.03)); }
   .skill-create-form .form-row { display: flex; gap: 8px; }
