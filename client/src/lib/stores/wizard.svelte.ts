@@ -58,8 +58,8 @@ class WizardState {
 
   get steps(): string[] {
     return this.mode === "local"
-      ? ["Welcome", "Security", "Agents", "Skills", "Bridges", "API & MCP", "Ready"]
-      : ["Welcome", "Connect", "Personality", "Bridges", "API & MCP", "Ready"];
+      ? ["Welcome", "Security", "Agents", "Skills", "Bridges", "API", "MCP", "Ready"]
+      : ["Welcome", "Connect", "Personality", "Bridges", "API", "MCP", "Ready"];
   }
 
   get totalSteps(): number {

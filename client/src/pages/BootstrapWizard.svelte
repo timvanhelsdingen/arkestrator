@@ -9,13 +9,14 @@
   import WizardBridges from "../lib/components/wizard/WizardBridges.svelte";
   import WizardPersonality from "../lib/components/wizard/WizardPersonality.svelte";
   import WizardApiBridges from "../lib/components/wizard/WizardApiBridges.svelte";
+  import WizardMcpServers from "../lib/components/wizard/WizardMcpServers.svelte";
   import WizardDone from "../lib/components/wizard/WizardDone.svelte";
   import TroubleshootCog from "../lib/components/TroubleshootCog.svelte";
 
   // Determine what step component to show
   function getStepComponent(stepIndex: number): string {
     if (wizard.mode === "local") {
-      // Welcome → Security → Agents → Skills → Bridges → API Bridges → Ready
+      // Welcome → Security → Agents → Skills → Bridges → API → MCP → Ready
       switch (stepIndex) {
         case 0: return "choose";
         case 1: return "security";
@@ -23,18 +24,20 @@
         case 3: return "skills";
         case 4: return "bridges";
         case 5: return "api-bridges";
-        case 6: return "done";
+        case 6: return "mcp-servers";
+        case 7: return "done";
         default: return "choose";
       }
     } else if (wizard.mode === "remote") {
-      // Welcome → Connect → Personality → Bridges → API Bridges → Ready
+      // Welcome → Connect → Personality → Bridges → API → MCP → Ready
       switch (stepIndex) {
         case 0: return "choose";
         case 1: return "connect";
         case 2: return "personality";
         case 3: return "bridges";
         case 4: return "api-bridges";
-        case 5: return "done";
+        case 5: return "mcp-servers";
+        case 6: return "done";
         default: return "choose";
       }
     }
@@ -124,6 +127,8 @@
         <WizardBridges />
       {:else if currentComponent === "api-bridges"}
         <WizardApiBridges />
+      {:else if currentComponent === "mcp-servers"}
+        <WizardMcpServers />
       {:else if currentComponent === "done"}
         <WizardDone />
       {/if}
@@ -260,10 +265,10 @@
     color: var(--text-secondary);
   }
   .step-connector {
-    width: 40px;
+    width: 30px;
     height: 2px;
     background: var(--border);
-    margin: 0 6px;
+    margin: 0 4px;
     margin-bottom: 18px;
     transition: background 0.2s;
   }

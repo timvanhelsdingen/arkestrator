@@ -72,7 +72,10 @@
       // Filter to bridges that support this platform and aren't "project" type
       // (project-type bridges are per-project and don't make sense in setup wizard)
       const eligible = registry.filter(
-        (b) => b.installType !== "project" && b.platforms.includes(platform)
+        (b) => b.type !== "api"
+          && b.installType !== "project"
+          && b.installType !== "standalone"
+          && b.platforms?.includes(platform)
       );
 
       // Auto-detect paths for all eligible bridges in parallel
@@ -218,6 +221,7 @@
 <div class="bridge-setup">
   <h3>Install Bridge Plugins</h3>
   <p class="subtitle">Bridge plugins connect your DCC apps to Arkestrator. Select the apps you have installed.</p>
+  <p class="settings-hint">You can always install or update bridges later in Settings.</p>
 
   {#if loading}
     <div class="loading">Scanning for installed applications...</div>
@@ -336,7 +340,13 @@
   .subtitle {
     font-size: 12px;
     color: var(--text-muted);
+    margin: 0 0 8px;
+  }
+  .settings-hint {
+    font-size: 11px;
+    color: var(--text-muted);
     margin: 0 0 16px;
+    font-style: italic;
   }
   .loading, .empty {
     font-size: var(--font-size-sm);
