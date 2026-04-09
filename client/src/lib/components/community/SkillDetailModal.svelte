@@ -28,22 +28,8 @@
 
   let busy = $derived(communitySkills.installingIds.has(skill.id));
 
-  // Parse related-skills from SKILL.md content
-  let relatedSkills = $derived.by(() => {
-    if (!detail?.content) return [];
-    const fmMatch = detail.content.match(/^---\s*\n([\s\S]*?)\n---/);
-    if (!fmMatch) return [];
-    const fm = fmMatch[1];
-    const inlineMatch = fm.match(/related-skills:\s*\[([^\]]*)\]/);
-    if (inlineMatch) {
-      return inlineMatch[1].split(",").map((s: string) => s.trim()).filter(Boolean);
-    }
-    const listMatch = fm.match(/related-skills:\s*\n((?:\s+-\s+.*\n?)*)/);
-    if (listMatch) {
-      return listMatch[1].split("\n").map((l: string) => l.replace(/^\s*-\s*/, "").trim()).filter(Boolean);
-    }
-    return [];
-  });
+  // Related skills from the API response (already parsed by the server)
+  let relatedSkills = $derived((detail as any)?.relatedSkills ?? []);
 
   function handleOverlayClick(e: MouseEvent) {
     if (e.target === e.currentTarget) onclose();
