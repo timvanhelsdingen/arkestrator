@@ -254,7 +254,7 @@ class CommunitySkillsState {
           localSlug: result.slug,
           localProgram: result.program,
           installedVersion: version,
-          enabled: false,
+          enabled: true,
           installedAt: new Date().toISOString(),
         },
       };
@@ -269,8 +269,8 @@ class CommunitySkillsState {
       if (!silent) {
         const title = result.skill?.title || result.slug;
         const msg = depCount > 0
-          ? `Installed "${title}" + ${depCount} dependenc${depCount === 1 ? "y" : "ies"} (disabled by default)`
-          : `Installed "${title}" (disabled by default)`;
+          ? `Installed "${title}" + ${depCount} dependenc${depCount === 1 ? "y" : "ies"}`
+          : `Installed "${title}"`;
         toast.success(msg);
       }
     } catch (err: any) {
@@ -311,7 +311,7 @@ class CommunitySkillsState {
 
     if (failCount === 0) {
       toast.success(
-        `Installed ${successCount} skill${successCount !== 1 ? "s" : ""} (disabled by default)`,
+        `Installed ${successCount} skill${successCount !== 1 ? "s" : ""}`,
       );
     } else {
       toast.info(
