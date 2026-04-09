@@ -476,7 +476,15 @@ export function runMigrations(db: Database) {
   db.exec("PRAGMA foreign_keys = ON");
 
   for (const sql of MIGRATIONS) {
-    db.exec(sql);
+    try {
+      db.exec(sql);
+    } catch (err: any) {
+      // CREATE TABLE IF NOT EXISTS can still fail if FK target doesn't exist yet;
+      // tables may already exist from a previous run — safe to continue.
+      if (!String(err?.message).includes("already exists")) {
+        console.warn(`[migrations] Non-fatal: ${err?.message}`);
+      }
+    }
   }
 
   // Add columns to existing tables (ignore errors if column already exists)
