@@ -115,10 +115,11 @@ When the user asks to release, sync to public, or build a release:
    git add -A
    git commit -m "Arkestrator v<version>"
    git tag v<version>
-   git push origin main --tags
+   git push origin main
+   git push origin v<version>   # Push tag SEPARATELY — batch --tags can miss workflow triggers
    ```
 
-4. **Release CI** runs automatically when a `v*` tag is pushed. It builds macOS (dmg+updater), Windows (NSIS+updater), and Linux (AppImage+deb) installers via GitHub Actions.
+4. **Release CI** runs automatically when a `v*` tag is pushed. It builds macOS (dmg+updater), Windows (NSIS+updater), and Linux (AppImage+deb) installers AND publishes the Docker server image via GitHub Actions.
 
 **Key files:**
 - `scripts/bump-version.mjs` — bumps version in all package.json, Cargo.toml, tauri.conf.json
