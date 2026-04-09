@@ -185,6 +185,15 @@ export function createSkillsRoutes(
     });
   }
 
+  /** Enrich a skill with computed `repoModified` flag for repo-sourced skills. */
+  function enrichSkill(s: any) {
+    if (s.source === "repo" && s.repoContentHash) {
+      const currentHash = Bun.hash(s.content).toString(16);
+      return { ...s, repoModified: currentHash !== s.repoContentHash };
+    }
+    return s;
+  }
+
   // GET / — list skills (from index, includes all sources)
   // When filtering by program, global skills are returned separately.
   router.get("/", async (c) => {
@@ -194,12 +203,12 @@ export function createSkillsRoutes(
     const program = c.req.query("program");
     const category = c.req.query("category") as any;
     const includeDisabled = c.req.query("includeDisabled") === "true";
-    const allSkills = skillIndex.list({ program: program || undefined, category: category || undefined, includeDisabled });
+    const allSkills = skillIndex.list({ program: program || undefined, category: category || undefined, includeDisabled }).map(enrichSkill);
 
     // When filtering by a specific program, split global skills into their own group
     if (program) {
-      const programSkills = allSkills.filter((s) => s.program !== "global");
-      const globalSkills = allSkills.filter((s) => s.program === "global");
+      const programSkills = allSkills.filter((s: any) => s.program !== "global");
+      const globalSkills = allSkills.filter((s: any) => s.program === "global");
       return c.json({ skills: programSkills, globalSkills });
     }
 

@@ -20,7 +20,8 @@ import { getClaudeRuntimeDecision } from "../utils/claude-runtime.js";
 import type { SpawnUserSpec } from "../utils/spawn.js";
 import { readFileSync, readdirSync, existsSync, mkdirSync, writeFileSync, unlinkSync } from "fs";
 import { homedir, tmpdir } from "os";
-import { join } from "path";
+import { join, resolve } from "path";
+import { parseSkillFile, skillFileToSkillFields } from "../skills/skill-file.js";
 import type { WorkersRepo } from "../db/workers.repo.js";
 import type { HeadlessProgramsRepo } from "../db/headless-programs.repo.js";
 import type { WebSocketHub } from "../ws/hub.js";
@@ -1232,95 +1233,6 @@ const COORDINATOR_SCRIPT_DEFAULTS: Record<string, string> = {
   global: DEFAULT_ORCHESTRATOR_PROMPT,
 };
 
-// ---- Built-in skill content ----
-
-const FILE_TRANSFER_SKILL_CONTENT = `# File Transfer Protocol
-
-Transfer files between the server, connected clients, and workers using Arkestrator's transfer system.
-
-## Three Transfer Modes
-
-All modes use \`POST /api/transfers\` via \`client_api_request\`. The mode is determined by which fields you provide.
-
-### Mode 1: Direct Serve (server filesystem → client)
-
-Use when the file already exists on the **server's filesystem** (e.g. NAS mount, local disk). No upload step, no size limit, no temp copy.
-
-\`\`\`json
-{
-  "files": [{"path": "/dest/path/on/client/file.vdb"}],
-  "sourcePaths": ["/mnt/truenas/path/to/file.vdb"],
-  "target": "worker-name",
-  "targetType": "worker"
-}
-\`\`\`
-
-The server streams the file directly from disk to the client. File size is computed automatically.
-
-### Mode 2: P2P (client → client)
-
-Use when the source file is on a **connected client/worker** and the destination is another client. The server only coordinates — file data flows directly between clients.
-
-\`\`\`json
-{
-  "files": [{"path": "/dest/path/file.vdb", "size": 2929823546}],
-  "sourcePaths": ["/source/path/on/source/machine/file.vdb"],
-  "sourceWorker": "source-worker-name",
-  "target": "dest-worker-name",
-  "targetType": "worker"
-}
-\`\`\`
-
-Flow: server asks source client to start a file server → source reports ready → server tells destination the P2P URL → destination downloads directly from source. Falls back to server relay automatically if P2P connection fails.
-
-### Mode 3: Upload (classic relay)
-
-Use when neither direct serve nor P2P applies. Client uploads to server temp, server delivers to target.
-
-\`\`\`json
-{
-  "files": [{"path": "/dest/path/file.ext", "size": 1048576}],
-  "target": "worker-name",
-  "targetType": "worker"
-}
-\`\`\`
-
-Returns \`uploadUrl\` per file. Upload via PUT with raw bytes. Server delivers automatically when all files are uploaded. Subject to \`transferMaxSizeMb\` limit (default 2000 MB).
-
-## How to Choose the Mode
-
-1. **File is on the server filesystem?** → Use direct serve (\`sourcePaths\`, no \`sourceWorker\`)
-2. **File is on another connected client?** → Use P2P (\`sourcePaths\` + \`sourceWorker\`)
-3. **You have the file data in memory/base64?** → Use upload mode (no \`sourcePaths\`)
-4. **File is small (< 1 MB)?** → Use \`POST /api/bridge-command/file-deliver\` for inline delivery
-
-## Finding Workers
-
-List connected workers: \`GET /api/workers\`
-
-Each worker has a \`name\` (hostname) and \`status\`. Use the name as the \`target\` or \`sourceWorker\` value with \`targetType: "worker"\`.
-
-## Target Types
-
-- \`"worker"\` — target by worker name (hostname)
-- \`"program"\` — target all bridges running a program (blender, godot, houdini)
-- \`"id"\` — target a specific bridge by connection ID
-
-## Destination Paths
-
-- macOS: use forward slashes, e.g. \`/Users/username/Documents/file.vdb\`
-- iCloud Drive on macOS: \`~/Library/Mobile Documents/com~apple~CloudDocs/Documents/\`
-- Windows: use backslashes, e.g. \`C:\\\\Users\\\\username\\\\Documents\\\\file.vdb\`
-- Linux: forward slashes, e.g. \`/home/username/Documents/file.vdb\`
-
-## Important Notes
-
-- \`deliverFiles\` permission required on the API key
-- Direct serve may require \`DIRECT_SERVE_ALLOWED_PATHS\` to be configured on the server
-- P2P transfers use ephemeral token-based auth (no API key exposure)
-- All modes support resume via Range headers for large files
-- Use \`client_api_request\` tool to call the transfer endpoints from within a job
-`;
 
 // ---- Bridge-specific prompts removed in v0.1.61 ----
 // Coordinator content for blender, godot, houdini, comfyui, unity, unreal
@@ -1391,21 +1303,8 @@ export function seedCoordinatorScripts(dir: string, skillsRepo?: import("../db/s
       }
       // Pattern skills come from bridge repos — no longer seeded as built-in.
 
-      // Seed file transfer protocol skill
-      skillsRepo.upsertBySlugAndProgram({
-        name: "file-transfer-protocol",
-        slug: "file-transfer-protocol",
-        program: "global",
-        category: "coordinator",
-        title: "File Transfer Protocol",
-        description: "How to transfer files between server and clients using direct serve, P2P, or upload modes",
-        keywords: ["file", "transfer", "upload", "download", "deliver", "send", "copy", "move", "p2p", "direct", "stream"],
-        content: FILE_TRANSFER_SKILL_CONTENT,
-        source: "builtin",
-        priority: 60,
-        autoFetch: true,
-        enabled: true,
-      });
+      // Seed repo skills from server/skills/ directory (SKILL.md files shipped with the repo)
+      seedRepoSkills(skillsRepo);
     }
 
     // Also write global to disk for backward compat
@@ -1444,6 +1343,61 @@ export function seedCoordinatorScripts(dir: string, skillsRepo?: import("../db/s
  */
 export function getCoordinatorScriptDefault(program: string): string | undefined {
   return COORDINATOR_SCRIPT_DEFAULTS[program];
+}
+
+/**
+ * Seed repo skills from server/skills/ directory.
+ * Directory structure: server/skills/{program}/{slug}/SKILL.md
+ * Repo skills use source="repo" and track a content hash to detect user modifications.
+ * If the user edited a repo skill, only metadata is updated — their content is preserved.
+ */
+function seedRepoSkills(skillsRepo: import("../db/skills.repo.js").SkillsRepo): void {
+  // Resolve relative to CWD (where the server runs from, i.e. the repo root or server/)
+  // Try server/skills/ first (running from repo root), then skills/ (running from server/)
+  let skillsDir = resolve("server/skills");
+  if (!existsSync(skillsDir)) {
+    skillsDir = resolve("skills");
+  }
+  if (!existsSync(skillsDir)) return;
+
+  try {
+    // Walk: skills/{program}/{slug}/SKILL.md
+    for (const programEntry of readdirSync(skillsDir, { withFileTypes: true })) {
+      if (!programEntry.isDirectory()) continue;
+      const programDir = join(skillsDir, programEntry.name);
+
+      for (const slugEntry of readdirSync(programDir, { withFileTypes: true })) {
+        if (!slugEntry.isDirectory()) continue;
+        const skillFile = join(programDir, slugEntry.name, "SKILL.md");
+        if (!existsSync(skillFile)) continue;
+
+        try {
+          const raw = readFileSync(skillFile, "utf-8");
+          const parsed = parseSkillFile(raw);
+          if (!parsed) {
+            logger.warn("repo-skills", `Failed to parse ${skillFile}`);
+            continue;
+          }
+
+          const fields = skillFileToSkillFields(parsed);
+          const contentHash = Bun.hash(fields.content).toString(16);
+
+          skillsRepo.upsertRepoSkill({
+            ...fields,
+            // Override program from directory structure (authoritative)
+            program: programEntry.name,
+            slug: slugEntry.name,
+            source: "repo",
+            repoContentHash: contentHash,
+          });
+        } catch (err) {
+          logger.warn("repo-skills", `Error loading ${skillFile}: ${err}`);
+        }
+      }
+    }
+  } catch (err) {
+    logger.warn("repo-skills", `Error scanning repo skills: ${err}`);
+  }
 }
 
 // seedBuiltinPatternSkills removed in v0.1.61 — pattern skills come from bridge repos.

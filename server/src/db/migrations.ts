@@ -463,6 +463,9 @@ const COLUMN_ADDITIONS = [
     UNIQUE(program, version)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_coord_script_versions_program ON coordinator_script_versions(program)`,
+  // Hash of original repo skill content — null for non-repo skills.
+  // When source='repo' and hash(content) !== repo_content_hash, the skill is "modified".
+  `ALTER TABLE skills ADD COLUMN repo_content_hash TEXT`,
 ];
 
 // Reset any jobs stuck in 'running' state (server crashed while they were active)
