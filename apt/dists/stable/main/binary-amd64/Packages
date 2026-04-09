@@ -35,10 +35,10 @@ Maintainer: Tim van Helsdingen
 Installed-Size: 123265
 Depends: libayatana-appindicator3-1, libwebkit2gtk-4.1-0, libgtk-3-0
 Filename: pool/Arkestrator_0.1.122_amd64.deb
-Size: 48099408
-MD5sum: ea593b4e3a4d7907ae534006edeab11a
-SHA1: 0fe61280a3bbb0597f296246ca693023c0f0d071
-SHA256: 4d1ba81c3657ff1f65587cdc0879ea259c7229a82bc9f9e06ebd296f1449241d
+Size: 48099044
+MD5sum: 9299beb93b309c8b30e0bec226caa141
+SHA1: 351a57ab8bfcf0d8d4441fcf3bede56b1448853c
+SHA256: f77e75d9e4a236b2601d217e0d90be62ccb56c1f785714069f07fbe1146393c9
 Priority: optional
 Description: AI agent orchestration for creative tools
  (none)
