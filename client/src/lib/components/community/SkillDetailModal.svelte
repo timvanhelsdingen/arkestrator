@@ -13,6 +13,7 @@
     onuninstall,
     ontoggle,
     onupdate,
+    onviewdep,
   }: {
     skill: CommunitySkillSummary;
     detail: CommunitySkillDetail | null;
@@ -24,6 +25,7 @@
     onuninstall?: () => void;
     ontoggle?: () => void;
     onupdate?: () => void;
+    onviewdep?: (slug: string) => void;
   } = $props();
 
   let busy = $derived(communitySkills.installingIds.has(skill.id));
@@ -99,7 +101,11 @@
             <h4>Dependencies ({relatedSkills.length})</h4>
             <div class="deps-list">
               {#each relatedSkills as depSlug}
-                <span class="dep-chip">{depSlug}</span>
+                {#if onviewdep}
+                  <button class="dep-chip dep-clickable" onclick={() => onviewdep(depSlug)}>{depSlug}</button>
+                {:else}
+                  <span class="dep-chip">{depSlug}</span>
+                {/if}
               {/each}
             </div>
           </div>
@@ -265,6 +271,14 @@
     font-size: 11px;
     font-family: var(--font-mono);
     color: var(--text-secondary);
+    border: none;
+  }
+  .dep-clickable {
+    cursor: pointer;
+    color: var(--accent);
+  }
+  .dep-clickable:hover {
+    background: var(--bg-hover, rgba(255,255,255,0.1));
   }
   .content-section h4 {
     font-size: var(--font-size-sm);
