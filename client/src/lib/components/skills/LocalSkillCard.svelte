@@ -34,13 +34,15 @@
   );
 </script>
 
-<div class="skill-card" class:selected onclick={onview} role="button" tabindex="0" onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') onview?.(); }}>
+<div class="skill-card" class:selected class:disabled={!skill.enabled} onclick={onview} role="button" tabindex="0" onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') onview?.(); }}>
   <div class="card-header">
     {#if onselect}
       <input type="checkbox" checked={selected} onchange={onselect} onclick={(e) => e.stopPropagation()} class="card-checkbox" />
     {/if}
     <button class="card-title" onclick={onview}>{skill.title}</button>
-    {#if hasUpdate}
+    {#if !skill.enabled}
+      <span class="badge disabled-badge">OFF</span>
+    {:else if hasUpdate}
       <span class="badge update-badge">UPDATE</span>
     {:else if isNew}
       <span class="badge new-badge">NEW</span>
@@ -102,6 +104,13 @@
   .skill-card.selected {
     border-color: var(--accent);
   }
+  .skill-card.disabled {
+    opacity: 0.4;
+    border-color: transparent;
+  }
+  .skill-card.disabled:hover {
+    opacity: 0.6;
+  }
 
   .card-header {
     display: flex;
@@ -160,6 +169,15 @@
     border-radius: 3px;
     color: #4ec9b0;
     background: rgba(78, 201, 176, 0.15);
+    letter-spacing: 0.5px;
+  }
+  .disabled-badge {
+    flex-shrink: 0;
+    font-size: calc(var(--card-scale, 1) * 9px);
+    padding: calc(var(--card-scale, 1) * 1px) calc(var(--card-scale, 1) * 4px);
+    border-radius: 3px;
+    color: var(--text-muted);
+    background: rgba(255, 255, 255, 0.06);
     letter-spacing: 0.5px;
   }
   .update-badge {
