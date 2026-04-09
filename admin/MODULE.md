@@ -10,6 +10,9 @@ Focused web admin panel (served at `/admin`) for:
 
 Job operations and broader operational tooling are intentionally handled in the Tauri client.
 
+## Recent Updates (2026-04-09)
+- Repo skills badge (2026-04-09): `src/pages/Skills.svelte` — added `repoContentHash` and `repoModified` fields to `SkillEntry` interface. Skills with `source: "repo"` show a cyan "repo" badge, and "repo (modified)" when content has been user-edited (detected via `repoModified` boolean from API).
+
 ## Recent Updates (2026-04-02)
 - Skill locking (2026-04-01): `src/pages/Skills.svelte` skill list and detail view now show lock status toggle. Locked skills are protected from agent modification (housekeeping/training skip them). `src/lib/api/client.ts` skill update includes `locked` field.
 

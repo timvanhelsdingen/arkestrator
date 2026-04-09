@@ -104,6 +104,7 @@ describe("skill-validator", () => {
       locked: false,
       version: 1,
       appVersion: null,
+      repoContentHash: null,
       createdAt: "2024-01-01",
       updatedAt: "2024-01-01",
       ...overrides,

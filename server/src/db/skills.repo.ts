@@ -26,6 +26,7 @@ export interface Skill {
   locked: boolean;
   version: number;
   appVersion: string | null;
+  repoContentHash: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -62,6 +63,7 @@ interface SkillRow {
   locked: number;
   version: number;
   app_version: string | null;
+  repo_content_hash: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -85,6 +87,7 @@ export interface CreateSkillInput {
   enabled?: boolean;
   /** Seed version from SKILL.md frontmatter. Defaults to 1 (DB default). */
   version?: number;
+  repoContentHash?: string | null;
 }
 
 /** Fields accepted when updating a skill. All optional. */
@@ -130,6 +133,7 @@ function rowToSkill(row: SkillRow): Skill {
     locked: row.locked === 1,
     version: row.version ?? 1,
     appVersion: row.app_version ?? null,
+    repoContentHash: row.repo_content_hash ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -172,18 +176,19 @@ export class SkillsRepo {
       "SELECT * FROM skills WHERE slug = ? AND program = ? LIMIT 1",
     );
     this.insertStmt = db.prepare(`
-      INSERT INTO skills (id, name, slug, program, category, title, description, keywords, content, playbooks, related_skills, source, source_path, priority, auto_fetch, enabled, version, app_version, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO skills (id, name, slug, program, category, title, description, keywords, content, playbooks, related_skills, source, source_path, priority, auto_fetch, enabled, version, app_version, repo_content_hash, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     this.upsertStmt = db.prepare(`
-      INSERT INTO skills (id, name, slug, program, category, title, description, keywords, content, playbooks, related_skills, source, source_path, priority, auto_fetch, enabled, version, app_version, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO skills (id, name, slug, program, category, title, description, keywords, content, playbooks, related_skills, source, source_path, priority, auto_fetch, enabled, version, app_version, repo_content_hash, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(slug, program) DO UPDATE SET
         name = excluded.name, category = excluded.category, title = excluded.title,
         description = excluded.description, keywords = excluded.keywords, content = excluded.content,
         playbooks = excluded.playbooks, related_skills = excluded.related_skills,
         source = excluded.source, source_path = excluded.source_path, priority = excluded.priority,
         auto_fetch = excluded.auto_fetch, enabled = excluded.enabled, app_version = excluded.app_version,
+        repo_content_hash = COALESCE(excluded.repo_content_hash, repo_content_hash),
         updated_at = excluded.updated_at
     `);
     this.deleteBySlugStmt = db.prepare("DELETE FROM skills WHERE slug = ?");
@@ -233,7 +238,7 @@ export class SkillsRepo {
       JSON.stringify(input.playbooks ?? []), JSON.stringify(input.relatedSkills ?? []),
       src, input.sourcePath ?? null, input.priority ?? 50,
       (input.autoFetch ?? false) ? 1 : 0, (input.enabled ?? true) ? 1 : 0,
-      input.version ?? 1, SERVER_VERSION, now, now,
+      input.version ?? 1, SERVER_VERSION, input.repoContentHash ?? null, now, now,
     );
     return this.get(input.slug, program)!;
   }
@@ -335,8 +340,51 @@ export class SkillsRepo {
       JSON.stringify(input.playbooks ?? []), JSON.stringify(input.relatedSkills ?? []),
       input.source ?? "user", input.sourcePath ?? null, input.priority ?? 50,
       (input.autoFetch ?? false) ? 1 : 0, (input.enabled ?? true) ? 1 : 0,
-      input.version ?? 1, SERVER_VERSION, now, now,
+      input.version ?? 1, SERVER_VERSION, input.repoContentHash ?? null, now, now,
     );
+    return this.get(input.slug, program)!;
+  }
+
+  /**
+   * Upsert a repo skill. Only updates content if the user hasn't modified it
+   * (detected by comparing current content hash against stored repo_content_hash).
+   * Always updates metadata (title, description, keywords, priority, etc.).
+   */
+  upsertRepoSkill(input: CreateSkillInput & { repoContentHash: string }): Skill {
+    const program = input.program ?? "global";
+    const existing = this.getAny?.(input.slug, program) ?? this.get(input.slug, program);
+
+    if (!existing) {
+      // New skill — create with source="repo"
+      return this.upsertBySlugAndProgram({ ...input, source: "repo" });
+    }
+
+    // Existing skill — check if user modified the content
+    const contentHash = Bun.hash(existing.content).toString(16);
+    const isModified = existing.repoContentHash != null && contentHash !== existing.repoContentHash;
+
+    if (isModified) {
+      // User modified content — update metadata only, keep their content, update the repo hash
+      // so we know what the latest repo version is
+      this.db.prepare(`
+        UPDATE skills SET
+          name = ?, category = ?, title = ?, description = ?, keywords = ?,
+          source = 'repo', priority = ?, auto_fetch = ?, enabled = ?,
+          repo_content_hash = ?, app_version = ?, updated_at = ?
+        WHERE slug = ? AND program = ?
+      `).run(
+        input.name ?? input.slug, input.category, input.title,
+        input.description ?? "", JSON.stringify(input.keywords ?? []),
+        input.priority ?? 50, (input.autoFetch ?? false) ? 1 : 0,
+        (input.enabled ?? true) ? 1 : 0,
+        input.repoContentHash, SERVER_VERSION, new Date().toISOString(),
+        input.slug, program,
+      );
+    } else {
+      // Not modified — safe to overwrite everything
+      this.upsertBySlugAndProgram({ ...input, source: "repo" });
+    }
+
     return this.get(input.slug, program)!;
   }
 
