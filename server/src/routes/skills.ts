@@ -475,15 +475,22 @@ export function createSkillsRoutes(
       return errorResponse(c, 502, `Failed to reach community API: ${err?.message}`, "UPSTREAM_ERROR");
     }
 
-    // Fetch SKILL.md content
-    let content: string;
+    // Fetch SKILL.md content and parse it to extract body + metadata
+    let rawContent: string;
     try {
       const res = await fetch(`${baseUrl}/api/skills/${encodeURIComponent(communityId)}/download`);
       if (!res.ok) return errorResponse(c, 502, `Failed to download skill content: ${res.status}`, "UPSTREAM_ERROR");
-      content = await res.text();
+      rawContent = await res.text();
     } catch (err: any) {
       return errorResponse(c, 502, `Failed to download skill content: ${err?.message}`, "UPSTREAM_ERROR");
     }
+
+    // Parse SKILL.md to separate body from frontmatter
+    const { parseSkillFile, skillFileToSkillFields } = await import("../skills/skill-file.js");
+    const parsedSkill = parseSkillFile(rawContent);
+    // Use parsed body (without frontmatter) if available, else fall back to raw
+    const content = parsedSkill ? parsedSkill.body : rawContent;
+    const parsedFields = parsedSkill ? skillFileToSkillFields(parsedSkill) : null;
 
     let slug = detail.slug || communityId;
     const program = detail.program || "global";
@@ -502,6 +509,7 @@ export function createSkillsRoutes(
         title: detail.title || slug,
         description: detail.description || "",
         keywords: detail.keywords || [],
+        relatedSkills: parsedFields?.relatedSkills ?? detail.relatedSkills ?? [],
         content,
         enabled: false,
       };
