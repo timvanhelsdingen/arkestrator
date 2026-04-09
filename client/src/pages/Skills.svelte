@@ -946,10 +946,10 @@
               selectedCommunityIds = next;
             }}
             onview={() => communitySkills.viewDetail(skill)}
-            oninstall={() => communitySkills.install(skill.id)}
-            ontoggle={() => communitySkills.toggleEnabled(skill.id)}
-            onupdate={() => communitySkills.updateSkill(skill.id)}
-            onuninstall={() => communitySkills.uninstall(skill.id)}
+            oninstall={async () => { await communitySkills.install(skill.id); loadSkills(); }}
+            ontoggle={async () => { await communitySkills.toggleEnabled(skill.id); loadSkills(); }}
+            onupdate={async () => { await communitySkills.updateSkill(skill.id); loadSkills(); }}
+            onuninstall={async () => { await communitySkills.uninstall(skill.id); loadSkills(); }}
           />
         {/each}
       </div>
@@ -988,10 +988,11 @@
         installed={communitySkills.getInstalled(communitySkills.selectedSkill.id)}
         hasUpdate={communitySkills.hasUpdate(communitySkills.selectedSkill.id)}
         onclose={() => communitySkills.closeDetail()}
-        oninstall={() => communitySkills.install(communitySkills.selectedSkill!.id)}
-        onuninstall={() => communitySkills.uninstall(communitySkills.selectedSkill!.id)}
-        ontoggle={() => communitySkills.toggleEnabled(communitySkills.selectedSkill!.id)}
-        onupdate={() => communitySkills.updateSkill(communitySkills.selectedSkill!.id)}
+        oninstall={async () => { await communitySkills.install(communitySkills.selectedSkill!.id); loadSkills(); }}
+        onuninstall={async () => { await communitySkills.uninstall(communitySkills.selectedSkill!.id); loadSkills(); }}
+        ontoggle={async () => { await communitySkills.toggleEnabled(communitySkills.selectedSkill!.id); loadSkills(); }}
+        onupdate={async () => { await communitySkills.updateSkill(communitySkills.selectedSkill!.id); loadSkills(); }}
+        onviewdep={(slug) => { communitySkills.closeDetail(); communitySkills.searchQuery = slug; communitySkills.search(); }}
       />
     {/if}
     {#if communitySkills.publishModalOpen}
@@ -1154,9 +1155,11 @@
           {#if viewRelatedSkills.length > 0}
             <div class="skill-detail-section">
               <strong>Related Skills:</strong>
-              {#each viewRelatedSkills as rel}
-                <button class="btn-link" onclick={() => viewSkill(rel, skillViewData?.program ?? "")}>{rel}</button>
-              {/each}
+              <div class="related-skills-list">
+                {#each viewRelatedSkills as rel}
+                  <button class="btn-link related-skill-chip" onclick={() => viewSkill(rel, skillViewData?.program ?? "")}>{rel}</button>
+                {/each}
+              </div>
             </div>
           {/if}
           {#if skillViewPlaybooks.length > 0}
@@ -1294,6 +1297,9 @@
   .btn-sm.danger { color: var(--danger, #e55); }
   .btn-sm.enabled-btn { color: var(--status-completed, #4ec9b0); border-color: var(--status-completed, #4ec9b0); }
   .btn-link { background: none; border: none; color: var(--accent); cursor: pointer; text-decoration: underline; padding: 0; font-size: inherit; }
+  .related-skills-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+  .related-skill-chip { background: var(--bg-active, rgba(255,255,255,0.06)); padding: 2px 8px; border-radius: 4px; font-family: var(--font-mono); font-size: 12px; text-decoration: none; }
+  .related-skill-chip:hover { background: var(--bg-hover, rgba(255,255,255,0.1)); }
   .skill-create-form { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--border); border-radius: 4px; margin-bottom: 12px; background: var(--bg-subtle, rgba(255,255,255,0.03)); }
   .skill-create-form .form-row { display: flex; gap: 8px; }
   .skill-create-form .form-row > label { flex: 1; }
