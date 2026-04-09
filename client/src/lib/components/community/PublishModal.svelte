@@ -34,6 +34,11 @@
   // Dependency inclusion
   let includeDeps = $state(true);
 
+  // Community lookup for dependencies (slug → remote info)
+  type DepStatus = "new" | "update" | "skip_official" | "skip_other" | "skip_identical";
+  let depLookup = $state<Record<string, { status: DepStatus; version?: number }>>({});
+  let lookupLoading = $state(false);
+
   // Load user info if token exists
   $effect(() => {
     if (hasToken && !communityUser) {
@@ -126,16 +131,68 @@
     return deps;
   });
 
-  // Full publish list (deps first, then main skills)
+  // All deps (before filtering)
+  let allDeps = $derived(isBatch ? batchResolvedDeps : resolvedDeps);
+
+  // Look up deps on community when they change
+  $effect(() => {
+    const deps = allDeps;
+    if (deps.length === 0 || !communityUser) {
+      depLookup = {};
+      return;
+    }
+    lookupLoading = true;
+    const slugs = deps.map((d: any) => d.slug);
+    // Use the first dep's program as hint, but the lookup checks all
+    const program = deps[0]?.program;
+    communityApi.lookupSlugs(slugs, program).then((result) => {
+      const lookup: Record<string, { status: DepStatus; version?: number }> = {};
+      for (const dep of deps) {
+        const remote = result[dep.slug];
+        if (!remote) {
+          lookup[dep.slug] = { status: "new" };
+        } else if (remote.is_official) {
+          lookup[dep.slug] = { status: "skip_official", version: remote.version };
+        } else if (remote.author_username && remote.author_username !== communityUser!.username) {
+          lookup[dep.slug] = { status: "skip_other", version: remote.version };
+        } else {
+          // Own skill — mark as update; server will skip if content is identical
+          lookup[dep.slug] = { status: "update", version: remote.version };
+        }
+      }
+      depLookup = lookup;
+    }).catch(() => {
+      // If lookup fails, treat all as new (safe fallback)
+      const lookup: Record<string, { status: DepStatus }> = {};
+      for (const dep of deps) {
+        lookup[dep.slug] = { status: "new" };
+      }
+      depLookup = lookup;
+    }).finally(() => {
+      lookupLoading = false;
+    });
+  });
+
+  // Deps that will actually be published (excluding skipped ones)
+  let publishableDeps = $derived.by(() => {
+    if (!includeDeps) return [];
+    return allDeps.filter((dep: any) => {
+      const info = depLookup[dep.slug];
+      if (!info) return true; // lookup not done yet, include by default
+      return info.status === "new" || info.status === "update";
+    });
+  });
+
+  // Full publish list (publishable deps first, then main skills)
   let publishList = $derived.by(() => {
     if (isBatch) {
       const mainSkills = (preselect ?? []).map(ps =>
         localSkills.find((s: any) => s.slug === ps.slug && s.program === ps.program)
       ).filter(Boolean);
-      return includeDeps ? [...batchResolvedDeps, ...mainSkills] : mainSkills;
+      return includeDeps ? [...publishableDeps, ...mainSkills] : mainSkills;
     } else {
       if (!selectedSkill) return [];
-      return includeDeps ? [...resolvedDeps, selectedSkill] : [selectedSkill];
+      return includeDeps ? [...publishableDeps, selectedSkill] : [selectedSkill];
     }
   });
 
@@ -227,7 +284,7 @@
   }
 
   // Total dep count for display
-  let depCount = $derived(isBatch ? batchResolvedDeps.length : resolvedDeps.length);
+  let depCount = $derived(allDeps.length);
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
@@ -327,14 +384,32 @@
           {#if depCount > 0}
             <label class="deps-toggle">
               <input type="checkbox" bind:checked={includeDeps} />
-              <span>Include {depCount} dependenc{depCount === 1 ? "y" : "ies"}</span>
+              <span>Include dependencies ({depCount} found{publishableDeps.length < depCount && includeDeps ? `, ${publishableDeps.length} to publish` : ""})</span>
             </label>
             {#if includeDeps}
+              {#if lookupLoading}
+                <p class="muted" style="margin-top:6px;font-size:11px">Checking community...</p>
+              {/if}
               <div class="deps-list">
-                {#each (isBatch ? batchResolvedDeps : resolvedDeps) as dep}
-                  <div class="dep-item">
+                {#each allDeps as dep}
+                  {@const info = depLookup[dep.slug]}
+                  <div class="dep-item" class:dep-skipped={info && info.status !== "new" && info.status !== "update"}>
                     <span class="dep-slug">{dep.program}/{dep.slug}</span>
-                    <span class="dep-title">{dep.title}</span>
+                    <span class="dep-status">
+                      {#if !info}
+                        <span class="badge badge-new">new</span>
+                      {:else if info.status === "new"}
+                        <span class="badge badge-new">new</span>
+                      {:else if info.status === "update"}
+                        <span class="badge badge-update">update</span>
+                      {:else if info.status === "skip_official"}
+                        <span class="badge badge-skip">official</span>
+                      {:else if info.status === "skip_other"}
+                        <span class="badge badge-skip">exists</span>
+                      {:else if info.status === "skip_identical"}
+                        <span class="badge badge-skip">unchanged</span>
+                      {/if}
+                    </span>
                   </div>
                 {/each}
               </div>
@@ -576,14 +651,37 @@
     font-size: 12px;
     padding: 2px 0;
   }
+  .dep-item.dep-skipped {
+    opacity: 0.5;
+  }
   .dep-slug {
     color: var(--text-muted);
     font-family: var(--font-mono);
     font-size: 11px;
   }
-  .dep-title {
-    color: var(--text-secondary);
+  .dep-status {
     text-align: right;
+  }
+  .badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+  .badge-new {
+    background: var(--accent);
+    color: #fff;
+  }
+  .badge-update {
+    background: #e0a800;
+    color: #000;
+  }
+  .badge-skip {
+    background: var(--bg-surface);
+    color: var(--text-muted);
+    border: 1px solid var(--border);
   }
 
   /* Publish progress */

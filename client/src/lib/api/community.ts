@@ -247,6 +247,21 @@ export const communityApi = {
     return Array.isArray(res) ? res : res.categories ?? [];
   },
 
+  /**
+   * Bulk lookup skills by slug on the community repo.
+   * Returns a map of slug → { id, slug, program, version, is_official, author_username, content_hash }.
+   */
+  async lookupSlugs(slugs: string[], program?: string): Promise<Record<string, {
+    id: string; slug: string; program: string; version: number;
+    is_official: boolean; author_username: string | null; content_hash: string;
+  }>> {
+    const res = await communityRequest<{ skills: Record<string, any> }>("/api/skills/lookup", {
+      method: "POST",
+      body: JSON.stringify({ slugs, program }),
+    });
+    return res.skills ?? {};
+  },
+
   publish(skill: {
     title: string;
     slug: string;
