@@ -6,5 +6,5 @@ Architectures: amd64
 Components: main
 Description: Arkestrator package repository
 SHA256:
- 516d8ee8d6f56b90528733e61eafa63a82249df4e631ef352f2c944a3d053995 2425 main/binary-amd64/Packages
- 7dd8135dcd98869af1cbd81b972af8e83e96333a12eeecc352dd3bb599fef7c6 810 main/binary-amd64/Packages.gz
+ a5dde622c72e751e218df1bb845e7db7da2a059a0a96cb4aead953aa253487b0 2910 main/binary-amd64/Packages
+ a2d077205dc9670f1003260130527e15cdd582fc2122770499c00279331bf136 914 main/binary-amd64/Packages.gz
