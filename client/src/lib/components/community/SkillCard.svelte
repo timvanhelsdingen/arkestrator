@@ -55,13 +55,13 @@
   {/if}
 
   <div class="card-meta">
-    <span class="meta-author" title={skill.author?.username || "Official"}>
+    <span class="meta-author" title={skill.author?.username || "Arkestrator"}>
       {#if skill.author?.avatar_url}
         <img class="avatar" src={skill.author.avatar_url} alt="" />
       {:else}
-        <span class="avatar-fallback">{(skill.author?.username || "Official")[0].toUpperCase()}</span>
+        <span class="avatar-fallback">{(skill.author?.username || "Arkestrator")[0].toUpperCase()}</span>
       {/if}
-      {skill.author?.username || "Official"}
+      {skill.author?.username || "Arkestrator"}
     </span>
     <span class="meta-item">v{skill.version}</span>
     <span class="meta-item">&#8681; {skill.downloads ?? 0}</span>

@@ -75,7 +75,7 @@
               {#if detail.author?.avatar_url}
                 <img class="avatar" src={detail.author.avatar_url} alt="" />
               {/if}
-              {detail.author?.username || "Unknown"}
+              {detail.author?.username || "Arkestrator"}
             </span>
           </div>
           <div class="meta-cell">

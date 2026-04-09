@@ -185,6 +185,7 @@ export interface CommunitySkillSummary {
   version: number;
   downloads: number;
   author: { username: string; avatar_url?: string };
+  is_official?: boolean;
   created_at?: string;
   updated_at?: string;
 }
