@@ -810,7 +810,79 @@ export function createSkillsRoutes(
     }
 
     skillIndex.refresh();
-    return c.json({ ok: true, imported, updated, skipped, errors: errors.slice(0, 20) });
+
+    // Resolve missing dependencies from community repo
+    let depsInstalled = 0;
+    try {
+      const allImported = skillIndex.list({});
+      const allSlugs = new Set(allImported.map(s => s.slug));
+
+      // Collect all relatedSkills references that don't exist locally
+      const missingSlugs = new Set<string>();
+      for (const [path, content] of Object.entries(entries)) {
+        if (!path.endsWith("SKILL.md") && !path.endsWith(".md")) continue;
+        try {
+          const text = new TextDecoder().decode(content);
+          const parsed = parseSkillFile(text);
+          if (!parsed) continue;
+          const fields = skillFileToSkillFields(parsed);
+          for (const depSlug of (fields.relatedSkills ?? [])) {
+            if (!allSlugs.has(depSlug)) {
+              missingSlugs.add(depSlug);
+            }
+          }
+        } catch { /* already reported above */ }
+      }
+
+      // Try to install each missing dep from community
+      if (missingSlugs.size > 0) {
+        const communityBaseUrl = "https://arkestrator.com";
+        for (const depSlug of missingSlugs) {
+          try {
+            // Search community for this slug
+            const searchRes = await fetch(`${communityBaseUrl}/api/skills?query=${encodeURIComponent(depSlug)}&limit=10`);
+            if (!searchRes.ok) continue;
+            const searchData = await searchRes.json() as { skills: any[] };
+            const match = searchData.skills?.find((s: any) => s.slug === depSlug);
+            if (!match) continue;
+
+            // Download the SKILL.md content
+            const dlRes = await fetch(`${communityBaseUrl}/api/skills/${encodeURIComponent(match.id)}/download`);
+            if (!dlRes.ok) continue;
+            const dlContent = await dlRes.text();
+            const dlParsed = parseSkillFile(dlContent);
+            if (!dlParsed) continue;
+            const dlFields = skillFileToSkillFields(dlParsed);
+
+            // Check if it already exists locally now (may have been in the ZIP)
+            const existing = skillsRepo.get(dlFields.slug, dlFields.program);
+            if (!existing) {
+              skillsRepo.create({
+                slug: dlFields.slug,
+                name: dlFields.name,
+                program: dlFields.program,
+                category: dlFields.category,
+                title: dlFields.title,
+                description: dlFields.description,
+                content: dlFields.content,
+                keywords: dlFields.keywords,
+                source: "community",
+                sourcePath: null,
+                playbooks: dlFields.playbooks,
+                relatedSkills: dlFields.relatedSkills,
+                priority: dlFields.priority,
+                autoFetch: dlFields.autoFetch,
+                enabled: false,
+              });
+              depsInstalled++;
+            }
+          } catch { /* best-effort — skip failed deps */ }
+        }
+        if (depsInstalled > 0) skillIndex.refresh();
+      }
+    } catch { /* non-critical — deps are best-effort */ }
+
+    return c.json({ ok: true, imported, updated, skipped, depsInstalled, errors: errors.slice(0, 20) });
   });
 
   // POST /import — import standard Agent Skills from a GitHub repo
