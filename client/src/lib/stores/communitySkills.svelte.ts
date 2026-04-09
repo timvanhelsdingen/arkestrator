@@ -41,6 +41,7 @@ class CommunitySkillsState {
   searchQuery = $state("");
   programFilter = $state("");
   categoryFilter = $state("");
+  showOfficial = $state(false);
   programs = $state<string[]>([]);
   categories = $state<string[]>([]);
   offset = $state(0);
@@ -70,6 +71,12 @@ class CommunitySkillsState {
   batchInstalling = $state(false);
   batchProgress = $state(0);
   batchTotal = $state(0);
+
+  /** Skills filtered by the showOfficial toggle. Use this for display instead of `skills`. */
+  get filteredSkills(): CommunitySkillSummary[] {
+    if (this.showOfficial) return this.skills;
+    return this.skills.filter((s) => !s.is_official);
+  }
 
   // Active sub-tab
   activeTab = $state<"browse" | "installed">("browse");

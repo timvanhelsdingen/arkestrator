@@ -865,6 +865,10 @@
             <option value={c}>{c}</option>
           {/each}
         </select>
+        <label class="checkbox-label">
+          <input type="checkbox" bind:checked={communitySkills.showOfficial} />
+          Official
+        </label>
         <button
           class="btn secondary"
           onclick={() => communitySkills.checkForUpdates()}
@@ -883,16 +887,16 @@
         </button>
         <span class="toolbar-separator"></span>
         <button class="btn secondary btn-select-all" onclick={() => {
-          const allSelected = communitySkills.skills.length > 0 && communitySkills.skills.every(s => selectedCommunityIds.has(s.id));
+          const allSelected = communitySkills.filteredSkills.length > 0 && communitySkills.filteredSkills.every(s => selectedCommunityIds.has(s.id));
           const next = new Set(selectedCommunityIds);
           if (allSelected) {
-            communitySkills.skills.forEach(s => next.delete(s.id));
+            communitySkills.filteredSkills.forEach(s => next.delete(s.id));
           } else {
-            communitySkills.skills.forEach(s => next.add(s.id));
+            communitySkills.filteredSkills.forEach(s => next.add(s.id));
           }
           selectedCommunityIds = next;
         }}>
-          {communitySkills.skills.length > 0 && communitySkills.skills.every(s => selectedCommunityIds.has(s.id)) ? "Deselect All" : "Select All"}
+          {communitySkills.filteredSkills.length > 0 && communitySkills.filteredSkills.every(s => selectedCommunityIds.has(s.id)) ? "Deselect All" : "Select All"}
         </button>
         {#if selectedCommunityIds.size > 0}
           <span class="badge">{selectedCommunityIds.size} selected</span>
@@ -914,7 +918,7 @@
       {/if}
 
       <div class="skill-card-grid" style="grid-template-columns: repeat(auto-fill, minmax({skillCardSize}px, 1fr)); --card-scale: {skillCardSize / 200}">
-        {#each communitySkills.skills as skill (skill.id)}
+        {#each communitySkills.filteredSkills as skill (skill.id)}
           {@const installed = communitySkills.getInstalled(skill.id)}
           <SkillCard
             {skill}
@@ -940,8 +944,14 @@
         <p class="muted" style="text-align:center; padding: 16px;">Loading...</p>
       {/if}
 
-      {#if !communitySkills.loading && communitySkills.skills.length === 0 && !communitySkills.error}
-        <p class="muted" style="text-align:center; padding: 16px;">No community skills found.</p>
+      {#if !communitySkills.loading && communitySkills.filteredSkills.length === 0 && !communitySkills.error}
+        <p class="muted" style="text-align:center; padding: 16px;">
+          {#if communitySkills.skills.length > 0 && !communitySkills.showOfficial}
+            No community skills found. <button class="btn-link" onclick={() => communitySkills.showOfficial = true}>Show official skills</button>
+          {:else}
+            No community skills found.
+          {/if}
+        </p>
       {/if}
 
       {#if communitySkills.hasMore && !communitySkills.loading}
