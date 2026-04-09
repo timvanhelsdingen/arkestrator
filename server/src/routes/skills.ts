@@ -511,7 +511,7 @@ export function createSkillsRoutes(
         keywords: detail.keywords || [],
         relatedSkills: parsedFields?.relatedSkills ?? detail.relatedSkills ?? [],
         content,
-        enabled: false,
+        enabled: true,
       };
 
       let skill: any;
@@ -623,6 +623,7 @@ export function createSkillsRoutes(
     }
 
     // For community skills: client passes communityId + optional baseUrl
+    let communityParsedFields: { relatedSkills: string[]; keywords: string[] } | null = null;
     if (existing.source === "community") {
       let body: any = {};
       try { body = await c.req.json().catch(() => ({})); } catch { /* empty */ }
@@ -636,7 +637,16 @@ export function createSkillsRoutes(
         if (!res.ok) {
           return errorResponse(c, 502, `Community API error: ${res.status}`, "UPSTREAM_ERROR");
         }
-        content = await res.text();
+        const rawContent = await res.text();
+        // Parse SKILL.md to separate body from frontmatter
+        const { parseSkillFile: parseSkill, skillFileToSkillFields: toFields } = await import("../skills/skill-file.js");
+        const parsed = parseSkill(rawContent);
+        if (parsed) {
+          content = parsed.body;
+          communityParsedFields = toFields(parsed);
+        } else {
+          content = rawContent;
+        }
       } catch (err: any) {
         return errorResponse(c, 502, `Failed to reach community API: ${err?.message}`, "UPSTREAM_ERROR");
       }
@@ -651,6 +661,11 @@ export function createSkillsRoutes(
       const updates: Record<string, unknown> = { content };
       if (contentUrl && !existing.sourcePath) {
         updates.sourcePath = contentUrl; // backfill sourcePath if missing
+      }
+      // For community skills, also update relatedSkills and keywords from parsed frontmatter
+      if (communityParsedFields) {
+        updates.relatedSkills = communityParsedFields.relatedSkills;
+        updates.keywords = communityParsedFields.keywords;
       }
       if (skillStore) {
         await skillStore.update(slug, updates, existing.program);
