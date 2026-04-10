@@ -17,7 +17,16 @@
   } from "../../api/rest";
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
   import TemplatePicker from "./TemplatePicker.svelte";
-  import SkillPicker from "./SkillPicker.svelte";
+  import ReferencePicker from "./ReferencePicker.svelte";
+  import type { ContextItem } from "@arkestrator/protocol";
+
+  // Mirrors the PickerItem union in ReferencePicker.svelte. Kept local because
+  // Svelte doesn't let us re-export types from a component module script.
+  type PickerItem =
+    | { kind: "worker"; name: string; status: "online" | "offline"; programs: string[]; activeBridgeCount: number }
+    | { kind: "bridge"; workerName: string; bridgeName: string; bridgeId: string; program: string }
+    | { kind: "context"; bridgeId: string; bridgeName: string; program: string; workerName: string; item: ContextItem }
+    | { kind: "skill"; slug: string; title: string; program: string };
 
   type AttachmentMeta = { id: string; name: string; kind: "text" | "image" | "binary" | "folder"; size: number; fullPath?: string };
 
@@ -213,10 +222,10 @@
   let vDragging = $state(false);
   let presetsOpen = $state(false);
   let attachMenuOpen = $state(false);
-  let skillPickerOpen = $state(false);
-  let skillPickerQuery = $state("");
+  let pickerOpen = $state(false);
+  let pickerQuery = $state("");
   let slashStartPos = $state(0);
-  let skillPickerRef: SkillPicker | undefined = $state();
+  let pickerRef: ReferencePicker | undefined = $state();
 
 
   function loadInputHeight(): number {
@@ -438,9 +447,9 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
-    // Let the skill picker handle navigation keys when open
-    if (skillPickerOpen && skillPickerRef) {
-      const handled = skillPickerRef.handleKeydown(e);
+    // Let the reference picker handle navigation keys when open
+    if (pickerOpen && pickerRef) {
+      const handled = pickerRef.handleKeydown(e);
       if (handled) return;
     }
 
@@ -479,30 +488,64 @@
       const query = text.slice(slashPos + 1, cursor);
       // Only open if there's no space in the query (still typing the command)
       if (!/\s/.test(query)) {
-        skillPickerOpen = true;
-        skillPickerQuery = query;
+        pickerOpen = true;
+        pickerQuery = query;
         slashStartPos = slashPos;
         return;
       }
     }
-    skillPickerOpen = false;
+    pickerOpen = false;
   }
 
-  function onSkillSelect(skill: { slug: string; title: string; program: string }) {
-    // Replace the /query text with /skill:slug tag
-    const before = promptText.slice(0, slashStartPos);
+  /**
+   * Router for ReferencePicker selections.
+   * Workers/bridges update selection state via chatStore (no inline tag — the
+   * machine dropdown is the source of truth). Contexts and skills insert an
+   * inline reference that downstream extractors/renderers already understand:
+   *   - context → `@N [program:name]` (same format ChatContextPanel emits)
+   *   - skill   → `/skill:slug` (handled by extractSkillTags on submit)
+   */
+  function onReferenceSelect(item: PickerItem, opts: { trailingSpace: boolean }) {
     const cursor = textarea?.selectionStart ?? promptText.length;
+    const before = promptText.slice(0, slashStartPos);
     const after = promptText.slice(cursor);
-    const tag = `/skill:${skill.slug}`;
-    const needsTrailingSpace = after.length > 0 && !/^\s/.test(after);
-    promptText = `${before}${tag}${needsTrailingSpace ? " " : " "}${after}`;
-    skillPickerOpen = false;
 
-    const newCursor = before.length + tag.length + 1;
+    let insertion = "";
+    if (item.kind === "worker") {
+      chatStore.setSelectedWorkers([item.name]);
+    } else if (item.kind === "bridge") {
+      // Narrow to the bridge's worker. Per-bridge selection doesn't exist yet
+      // in chatStore; worker-level is the closest existing concept.
+      chatStore.setSelectedWorkers([item.workerName]);
+    } else if (item.kind === "context") {
+      insertion = formatContextReference(item);
+    } else if (item.kind === "skill") {
+      insertion = `/skill:${item.slug}`;
+    }
+
+    // Always strip the `/query` text the user typed. If we have an inline
+    // insertion (context/skill), drop it in at the slash position. Otherwise
+    // the action was state-only (worker/bridge) and we just clean up the text.
+    const trailing = opts.trailingSpace ? " " : "";
+    const leadingAfterSpace =
+      insertion && after.length > 0 && !/^\s/.test(after) && !opts.trailingSpace ? " " : "";
+    promptText = `${before}${insertion}${trailing}${leadingAfterSpace}${after}`;
+    pickerOpen = false;
+
+    const newCursor = before.length + insertion.length + trailing.length;
     tick().then(() => {
       textarea?.focus();
       textarea?.setSelectionRange(newCursor, newCursor);
     });
+  }
+
+  function formatContextReference(item: Extract<PickerItem, { kind: "context" }>): string {
+    const idx = item.item.index;
+    const name = item.item.name.trim();
+    const program = item.program.trim();
+    if (program && name) return `@${idx} [${program}:${name}]`;
+    if (name) return `@${idx} [${name}]`;
+    return `@${idx}`;
   }
 
   const SKILL_TAG_RE = /\/skill:([a-zA-Z0-9_-]+)/g;
@@ -766,8 +809,8 @@
     if (!target.closest(".attach-dropdown")) {
       attachMenuOpen = false;
     }
-    if (skillPickerOpen && !target.closest(".skill-picker")) {
-      skillPickerOpen = false;
+    if (pickerOpen && !target.closest(".reference-picker")) {
+      pickerOpen = false;
     }
   }
 
@@ -939,12 +982,12 @@
   </div>
 
   <div class="input-row" style="position: relative;">
-    {#if skillPickerOpen}
-      <SkillPicker
-        bind:this={skillPickerRef}
-        query={skillPickerQuery}
-        onselect={onSkillSelect}
-        onclose={() => (skillPickerOpen = false)}
+    {#if pickerOpen}
+      <ReferencePicker
+        bind:this={pickerRef}
+        query={pickerQuery}
+        onselect={onReferenceSelect}
+        onclose={() => (pickerOpen = false)}
       />
     {/if}
     <textarea
@@ -953,7 +996,7 @@
       onkeydown={handleKeydown}
       oninput={handleTextareaInput}
       readonly={improving}
-      placeholder={"Type a message or prompt... (Shift+Enter to chat, Ctrl+Shift+Enter to queue)  |  / to search skills"}
+      placeholder={"Type a message or prompt... (Shift+Enter to chat, Ctrl+Shift+Enter to queue)  |  / to reference a worker, bridge, context, or skill"}
     ></textarea>
   </div>
   {#if improving}
