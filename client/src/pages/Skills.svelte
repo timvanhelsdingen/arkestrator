@@ -341,23 +341,76 @@
     }
   }
 
-  async function wipeAllRatings() {
-    const ok = confirm("Reset ALL skill ratings and uses for EVERY skill? Skills themselves stay — only their usage stats are cleared. This cannot be undone.");
+  async function refreshAfterRatingReset() {
+    // Refresh the active skill detail view (if open) to reflect zero stats
+    if (skillViewSlug && skillViewData) {
+      const prog = skillViewData.program;
+      try {
+        const eff = await api.skills.getEffectiveness(skillViewSlug, prog);
+        skillViewEffectiveness = eff?.stats ?? null;
+        skillViewFeedback = (eff as any)?.records ?? [];
+      } catch {}
+    }
+    await loadSkills();
+  }
+
+  async function resetRatings() {
+    // Selection-aware: if any skills are checked, reset only those.
+    // Otherwise prompt to reset every skill in the workspace.
+    const selectedSkills = filteredSkills.filter((s) => selectedSkillKeys.has(skillKey(s)));
+    if (selectedSkills.length > 0) {
+      const ok = confirm(
+        `Reset ratings and uses for ${selectedSkills.length} selected skill${selectedSkills.length === 1 ? "" : "s"}?\n\n` +
+        `The skills themselves stay — only their effectiveness history is cleared. This cannot be undone.`,
+      );
+      if (!ok) return;
+      let total = 0;
+      const failures: string[] = [];
+      for (const s of selectedSkills) {
+        try {
+          const result = await api.skills.wipeEffectivenessForSkill(s.slug, s.program);
+          total += (result as any)?.deleted ?? 0;
+        } catch (err: any) {
+          failures.push(`${s.slug}: ${err?.message ?? err}`);
+        }
+      }
+      await refreshAfterRatingReset();
+      if (failures.length > 0) {
+        alert(`Cleared ${total} record(s). ${failures.length} skill(s) failed:\n${failures.join("\n")}`);
+      } else {
+        alert(`Cleared ${total} record(s) across ${selectedSkills.length} skill${selectedSkills.length === 1 ? "" : "s"}.`);
+      }
+      return;
+    }
+
+    const ok = confirm(
+      `No skills selected. Reset ratings and uses for EVERY skill in the workspace?\n\n` +
+      `Skills themselves stay — only their effectiveness history is cleared. This cannot be undone.\n\n` +
+      `Tip: select specific skills first to reset only those.`,
+    );
     if (!ok) return;
     try {
       const result = await api.skills.wipeAllEffectiveness();
-      // Refresh the active skill detail view (if open) to reflect zero stats
-      if (skillViewSlug && skillViewData) {
-        const prog = skillViewData.program;
-        try {
-          const eff = await api.skills.getEffectiveness(skillViewSlug, prog);
-          skillViewEffectiveness = eff?.stats ?? null;
-          skillViewFeedback = (eff as any)?.records ?? [];
-        } catch {}
-      }
-      // Refresh the main list to clear any per-card badges
-      await loadSkills();
+      await refreshAfterRatingReset();
       alert(`Cleared ${result.deleted} rating record(s).`);
+    } catch (err: any) {
+      alert(`Failed to reset ratings: ${err?.message ?? err}`);
+    }
+  }
+
+  async function resetRatingsForCurrentSkill() {
+    if (!skillViewSlug || !skillViewData) return;
+    const ok = confirm(
+      `Reset all ratings and uses for "${skillViewData.title ?? skillViewSlug}"?\n\n` +
+      `The skill itself stays — only its effectiveness history is cleared. This cannot be undone.`,
+    );
+    if (!ok) return;
+    try {
+      const result = await api.skills.wipeEffectivenessForSkill(skillViewSlug, skillViewData.program);
+      skillViewEffectiveness = (result as any)?.stats ?? null;
+      skillViewFeedback = (result as any)?.records ?? [];
+      await loadSkills();
+      alert(`Cleared ${(result as any)?.deleted ?? 0} record(s).`);
     } catch (err: any) {
       alert(`Failed to reset ratings: ${err?.message ?? err}`);
     }
@@ -807,10 +860,12 @@
         {#if canManage}
           <button
             class="btn secondary"
-            title="Clear all skill ratings and uses for every skill. Does not delete skills."
-            onclick={wipeAllRatings}
+            title={selectedSkillKeys.size > 0
+              ? `Reset ratings and uses for the ${selectedSkillKeys.size} selected skill${selectedSkillKeys.size === 1 ? "" : "s"}. Does not delete skills.`
+              : "Reset ratings and uses for every skill in the workspace. Does not delete skills. Tip: select skills first to reset only those."}
+            onclick={resetRatings}
           >
-            Reset All Ratings
+            {selectedSkillKeys.size > 0 ? `Reset Ratings (${selectedSkillKeys.size})` : "Reset All Ratings"}
           </button>
           <button class="btn" onclick={() => { skillCreateOpen = !skillCreateOpen; skillCreateProgram = skillFilterProgram || "global"; }}>
             {skillCreateOpen ? "Cancel" : "Create Skill"}
@@ -1163,6 +1218,17 @@
               </div>
               {#if rated > 0}
                 <div><strong>Breakdown:</strong> {skillViewEffectiveness.goodOutcomes} good, {skillViewEffectiveness.averageOutcomes} avg, {skillViewEffectiveness.poorOutcomes} poor</div>
+              {/if}
+              {#if canManage && skillViewEffectiveness.totalUsed > 0}
+                <div style="margin-top: 6px;">
+                  <button
+                    class="btn btn-ghost btn-sm"
+                    title="Reset ratings and uses for this skill only. The skill itself stays."
+                    onclick={resetRatingsForCurrentSkill}
+                  >
+                    Reset Ratings for This Skill
+                  </button>
+                </div>
               {/if}
             {/if}
           </div>

@@ -153,6 +153,14 @@ export const SKILL_RANKING_SETTINGS_KEYS: Record<keyof SkillRankingConfig, strin
 export interface SkillEffectivenessInfo {
   successRate: number;
   totalUsed: number;
+  /**
+   * Number of usage rows that have an outcome (positive/average/negative).
+   * Pending rows (e.g. from `search_skills` touches that the agent never
+   * rated) are excluded. Use THIS for phase calculation — otherwise pending
+   * rows inflate the phase counter and push skills out of exploration before
+   * any feedback has actually been collected.
+   */
+  ratedCount: number;
 }
 
 export interface SkillRankResult {
@@ -359,15 +367,20 @@ export class SkillIndex {
       const semScore = Math.max(0, semanticSimilarity(queryVector, this.vectors[i]));
 
       // Effectiveness score: graduated confidence model with configurable thresholds.
-      // Exploration → Transition → Established phases based on usage count.
+      // Exploration → Transition → Established phases based on RATED usage
+      // count. Pending rows (e.g. search_skills touches that were never
+      // rated) do not advance the phase — otherwise a skill that shows up
+      // in many searches but is never actually used/rated would prematurely
+      // leave exploration with no outcome data to trust.
       let effScore: number;
-      if (!eff || eff.totalUsed < rc.explorationThreshold) {
+      const ratedCount = eff?.ratedCount ?? 0;
+      if (!eff || ratedCount < rc.explorationThreshold) {
         // Exploration phase: optimistic to encourage discovery
         effScore = rc.explorationBonus;
-      } else if (eff.totalUsed < rc.establishedThreshold) {
+      } else if (ratedCount < rc.establishedThreshold) {
         // Transition phase: blend neutral toward actual rate as confidence grows
         const range = rc.establishedThreshold - rc.explorationThreshold;
-        const confidence = range > 0 ? (eff.totalUsed - rc.explorationThreshold) / range : 1;
+        const confidence = range > 0 ? (ratedCount - rc.explorationThreshold) / range : 1;
         effScore = 0.5 * (1 - confidence) + eff.successRate * confidence;
       } else {
         // Established: trust the data, with a floor so skills aren't fully killed
