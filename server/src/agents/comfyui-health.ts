@@ -69,7 +69,9 @@ export class ComfyUiHealthChecker {
       endpoints.push({ workerName: this.serverHostname, url: localUrl, ip: "127.0.0.1", machineId: localWorker?.machineId });
 
       // Remote workers — poll their IP on the default ComfyUI port
+      logger.info("comfyui-health", `Check: ${workers.length} workers in DB, serverHostname=${this.serverHostname}`);
       for (const w of workers) {
+        logger.info("comfyui-health", `  worker=${w.name} status=${w.status} lastIp=${w.lastIp ?? "(none)"}`);
         if (w.status !== "online") continue;
         if (w.name.toLowerCase() === this.serverHostname) continue; // already covered by local
         const ip = w.lastIp;
@@ -82,6 +84,7 @@ export class ComfyUiHealthChecker {
           ip,
         });
       }
+      logger.info("comfyui-health", `Probing ${endpoints.length} endpoint(s): ${endpoints.map(e => e.url).join(", ")}`);
 
       // Poll all endpoints concurrently
       const results = await Promise.allSettled(
