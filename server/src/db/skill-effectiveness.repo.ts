@@ -167,6 +167,22 @@ export class SkillEffectivenessRepo {
     return result;
   }
 
+  /**
+   * Remove any effectiveness rows for a specific skill+job pair. Used when a
+   * rating should be voided (e.g. verification skills on verification-disabled
+   * jobs) so the rate_job fallback can't later stamp an outcome onto them.
+   */
+  deleteForSkillAndJob(skillId: string, jobId: string): number {
+    try {
+      const res = this.db.prepare(
+        `DELETE FROM skill_effectiveness WHERE skill_id = ? AND job_id = ?`,
+      ).run(skillId, jobId);
+      return res.changes;
+    } catch {
+      return 0;
+    }
+  }
+
   /** Wipe ALL effectiveness records for every skill. Returns number of rows removed. */
   wipeAll(): number {
     try {

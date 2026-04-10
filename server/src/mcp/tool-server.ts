@@ -1724,14 +1724,22 @@ export function createMcpServer(deps: McpDeps): McpServer {
       if (!deps.skillIndex) {
         return { content: [{ type: "text" as const, text: "Skills system not initialized" }], isError: true };
       }
-      const results = deps.skillIndex.search(query, { program: program || undefined, category: category || undefined, limit });
+      let results = deps.skillIndex.search(query, { program: program || undefined, category: category || undefined, limit });
+      // Hide verification helper skills entirely when the caller's job has
+      // verification disabled — otherwise agents see them, try to rate them,
+      // and pollute the stats for a skill that couldn't possibly have helped.
+      const callerJobForFilter = deps.callerJobId && deps.jobsRepo ? deps.jobsRepo.getById(deps.callerJobId) : null;
+      const verificationDisabled = callerJobForFilter?.runtimeOptions?.verificationMode === "disabled";
+      if (verificationDisabled) {
+        results = results.filter((r) => r.slug !== "verification" && r.category !== "verification");
+      }
       // Record a lightweight usage row for each returned result (deduped per
       // job+skill). Agents often act on title+description from search alone
       // without ever calling get_skill, so without this the skill is
       // invisible to effectiveness tracking and rate_skill has nothing to
       // update. recordUsageOnce is a no-op if a row already exists.
       if (deps.skillEffectivenessRepo && deps.callerJobId && deps.jobsRepo && results.length > 0) {
-        const callerJob = deps.jobsRepo.getById(deps.callerJobId);
+        const callerJob = callerJobForFilter;
         const meta = (() => { try { const ctx = callerJob?.editorContext; return (typeof ctx === "object" && ctx !== null ? (ctx as any).metadata : null) || {}; } catch { return {}; } })();
         const isSystem = meta.housekeeping || meta.coordinator_training_job || meta.coordinator_training_orchestrator || meta.coordinator_training_analysis_job;
         if (!isSystem) {
@@ -1770,7 +1778,12 @@ export function createMcpServer(deps: McpDeps): McpServer {
         const callerJob = deps.jobsRepo.getById(deps.callerJobId);
         const meta = (() => { try { const ctx = callerJob?.editorContext; return (typeof ctx === "object" && ctx !== null ? (ctx as any).metadata : null) || {}; } catch { return {}; } })();
         const isSystem = meta.housekeeping || meta.coordinator_training_job || meta.coordinator_training_orchestrator || meta.coordinator_training_analysis_job;
-        if (!isSystem) {
+        // Don't track verification helper skills on verification-disabled jobs
+        // — the skill had no chance to help, so any usage row would be used
+        // by rate_job fallback to stamp an undeserved outcome.
+        const verificationDisabled = callerJob?.runtimeOptions?.verificationMode === "disabled";
+        const isVerificationSkill = skill.slug === "verification" || skill.category === "verification";
+        if (!isSystem && !(verificationDisabled && isVerificationSkill)) {
           deps.skillEffectivenessRepo.recordUsageOnce(skill.id, deps.callerJobId);
         }
       }
@@ -1823,6 +1836,19 @@ export function createMcpServer(deps: McpDeps): McpServer {
       const skill = deps.skillIndex.get(slug);
       if (!skill) {
         return { content: [{ type: "text" as const, text: `Skill not found: ${slug}` }], isError: true };
+      }
+      // Ignore ratings for verification helper skills when this job had
+      // verification turned off — the skill never had a chance to be useful,
+      // so any rating (usually "not_useful") would unfairly pollute its stats.
+      // Also wipe any usage row that may have been recorded earlier in the job.
+      const callerJob = deps.jobsRepo?.getById(deps.callerJobId);
+      const verificationDisabled = callerJob?.runtimeOptions?.verificationMode === "disabled";
+      const isVerificationSkill = skill.slug === "verification" || skill.category === "verification";
+      if (verificationDisabled && isVerificationSkill) {
+        // Remove any pending usage row so the rate_job fallback doesn't
+        // later mark it with the job's outcome either.
+        deps.skillEffectivenessRepo.deleteForSkillAndJob(skill.id, deps.callerJobId);
+        return { content: [{ type: "text" as const, text: `Skipped: ${slug} — verification was disabled for this job, so this skill's effectiveness isn't tracked here.` }] };
       }
       const outcomeMap: Record<string, string> = { useful: "positive", not_useful: "negative", partial: "average" };
       const outcome = outcomeMap[rating] || "average";
@@ -1910,8 +1936,10 @@ export function createMcpServer(deps: McpDeps): McpServer {
       if (deps.skillsRepo && deps.skillIndex) {
         try {
           const allEnabled = deps.skillsRepo.listAll({ enabled: true });
+          const verificationDisabled = job.runtimeOptions?.verificationMode === "disabled";
           const matching = allEnabled.filter((s: any) => {
             if (!s.autoFetch) return false;
+            if (verificationDisabled && (s.slug === "verification" || s.category === "verification")) return false;
             const sp = (s.program || "").trim().toLowerCase();
             return !sp || sp === "global" || sp === normalized;
           });

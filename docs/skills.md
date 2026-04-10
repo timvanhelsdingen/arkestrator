@@ -34,7 +34,7 @@ Skills marked `autoFetch: true` are unconditionally injected into every job that
 
 - The **global coordinator script** (category `coordinator`, program `global`, priority 90)
 - **Bridge-specific coordinator scripts** (category `bridge`, matching the job's program, priority 70)
-- **Verification skills** when the job's verification mode is active
+- **Verification helper skills** (slug `verification` or category `verification`) — *skipped* when the job has `runtimeOptions.verificationMode === "disabled"`, since the skill has no chance to help and agents will only end up rating it `not_useful`
 - Any custom skill explicitly marked as auto-fetch
 
 Auto-fetch skills appear under a `## Coordinator Knowledge` section in the system prompt. Each skill gets a `### Title [program]` header followed by its content, capped at 4,000 characters per skill.
@@ -181,6 +181,8 @@ MCP: `rate_skill(slug, rating, notes?)`
 CLI: `am skills rate <slug> <useful|not_useful|partial>`
 
 The `get_skill` response appends a reminder to rate the skill after use. Auto-fetched skills are also listed in the "Job & Skill Feedback" prompt section for agents to rate.
+
+**Verification skills on verification-disabled jobs are a special case.** When a job has `runtimeOptions.verificationMode === "disabled"`, verification helper skills are (a) filtered out of auto-fetch injection in `spawner.ts`, (b) hidden from `search_skills` results, (c) skipped by `get_skill` usage tracking, and (d) rejected by `rate_skill` (with any stray usage row deleted via `deleteForSkillAndJob`). This prevents ratings from jobs where the skill was structurally incapable of helping from polluting its effectiveness stats. The same filter runs in `retarget_job` so re-loading coordinator knowledge for a new program doesn't reintroduce verification skills the user explicitly opted out of.
 
 ### `retarget_job` — Fix a Mis-tagged Job
 
