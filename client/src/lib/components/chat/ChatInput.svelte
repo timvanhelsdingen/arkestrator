@@ -212,6 +212,7 @@
   let inputHeight = $state(loadInputHeight());
   let vDragging = $state(false);
   let presetsOpen = $state(false);
+  let attachMenuOpen = $state(false);
   let skillPickerOpen = $state(false);
   let skillPickerQuery = $state("");
   let slashStartPos = $state(0);
@@ -572,7 +573,13 @@
   }
 
   function triggerAttachPicker() {
+    attachMenuOpen = false;
     fileInput?.click();
+  }
+
+  function triggerAttachFolder() {
+    attachMenuOpen = false;
+    attachFolder();
   }
 
   async function attachFolder() {
@@ -755,6 +762,9 @@
     }
     if (!target.closest(".presets-dropdown")) {
       presetsOpen = false;
+    }
+    if (!target.closest(".attach-dropdown")) {
+      attachMenuOpen = false;
     }
     if (skillPickerOpen && !target.closest(".skill-picker")) {
       skillPickerOpen = false;
@@ -989,22 +999,34 @@
       style="display: none"
       onchange={onAttachFiles}
     />
-    <button
-      class="btn-attach"
-      onclick={triggerAttachPicker}
-      disabled={improving}
-      title="Attach reference files (text, OBJ, images)"
-    >
-      Attach
-    </button>
-    <button
-      class="btn-attach"
-      onclick={attachFolder}
-      disabled={improving}
-      title="Attach folder path as reference"
-    >
-      Folder
-    </button>
+    <div class="attach-dropdown">
+      <button
+        class="btn-attach"
+        onclick={() => (attachMenuOpen = !attachMenuOpen)}
+        disabled={improving}
+        title="Attach a file or folder reference"
+      >
+        Attach <span class="dropdown-arrow">{attachMenuOpen ? "\u25B2" : "\u25BC"}</span>
+      </button>
+      {#if attachMenuOpen}
+        <div class="attach-menu" role="menu">
+          <button
+            class="attach-menu-item"
+            onclick={triggerAttachPicker}
+            title="Attach reference files (text, OBJ, images)"
+          >
+            File...
+          </button>
+          <button
+            class="attach-menu-item"
+            onclick={triggerAttachFolder}
+            title="Attach folder path as reference (path only, not uploaded)"
+          >
+            Folder...
+          </button>
+        </div>
+      {/if}
+    </div>
     <button
       class="btn-send"
       onclick={sendChat}
@@ -1281,6 +1303,42 @@
   .btn-presets .dropdown-arrow {
     font-size: 8px;
     opacity: 0.6;
+  }
+  .attach-dropdown {
+    position: relative;
+  }
+  .btn-attach .dropdown-arrow {
+    font-size: 8px;
+    opacity: 0.6;
+    margin-left: 4px;
+  }
+  .attach-menu {
+    position: absolute;
+    bottom: calc(100% + 4px);
+    left: 0;
+    min-width: 140px;
+    background: var(--bg-elevated, #1a1a1a);
+    border: 1px solid var(--border, #333);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    padding: 4px;
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .attach-menu-item {
+    background: transparent;
+    border: none;
+    color: var(--text-primary, #eee);
+    text-align: left;
+    padding: 6px 10px;
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+  }
+  .attach-menu-item:hover {
+    background: var(--bg-hover, #2a2a2a);
   }
   .btn-send,
   .btn-attach,
