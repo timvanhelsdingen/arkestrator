@@ -61,6 +61,41 @@ export interface VirtualBridgeData {
   ip?: string;
 }
 
+/**
+ * Unified bridge view used by agent-facing tools (list_bridges, get_bridge_context, etc.).
+ * Covers all three kinds of bridges so agents always see the complete set:
+ *  - "ws":       real WebSocket bridge (Godot / Blender / Houdini / Fusion / ...)
+ *  - "virtual":  HTTP-polled service (e.g. ComfyUI) registered via registerVirtualBridge
+ *  - "api":      enabled API bridge on the synthetic "Arkestrator Server" worker (e.g. Meshy)
+ *
+ * Virtual and API bridges have no editor context — callers must handle `hasEditorContext: false`.
+ * Virtual and API bridges cannot execute arbitrary scripts via bridge_command — callers must
+ * route through the appropriate MCP tool (comfyui_*, invoke_api_bridge, etc.).
+ */
+export interface AgentBridgeView {
+  id: string;
+  kind: "ws" | "virtual" | "api";
+  program: string;
+  programVersion?: string;
+  bridgeVersion?: string;
+  workerName?: string;
+  machineId?: string;
+  ip?: string;
+  projectPath?: string;
+  activeProjects?: string[];
+  connectedAt?: string;
+  /** Virtual bridges expose their HTTP endpoint here (e.g. http://192.168.1.5:8188). */
+  url?: string;
+  /** API bridges expose their available actions (e.g. ["text_to_3d", "image_to_3d"]). */
+  apiActions?: string[];
+  /** True only for real WS bridges that report editor context. */
+  hasEditorContext: boolean;
+  /** True for real WS bridges — can receive bridge_command. Virtual/API cannot. */
+  canExecuteBridgeCommands: boolean;
+  /** Human-readable hint about how to use this bridge when canExecuteBridgeCommands is false. */
+  usageHint?: string;
+}
+
 export class WebSocketHub {
   private connections = new Map<string, ServerWebSocket<WsData>>();
   private pendingCommands = new Map<string, { resolve: (result: any) => void; timer: ReturnType<typeof setTimeout>; settled: boolean }>();
@@ -540,6 +575,116 @@ export class WebSocketHub {
       if (vb.program.toLowerCase() === normalized) return true;
     }
     return false;
+  }
+
+  /** True when an enabled API bridge (e.g. Meshy) matches the given program name. */
+  hasApiBridgeForProgram(program: string): boolean {
+    if (!this.apiBridgesRepo) return false;
+    const normalized = program.toLowerCase();
+    for (const ab of this.apiBridgesRepo.listEnabled()) {
+      if (ab.name.toLowerCase() === normalized) return true;
+      if (String(ab.displayName ?? "").toLowerCase() === normalized) return true;
+    }
+    return false;
+  }
+
+  /**
+   * True when ANY kind of bridge (ws, virtual, or api) is available for the given program.
+   * Use this for agent-facing availability checks so virtual/api bridges are never
+   * incorrectly reported as "not connected".
+   */
+  hasAnyBridgeForProgram(program: string): boolean {
+    return (
+      this.getBridgesByProgram(program).length > 0 ||
+      this.hasVirtualBridgeForProgram(program) ||
+      this.hasApiBridgeForProgram(program)
+    );
+  }
+
+  /**
+   * Unified bridge discovery for agent-facing tools. Returns real WS bridges,
+   * virtual bridges, and enabled API bridges as a single `AgentBridgeView[]`.
+   * Pass a program name to filter; omit to get everything.
+   *
+   * This is the canonical way for MCP tools and local-agentic handlers to answer
+   * "what bridges can the agent see?" — do NOT use `getBridgesByProgram` directly
+   * for that purpose, since it only returns real WebSocket connections.
+   */
+  findAgentBridges(program?: string): AgentBridgeView[] {
+    const normalized = program ? program.toLowerCase() : null;
+    const results: AgentBridgeView[] = [];
+
+    // 1. Real WS bridges (via getBridges() — excludes virtual, which we add separately)
+    for (const ws of this.connections.values()) {
+      if (ws.data.type !== "bridge") continue;
+      const p = String(ws.data.program ?? "").toLowerCase();
+      if (normalized && p !== normalized) continue;
+      results.push({
+        id: ws.data.id,
+        kind: "ws",
+        program: ws.data.program ?? "",
+        programVersion: ws.data.programVersion,
+        bridgeVersion: ws.data.bridgeVersion,
+        workerName: ws.data.workerName,
+        machineId: ws.data.machineId,
+        ip: ws.data.ip,
+        projectPath: ws.data.projectPath,
+        activeProjects: Array.isArray(ws.data.activeProjects)
+          ? ws.data.activeProjects
+          : (ws.data.projectPath ? [ws.data.projectPath] : []),
+        connectedAt: ws.data.connectedAt,
+        hasEditorContext: true,
+        canExecuteBridgeCommands: true,
+      });
+    }
+
+    // 2. Virtual bridges (HTTP-polled services like ComfyUI)
+    for (const vb of this.virtualBridges.values()) {
+      const p = vb.program.toLowerCase();
+      if (normalized && p !== normalized) continue;
+      results.push({
+        id: vb.id,
+        kind: "virtual",
+        program: vb.program,
+        programVersion: vb.programVersion,
+        bridgeVersion: "http-standalone",
+        workerName: vb.workerName,
+        machineId: vb.machineId,
+        ip: vb.ip,
+        connectedAt: vb.connectedAt,
+        url: vb.url,
+        hasEditorContext: false,
+        canExecuteBridgeCommands: false,
+        usageHint:
+          `${vb.program} is an HTTP-only virtual bridge — it cannot receive execute_command scripts. ` +
+          `Use the dedicated MCP tools for ${vb.program} (e.g. comfyui_* tools) or call its HTTP API at ${vb.url} directly.`,
+      });
+    }
+
+    // 3. Enabled API bridges (e.g. Meshy on the "Arkestrator Server" worker)
+    if (this.apiBridgesRepo) {
+      for (const ab of this.apiBridgesRepo.listEnabled()) {
+        const name = String(ab.name ?? "").toLowerCase();
+        const display = String(ab.displayName ?? "").toLowerCase();
+        if (normalized && name !== normalized && display !== normalized) continue;
+        const actions = Object.keys(ab.endpoints ?? {});
+        results.push({
+          id: `api-bridge:${ab.name}`,
+          kind: "api",
+          program: ab.displayName || ab.name,
+          workerName: "Arkestrator Server",
+          bridgeVersion: "api-bridge",
+          apiActions: actions,
+          hasEditorContext: false,
+          canExecuteBridgeCommands: false,
+          usageHint:
+            `${ab.displayName || ab.name} is an API bridge — it cannot receive execute_command scripts. ` +
+            `Use the invoke_api_bridge MCP tool with bridge="${ab.name}" to call it.`,
+        });
+      }
+    }
+
+    return results;
   }
 
   /**

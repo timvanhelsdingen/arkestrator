@@ -1073,6 +1073,70 @@ export function createSkillsRoutes(
     return c.json({ stats, records });
   });
 
+  // POST /effectiveness/wipe-all — wipe every ratings+uses record for every skill (admin only)
+  // Use this to reset the skill effectiveness tracker to a clean slate (e.g. before recording
+  // a tutorial) without deleting the skills themselves.
+  router.post("/effectiveness/wipe-all", async (c) => {
+    const auth = await requireWriteAccess(c);
+    if (!auth) return errorResponse(c, 403, "Admin or editCoordinator required", "FORBIDDEN");
+
+    if (!skillEffectivenessRepo) {
+      return errorResponse(c, 500, "Skill effectiveness tracking not available", "INTERNAL");
+    }
+
+    const deleted = skillEffectivenessRepo.wipeAll();
+    logger.info("skills", `Wiped all skill effectiveness records: ${deleted} rows`);
+    return c.json({ ok: true, deleted });
+  });
+
+  // POST /:slug/effectiveness/wipe — wipe ratings+uses for a single skill
+  router.post("/:slug/effectiveness/wipe", async (c) => {
+    const auth = await requireWriteAccess(c);
+    if (!auth) return errorResponse(c, 403, "Admin or editCoordinator required", "FORBIDDEN");
+
+    if (!skillEffectivenessRepo) {
+      return errorResponse(c, 500, "Skill effectiveness tracking not available", "INTERNAL");
+    }
+
+    const slug = c.req.param("slug");
+    const program = c.req.query("program");
+    const skill = skillIndex.get(slug, program || undefined);
+    if (!skill) return errorResponse(c, 404, `Skill not found: ${slug}`, "NOT_FOUND");
+
+    const deleted = skillEffectivenessRepo.wipeForSkill(skill.id);
+    const stats = skillEffectivenessRepo.getStats(skill.id);
+    const records = skillEffectivenessRepo.listForSkill(skill.id, 20);
+    return c.json({ ok: true, deleted, stats, records });
+  });
+
+  // DELETE /:slug/effectiveness/:recordId — remove a single rating record (or clear its outcome)
+  // Query: ?mode=delete (default) removes the row entirely; ?mode=clear sets outcome to null
+  router.delete("/:slug/effectiveness/:recordId", async (c) => {
+    const auth = await requireWriteAccess(c);
+    if (!auth) return errorResponse(c, 403, "Admin or editCoordinator required", "FORBIDDEN");
+
+    if (!skillEffectivenessRepo) {
+      return errorResponse(c, 500, "Skill effectiveness tracking not available", "INTERNAL");
+    }
+
+    const slug = c.req.param("slug");
+    const recordId = c.req.param("recordId");
+    const program = c.req.query("program");
+    const mode = c.req.query("mode") === "clear" ? "clear" : "delete";
+
+    const skill = skillIndex.get(slug, program || undefined);
+    if (!skill) return errorResponse(c, 404, `Skill not found: ${slug}`, "NOT_FOUND");
+
+    const ok = mode === "clear"
+      ? skillEffectivenessRepo.clearRecordOutcome(recordId)
+      : skillEffectivenessRepo.deleteRecord(recordId);
+    if (!ok) return errorResponse(c, 404, `Record not found: ${recordId}`, "NOT_FOUND");
+
+    const stats = skillEffectivenessRepo.getStats(skill.id);
+    const records = skillEffectivenessRepo.listForSkill(skill.id, 20);
+    return c.json({ ok: true, mode, stats, records });
+  });
+
   // POST /:slug/rate — rate a skill's usefulness for a job (for non-MCP agents via am CLI)
   router.post("/:slug/rate", async (c) => {
     const auth = await requireAuth(c);

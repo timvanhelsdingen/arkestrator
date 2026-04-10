@@ -1087,7 +1087,37 @@ export const api = {
     },
     getEffectiveness: (slug: string, program?: string) => {
       const qs = program ? `?program=${encodeURIComponent(program)}` : "";
-      return request(`/api/skills/${encodeURIComponent(slug)}/effectiveness${qs}`) as Promise<{ stats: { totalUsed: number; successRate: number }; records: any[] }>;
+      return request(`/api/skills/${encodeURIComponent(slug)}/effectiveness${qs}`) as Promise<{
+        stats: {
+          totalUsed: number;
+          successRate: number;
+          pendingOutcomes: number;
+          goodOutcomes: number;
+          averageOutcomes: number;
+          poorOutcomes: number;
+        };
+        records: any[];
+      }>;
+    },
+    deleteEffectivenessRecord: (slug: string, recordId: string, program?: string, mode: "delete" | "clear" = "delete") => {
+      const params = new URLSearchParams();
+      if (program) params.set("program", program);
+      params.set("mode", mode);
+      const qs = `?${params.toString()}`;
+      return request(`/api/skills/${encodeURIComponent(slug)}/effectiveness/${encodeURIComponent(recordId)}${qs}`, {
+        method: "DELETE",
+      }) as Promise<{ ok: boolean; mode: string; stats: any; records: any[] }>;
+    },
+    wipeEffectivenessForSkill: (slug: string, program?: string) => {
+      const qs = program ? `?program=${encodeURIComponent(program)}` : "";
+      return request(`/api/skills/${encodeURIComponent(slug)}/effectiveness/wipe${qs}`, {
+        method: "POST",
+      }) as Promise<{ ok: boolean; deleted: number; stats: any; records: any[] }>;
+    },
+    wipeAllEffectiveness: () => {
+      return request(`/api/skills/effectiveness/wipe-all`, {
+        method: "POST",
+      }) as Promise<{ ok: boolean; deleted: number }>;
     },
     listVersions: (slug: string, program?: string) => {
       const qs = program ? `?program=${encodeURIComponent(program)}` : "";

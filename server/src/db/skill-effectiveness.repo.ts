@@ -136,6 +136,48 @@ export class SkillEffectivenessRepo {
     return result;
   }
 
+  /** Wipe ALL effectiveness records for every skill. Returns number of rows removed. */
+  wipeAll(): number {
+    try {
+      const res = this.db.prepare(`DELETE FROM skill_effectiveness`).run();
+      return res.changes;
+    } catch {
+      return 0;
+    }
+  }
+
+  /** Wipe all effectiveness records for a single skill. Returns number of rows removed. */
+  wipeForSkill(skillId: string): number {
+    try {
+      const res = this.db.prepare(`DELETE FROM skill_effectiveness WHERE skill_id = ?`).run(skillId);
+      return res.changes;
+    } catch {
+      return 0;
+    }
+  }
+
+  /** Delete a single effectiveness record by its id. Returns true if a row was removed. */
+  deleteRecord(recordId: string): boolean {
+    try {
+      const res = this.db.prepare(`DELETE FROM skill_effectiveness WHERE id = ?`).run(recordId);
+      return res.changes > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Clear the outcome on a single record (back to pending). Returns true if it was updated. */
+  clearRecordOutcome(recordId: string): boolean {
+    try {
+      const res = this.db.prepare(
+        `UPDATE skill_effectiveness SET job_outcome = NULL WHERE id = ?`,
+      ).run(recordId);
+      return res.changes > 0;
+    } catch {
+      return false;
+    }
+  }
+
   /** List recent usage records for a skill (newest first). */
   listForSkill(skillId: string, limit = 20): SkillEffectivenessRecord[] {
     try {

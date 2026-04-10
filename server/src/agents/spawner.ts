@@ -442,7 +442,10 @@ function resolveBridgeProgramTarget(rawTarget: string, deps: SpawnerDeps, prefer
   const target = parseStringArg(rawTarget);
   if (!target) return "";
   const normalizedTarget = target.toLowerCase();
-  if (deps.hub.getBridgesByProgram(normalizedTarget).length > 0) {
+  // Preserve the target if ANY kind of bridge (real WS, virtual, or API) matches —
+  // otherwise virtual bridges (ComfyUI) and API bridges (Meshy) get silently rewritten
+  // to some other connected program by the fuzzy fallback below.
+  if (deps.hub.hasAnyBridgeForProgram(normalizedTarget)) {
     return normalizedTarget;
   }
 
@@ -471,7 +474,7 @@ function resolveBridgeProgramTarget(rawTarget: string, deps: SpawnerDeps, prefer
   }
 
   const preferred = parseStringArg(preferredProgram).toLowerCase();
-  if (preferred && deps.hub.getBridgesByProgram(preferred).length > 0) {
+  if (preferred && deps.hub.hasAnyBridgeForProgram(preferred)) {
     return preferred;
   }
 
@@ -883,15 +886,22 @@ export async function executeLocalAgenticToolCall(
   const args = call.args ?? {};
 
   if (call.tool === "list_bridges") {
+    // Use unified findAgentBridges so virtual (ComfyUI) and API bridges (Meshy, etc.)
+    // are always visible to the agent, not just real WS bridges.
     return {
       ok: true,
-      data: deps.hub.getBridges().map((b) => ({
+      data: deps.hub.findAgentBridges().map((b) => ({
         id: b.id,
+        kind: b.kind,
         program: b.program,
+        programVersion: b.programVersion,
         workerName: b.workerName,
         projectPath: b.projectPath,
-        activeProjects: Array.isArray(b.activeProjects) ? b.activeProjects : (b.projectPath ? [b.projectPath] : []),
-        programVersion: b.programVersion,
+        activeProjects: b.activeProjects ?? [],
+        url: b.url,
+        apiActions: b.apiActions,
+        canExecuteBridgeCommands: b.canExecuteBridgeCommands,
+        usageHint: b.usageHint,
       })),
     };
   }
@@ -899,20 +909,38 @@ export async function executeLocalAgenticToolCall(
   if (call.tool === "get_bridge_context") {
     const target = resolveBridgeProgramTarget(parseStringArg(args.target), deps, job.bridgeProgram);
     if (!target) return { ok: false, error: "target is required" };
-    const bridges = deps.hub.getBridgesByProgram(target);
-    if (bridges.length === 0) {
+    const views = deps.hub.findAgentBridges(target);
+    if (views.length === 0) {
       return { ok: false, error: `No bridge connected for: ${target}` };
     }
-    const contexts = bridges.map((ws: any) => {
-      const ctx = deps.hub.getBridgeContext(ws.data.id);
+    const contexts = views.map((view) => {
+      if (view.kind === "ws") {
+        const ctx = deps.hub.getBridgeContext(view.id);
+        return {
+          bridgeId: view.id,
+          kind: "ws" as const,
+          program: view.program,
+          workerName: view.workerName,
+          projectPath: view.projectPath,
+          editorContext: ctx?.editorContext ?? null,
+          files: ctx?.files ?? [],
+          contextItems: ctx?.items ?? [],
+        };
+      }
+      // Virtual or API bridge: report identity so the agent knows it exists,
+      // plus a usageHint describing how to actually invoke it.
       return {
-        bridgeId: ws.data.id,
-        program: ws.data.program,
-        workerName: ws.data.workerName,
-        projectPath: ws.data.projectPath,
-        editorContext: ctx?.editorContext ?? null,
-        files: ctx?.files ?? [],
-        contextItems: ctx?.items ?? [],
+        bridgeId: view.id,
+        kind: view.kind,
+        program: view.program,
+        programVersion: view.programVersion,
+        workerName: view.workerName,
+        url: view.url,
+        apiActions: view.apiActions,
+        editorContext: null,
+        files: [],
+        contextItems: [],
+        note: view.usageHint,
       };
     });
     return { ok: true, data: contexts };
@@ -935,8 +963,16 @@ export async function executeLocalAgenticToolCall(
     // Without this check, a disconnected bridge name passes through and may be
     // misrouted to a different bridge via fallback logic.
     if (deps.hub.getBridgesByProgram(target).length === 0) {
-      const connectedPrograms = deps.hub.getBridges()
-        .map((b: any) => String(b.program ?? "").toLowerCase())
+      // Virtual/API bridges exist but can't receive execute_command — return the
+      // hint from findAgentBridges so the agent routes through the correct tool
+      // (comfyui_* MCP tools, invoke_api_bridge, etc.) instead of giving up.
+      const nonExecBridges = deps.hub.findAgentBridges(target).filter((b) => !b.canExecuteBridgeCommands);
+      if (nonExecBridges.length > 0) {
+        const hint = nonExecBridges[0].usageHint ?? `${target} is not a script-executable bridge.`;
+        return { ok: false, error: hint };
+      }
+      const connectedPrograms = deps.hub.findAgentBridges()
+        .map((b) => String(b.program ?? "").toLowerCase())
         .filter(Boolean);
       const unique = [...new Set(connectedPrograms)];
       if (unique.length > 0) {
@@ -962,7 +998,12 @@ export async function executeLocalAgenticToolCall(
     if (!target) return { ok: false, error: "target is required" };
     // Early validation: ensure target bridge is actually connected
     if (deps.hub.getBridgesByProgram(target).length === 0) {
-      const unique = [...new Set(deps.hub.getBridges().map((b: any) => String(b.program ?? "").toLowerCase()).filter(Boolean))];
+      const nonExecBridges = deps.hub.findAgentBridges(target).filter((b) => !b.canExecuteBridgeCommands);
+      if (nonExecBridges.length > 0) {
+        const hint = nonExecBridges[0].usageHint ?? `${target} is not a script-executable bridge.`;
+        return { ok: false, error: hint };
+      }
+      const unique = [...new Set(deps.hub.findAgentBridges().map((b) => String(b.program ?? "").toLowerCase()).filter(Boolean))];
       return {
         ok: false,
         error: unique.length > 0

@@ -730,10 +730,15 @@ export function createMcpServer(deps: McpDeps): McpServer {
   // Tool: list_bridges
   server.tool(
     "list_bridges",
-    "List all currently connected DCC bridges (Godot, Blender, Houdini, ComfyUI instances).",
+    "List ALL currently available bridges visible to the agent, including: " +
+      "real DCC bridges (Godot, Blender, Houdini, Fusion, Fusion360), virtual HTTP bridges " +
+      "(ComfyUI), and enabled API bridges (Meshy, etc.). Each entry has a `kind` field " +
+      "('ws' | 'virtual' | 'api') and `canExecuteBridgeCommands` to tell you if it accepts " +
+      "execute_command or needs dedicated tools (comfyui_*, invoke_api_bridge). Virtual/API " +
+      "bridges have no editor context.",
     {},
     async () => {
-      const bridges = listConnectedBridges(deps.hub);
+      const bridges = deps.hub.findAgentBridges();
       if (bridges.length === 0) {
         return {
           content: [{ type: "text" as const, text: "No bridges currently connected." }],
@@ -803,13 +808,17 @@ export function createMcpServer(deps: McpDeps): McpServer {
   // Tool: get_bridge_context
   server.tool(
     "get_bridge_context",
-    "Get the current editor context from a connected bridge — active file, project root, open files, and user-selected context items.",
+    "Get the current editor context (active file, project root, open files, context items) " +
+      "from a bridge. Works for real DCC bridges (Godot/Blender/Houdini/Fusion) AND for virtual " +
+      "HTTP bridges like ComfyUI (returns identity + url, no editor context) AND for API bridges " +
+      "like Meshy (returns identity + available actions). If nothing matches the program, reports " +
+      "not connected.",
     {
-      target: z.string().describe('Target bridge program name, e.g. "godot", "blender"'),
+      target: z.string().describe('Target bridge program name, e.g. "godot", "blender", "comfyui", "meshy"'),
     },
     async ({ target }) => {
-      const bridges = deps.hub.getBridgesByProgram(target);
-      if (bridges.length === 0) {
+      const views = deps.hub.findAgentBridges(target);
+      if (views.length === 0) {
         return {
           content: [{ type: "text" as const, text: `No bridge connected for: ${target}` }],
           isError: true,
@@ -817,17 +826,36 @@ export function createMcpServer(deps: McpDeps): McpServer {
       }
 
       const results: any[] = [];
-      for (const ws of bridges) {
-        const ctx = deps.hub.getBridgeContext(ws.data.id);
-        results.push({
-          bridgeId: ws.data.id,
-          program: ws.data.program,
-          workerName: ws.data.workerName,
-          projectPath: ws.data.projectPath,
-          editorContext: ctx?.editorContext ?? null,
-          files: ctx?.files ?? [],
-          contextItems: ctx?.items ?? [],
-        });
+      for (const view of views) {
+        if (view.kind === "ws") {
+          const ctx = deps.hub.getBridgeContext(view.id);
+          results.push({
+            bridgeId: view.id,
+            kind: "ws",
+            program: view.program,
+            workerName: view.workerName,
+            projectPath: view.projectPath,
+            editorContext: ctx?.editorContext ?? null,
+            files: ctx?.files ?? [],
+            contextItems: ctx?.items ?? [],
+          });
+        } else {
+          // Virtual + API bridges: no editor context. Return identity + hint so
+          // agents know the bridge IS available and how to invoke it.
+          results.push({
+            bridgeId: view.id,
+            kind: view.kind,
+            program: view.program,
+            programVersion: view.programVersion,
+            workerName: view.workerName,
+            url: view.url,
+            apiActions: view.apiActions,
+            editorContext: null,
+            files: [],
+            contextItems: [],
+            note: view.usageHint,
+          });
+        }
       }
 
       return {
@@ -956,7 +984,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
         const bridges = deps.hub.getBridgesByProgram(target_program);
         if (bridges.length > 0) {
           bridgeId = bridges[0].data.id;
-        } else if (!deps.hub.hasVirtualBridgeForProgram(target_program)) {
+        } else if (!deps.hub.hasAnyBridgeForProgram(target_program)) {
           // Check if a headless program is registered for this target (allows CLI-only execution)
           const headless = deps.headlessProgramsRepo?.list()
             .find((hp) => hp.program === target_program && hp.enabled);
@@ -1169,7 +1197,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
             const bridges = deps.hub.getBridgesByProgram(spec.target_program);
             if (bridges.length > 0) {
               bridgeId = bridges[0].data.id;
-            } else if (!deps.hub.hasVirtualBridgeForProgram(spec.target_program)) {
+            } else if (!deps.hub.hasAnyBridgeForProgram(spec.target_program)) {
               const headless = deps.headlessProgramsRepo?.list()
                 ?.find((hp) => hp.program === spec.target_program && hp.enabled);
               if (!headless) {
