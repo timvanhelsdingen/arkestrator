@@ -73,22 +73,19 @@ function loadTabs(): { tabs: ChatTab[]; activeTabId: string } | null {
 
 // --- Store ---
 
-/** Pick the default agent: highest priority (lowest number = highest priority), or first available */
+/** Default agent selection for new chats: "auto" routes by priority on the server. */
 function getDefaultAgentId(): string {
-  const all = agents.all;
-  if (all.length === 0) return "";
-  const sorted = [...all].sort((a, b) => (a.priority ?? 999) - (b.priority ?? 999));
-  return sorted[0].id;
+  return "auto";
 }
 
-function createTab(name: string): ChatTab {
+function createTab(name: string, agentConfigId: string = getDefaultAgentId()): ChatTab {
   return {
     id: crypto.randomUUID(),
     conversationKey: crypto.randomUUID(),
     name,
     messages: [],
     jobIds: [],
-    agentConfigId: getDefaultAgentId(),
+    agentConfigId,
     priority: "normal",
     startPaused: false,
     selectedWorkerNames: [],
@@ -231,7 +228,9 @@ class ChatState {
   }
 
   addTab() {
-    const tab = createTab(`Chat ${this.tabs.length + 1}`);
+    // New chats inherit the currently selected agent (last-selected), or "auto" if none.
+    const inherited = this.activeTab?.agentConfigId || getDefaultAgentId();
+    const tab = createTab(`Chat ${this.tabs.length + 1}`, inherited);
     this.tabs = [...this.tabs, tab];
     this.activeTabId = tab.id;
     this.persistNow();
@@ -349,14 +348,19 @@ class ChatState {
     }
   }
 
-  /** Backfill tabs that have no agent selected (or a stale/invalid agent) with the highest-priority agent */
+  /** Backfill tabs that have no agent selected (or a stale/invalid agent) with "auto". */
   backfillDefaultAgent() {
     const defaultId = getDefaultAgentId();
-    if (!defaultId) return;
     const validIds = new Set(agents.all.map((a) => a.id));
     let changed = false;
     for (const tab of this.tabs) {
-      if (!tab.agentConfigId || !validIds.has(tab.agentConfigId)) {
+      if (!tab.agentConfigId) {
+        tab.agentConfigId = defaultId;
+        changed = true;
+        continue;
+      }
+      if (tab.agentConfigId === "auto") continue;
+      if (!validIds.has(tab.agentConfigId)) {
         tab.agentConfigId = defaultId;
         changed = true;
       }
