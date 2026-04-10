@@ -75,7 +75,7 @@ export interface TemplateCreateInput {
 export interface TemplateUpdateInput {
   name?: string;
   slug?: string;
-  type?: "chat" | "project" | "job_preset";
+  type?: "chat" | "project" | "job_preset" | "path_mapping";
   category?: string;
   subcategory?: string | null;
   description?: string;

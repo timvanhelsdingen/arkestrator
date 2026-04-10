@@ -251,7 +251,7 @@ const MIGRATIONS = [
     id          TEXT PRIMARY KEY,
     name        TEXT NOT NULL,
     slug        TEXT NOT NULL UNIQUE,
-    type        TEXT NOT NULL CHECK(type IN ('chat','project','job_preset')),
+    type        TEXT NOT NULL CHECK(type IN ('chat','project','job_preset','path_mapping')),
     category    TEXT NOT NULL DEFAULT 'General',
     subcategory TEXT,
     description TEXT NOT NULL DEFAULT '',
@@ -432,9 +432,13 @@ const COLUMN_ADDITIONS = [
   `ALTER TABLE skill_versions ADD COLUMN app_version TEXT`,
   // User-requested skill slugs attached to a job (from /skill:slug in prompt)
   `ALTER TABLE jobs ADD COLUMN requested_skills TEXT`,
-  // MCP server config for API bridges (JSON: transport, command, args, env, url, headers)
-  `ALTER TABLE api_bridges ADD COLUMN mcp_config TEXT`,
   // API Bridges — server-side handlers for external REST APIs (Meshy, Stability, etc.)
+  // IMPORTANT: CREATE TABLE must come BEFORE the ALTER TABLE below. On a fresh
+  // database, the ALTER would fail silently ("no such table") and then the CREATE
+  // would produce a table without `mcp_config`, leaving ApiBridgesRepo unable to
+  // prepare statements referencing that column on first boot. `mcp_config` is now
+  // included in the CREATE so fresh DBs get the full schema immediately; the ALTER
+  // below is kept for back-compat with databases created before this column existed.
   `CREATE TABLE IF NOT EXISTS api_bridges (
     id              TEXT PRIMARY KEY,
     name            TEXT NOT NULL UNIQUE,
@@ -450,9 +454,14 @@ const COLUMN_ADDITIONS = [
     default_options TEXT NOT NULL DEFAULT '{}',
     poll_config     TEXT,
     enabled         INTEGER NOT NULL DEFAULT 1,
+    mcp_config      TEXT,
     created_at      TEXT NOT NULL,
     updated_at      TEXT NOT NULL
   )`,
+  // Back-compat: add mcp_config to api_bridges tables created before it existed in the CREATE.
+  // Silently fails on fresh DBs (column already exists from the CREATE above) via the
+  // COLUMN_ADDITIONS try/catch — that's expected and safe.
+  `ALTER TABLE api_bridges ADD COLUMN mcp_config TEXT`,
   // Coordinator script versioning — snapshot history for rollback
   `CREATE TABLE IF NOT EXISTS coordinator_script_versions (
     id         TEXT PRIMARY KEY,
@@ -508,6 +517,9 @@ export function runMigrations(db: Database) {
 
   // Rebuild skills table if CHECK constraint is missing new categories
   rebuildSkillsTableIfNeeded(db);
+
+  // Rebuild prompt_templates table if CHECK constraint is missing 'path_mapping'
+  rebuildPromptTemplatesTableIfNeeded(db);
 
   // Normalize existing worker names to lowercase (fixes case-sensitivity duplicates)
   normalizeWorkerNames(db);
@@ -658,6 +670,60 @@ function rebuildSkillsTableIfNeeded(db: Database) {
     db.exec(`ALTER TABLE skills_new RENAME TO skills`);
     db.exec("COMMIT");
     logger.info("migrations", "Skills table migration complete.");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  } finally {
+    db.exec("PRAGMA foreign_keys = ON");
+  }
+}
+
+/** Rebuild prompt_templates table if the CHECK constraint on `type` is missing
+ * 'path_mapping' (introduced after the original CREATE). Without this, seeding
+ * default path mapping templates on first boot fails with a CHECK constraint
+ * violation. */
+function rebuildPromptTemplatesTableIfNeeded(db: Database) {
+  const tableInfo = db.prepare(
+    `SELECT sql FROM sqlite_master WHERE type='table' AND name='prompt_templates'`,
+  ).get() as { sql: string } | null;
+
+  if (!tableInfo || tableInfo.sql.includes("'path_mapping'")) {
+    return; // Already has path_mapping or table doesn't exist
+  }
+
+  logger.info("migrations", "Migrating prompt_templates table to support 'path_mapping' type...");
+  db.exec("PRAGMA foreign_keys = OFF");
+  db.exec("BEGIN TRANSACTION");
+  try {
+    db.exec(`CREATE TABLE prompt_templates_new (
+      id          TEXT PRIMARY KEY,
+      name        TEXT NOT NULL,
+      slug        TEXT NOT NULL UNIQUE,
+      type        TEXT NOT NULL CHECK(type IN ('chat','project','job_preset','path_mapping')),
+      category    TEXT NOT NULL DEFAULT 'General',
+      subcategory TEXT,
+      description TEXT NOT NULL DEFAULT '',
+      content     TEXT NOT NULL DEFAULT '',
+      icon        TEXT,
+      options     TEXT,
+      sort_order  INTEGER NOT NULL DEFAULT 50,
+      enabled     INTEGER NOT NULL DEFAULT 1,
+      created_by  TEXT,
+      created_at  TEXT NOT NULL,
+      updated_at  TEXT NOT NULL
+    )`);
+    const oldCols = db.prepare(`PRAGMA table_info(prompt_templates)`).all() as { name: string }[];
+    const newCols = db.prepare(`PRAGMA table_info(prompt_templates_new)`).all() as { name: string }[];
+    const newColSet = new Set(newCols.map((c) => c.name));
+    const commonCols = oldCols.map((c) => c.name).filter((n) => newColSet.has(n));
+    const selectCols = commonCols.join(", ");
+    db.exec(`INSERT INTO prompt_templates_new (${selectCols}) SELECT ${selectCols} FROM prompt_templates`);
+    db.exec(`DROP TABLE prompt_templates`);
+    db.exec(`ALTER TABLE prompt_templates_new RENAME TO prompt_templates`);
+    // Recreate the index that was attached to the old table
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_prompt_templates_type ON prompt_templates(type, enabled, category, sort_order)`);
+    db.exec("COMMIT");
+    logger.info("migrations", "prompt_templates table migration complete.");
   } catch (err) {
     db.exec("ROLLBACK");
     throw err;
