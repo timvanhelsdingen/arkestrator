@@ -74,9 +74,10 @@ export class ComfyUiHealthChecker {
         if (w.name.toLowerCase() === this.serverHostname) continue; // already covered by local
         const ip = w.lastIp;
         if (!ip || ip === "127.0.0.1" || ip === "::1") continue; // skip loopback (that's us)
+        const host = ip.includes(":") ? `[${ip}]` : ip; // wrap IPv6 in brackets
         endpoints.push({
           workerName: w.name,
-          url: `http://${ip}:${COMFYUI_DEFAULT_PORT}`,
+          url: `http://${host}:${COMFYUI_DEFAULT_PORT}`,
           machineId: w.machineId,
           ip,
         });
