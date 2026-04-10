@@ -314,6 +314,19 @@ export function createSkillsRoutes(
       category: parsed.data.category,
       limit: parsed.data.limit,
     });
+    // Mirror MCP search_skills: record a usage row for each returned skill
+    // when called inside a job (am CLI sends X-Job-Id). Deduped per job+skill.
+    const jobId = c.req.header("X-Job-Id") || c.req.header("x-job-id");
+    if (jobId && skillEffectivenessRepo && results.length > 0) {
+      try {
+        for (const r of results) {
+          const skill = skillIndex.get(r.slug, (r as any).program || undefined);
+          if (skill) skillEffectivenessRepo.recordUsageOnce((skill as any).id, jobId);
+        }
+      } catch {
+        // Best-effort — never fail search on tracking errors
+      }
+    }
     return c.json({ results });
   });
 
@@ -1271,6 +1284,17 @@ export function createSkillsRoutes(
     const skill = skillIndex.get(slug, program || undefined);
     if (!skill) {
       return errorResponse(c, 404, `Skill not found: ${slug}`, "NOT_FOUND");
+    }
+    // Mirror MCP get_skill: when the caller is running inside a job (am CLI
+    // sends X-Job-Id), record a usage row so CLI-path skill fetches show
+    // up in effectiveness stats.
+    const jobId = c.req.header("X-Job-Id") || c.req.header("x-job-id");
+    if (jobId && skillEffectivenessRepo) {
+      try {
+        skillEffectivenessRepo.recordUsageOnce((skill as any).id, jobId);
+      } catch {
+        // Best-effort — never fail the fetch on tracking errors
+      }
     }
     return c.json({ skill });
   });

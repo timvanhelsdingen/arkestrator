@@ -1725,6 +1725,22 @@ export function createMcpServer(deps: McpDeps): McpServer {
         return { content: [{ type: "text" as const, text: "Skills system not initialized" }], isError: true };
       }
       const results = deps.skillIndex.search(query, { program: program || undefined, category: category || undefined, limit });
+      // Record a lightweight usage row for each returned result (deduped per
+      // job+skill). Agents often act on title+description from search alone
+      // without ever calling get_skill, so without this the skill is
+      // invisible to effectiveness tracking and rate_skill has nothing to
+      // update. recordUsageOnce is a no-op if a row already exists.
+      if (deps.skillEffectivenessRepo && deps.callerJobId && deps.jobsRepo && results.length > 0) {
+        const callerJob = deps.jobsRepo.getById(deps.callerJobId);
+        const meta = (() => { try { const ctx = callerJob?.editorContext; return (typeof ctx === "object" && ctx !== null ? (ctx as any).metadata : null) || {}; } catch { return {}; } })();
+        const isSystem = meta.housekeeping || meta.coordinator_training_job || meta.coordinator_training_orchestrator || meta.coordinator_training_analysis_job;
+        if (!isSystem) {
+          for (const r of results) {
+            const skill = deps.skillIndex.get(r.slug, r.program || undefined);
+            if (skill) deps.skillEffectivenessRepo.recordUsageOnce(skill.id, deps.callerJobId);
+          }
+        }
+      }
       const text = results.length === 0
         ? "No matching skills found."
         : results.map((r) => `- **${r.slug}** (${r.category}/${r.program}) score=${r.relevanceScore.toFixed(2)}\n  ${r.title}: ${r.description}`).join("\n\n");
@@ -1755,7 +1771,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
         const meta = (() => { try { const ctx = callerJob?.editorContext; return (typeof ctx === "object" && ctx !== null ? (ctx as any).metadata : null) || {}; } catch { return {}; } })();
         const isSystem = meta.housekeeping || meta.coordinator_training_job || meta.coordinator_training_orchestrator || meta.coordinator_training_analysis_job;
         if (!isSystem) {
-          deps.skillEffectivenessRepo.recordUsage(skill.id, deps.callerJobId);
+          deps.skillEffectivenessRepo.recordUsageOnce(skill.id, deps.callerJobId);
         }
       }
       // Resolve template variables using live bridge state
@@ -1854,6 +1870,90 @@ export function createMcpServer(deps: McpDeps): McpServer {
         deps.hub.broadcastToType("client", { type: "job_updated", id: newId(), payload: { job: updated } });
       }
       return { content: [{ type: "text" as const, text: `Job rated: ${rating}${notesTrimmed ? ` — ${notesTrimmed}` : ""}` }] };
+    },
+  );
+
+  server.tool(
+    "retarget_job",
+    "Change this job's bridge_program tag and reload coordinator/bridge skills for the new program. " +
+      "Call this when you discover the job was mis-tagged (e.g. tagged 'houdini' but the user actually wants Blender). " +
+      "Returns the auto-fetch Coordinator Knowledge for the new program so you can use it inline without re-searching. " +
+      "Effectiveness stats for skills used before the retarget are preserved; new skill usage will be attributed to the new program.",
+    {
+      program: z.string().describe("The correct bridge program for this job (e.g. 'blender', 'houdini', 'comfyui', 'godot')"),
+      reason: z.string().describe("Short explanation of why the retarget is needed — helps review mis-tagged jobs"),
+    },
+    async ({ program, reason }) => {
+      if (!deps.callerJobId) {
+        return { content: [{ type: "text" as const, text: "No job context — retarget_job can only be called by an agent running a job" }], isError: true };
+      }
+      const job = deps.jobsRepo.getById(deps.callerJobId);
+      if (!job) {
+        return { content: [{ type: "text" as const, text: `Job not found: ${deps.callerJobId}` }], isError: true };
+      }
+      const normalized = (program || "").trim().toLowerCase();
+      if (!normalized) {
+        return { content: [{ type: "text" as const, text: "program is required" }], isError: true };
+      }
+      const previous = (job.bridgeProgram || "").trim().toLowerCase();
+      if (previous === normalized) {
+        return { content: [{ type: "text" as const, text: `Job is already tagged as ${normalized} — no change.` }] };
+      }
+      // Persist the new tag so downstream ranking, stats, and audits align.
+      deps.jobsRepo.setBridgeProgram(deps.callerJobId, normalized);
+
+      // Reload auto-fetch coordinator/bridge skills for the new program and
+      // return their content inline so the agent can use them immediately
+      // without a second round-trip. Record usage rows under the current job.
+      const skillLines: string[] = [];
+      let injectedSlugs: string[] = [];
+      if (deps.skillsRepo && deps.skillIndex) {
+        try {
+          const allEnabled = deps.skillsRepo.listAll({ enabled: true });
+          const matching = allEnabled.filter((s: any) => {
+            if (!s.autoFetch) return false;
+            const sp = (s.program || "").trim().toLowerCase();
+            return !sp || sp === "global" || sp === normalized;
+          });
+          const MAX_TOTAL = 15_000;
+          let total = 0;
+          skillLines.push(`## Coordinator Knowledge (retargeted → ${normalized})`);
+          for (const s of matching) {
+            if (total >= MAX_TOTAL) break;
+            const header = s.title || (s as any).name || s.slug;
+            const tag = s.program && s.program !== "global" ? ` [${s.program}]` : "";
+            skillLines.push(`### ${header}${tag}`);
+            if (s.description) skillLines.push(s.description);
+            if (s.content) {
+              const capped = s.content.slice(0, Math.min(4000, MAX_TOTAL - total));
+              skillLines.push(capped);
+              total += capped.length;
+            }
+            skillLines.push("");
+            injectedSlugs.push(s.slug);
+            if (deps.skillEffectivenessRepo) {
+              deps.skillEffectivenessRepo.recordUsageOnce((s as any).id, deps.callerJobId);
+            }
+          }
+        } catch {
+          // Best-effort — retarget still succeeds even if skill reload fails
+        }
+      }
+
+      // Broadcast the updated job so clients see the new program tag live.
+      try {
+        const updated = deps.jobsRepo.getById(deps.callerJobId);
+        if (updated) {
+          deps.hub.broadcastToType("client", { type: "job_updated", id: newId(), payload: { job: updated } });
+        }
+      } catch {}
+
+      const header = `Job retargeted: ${previous || "(untagged)"} → ${normalized}\nReason: ${reason}\n`;
+      const ratingReminder = injectedSlugs.length > 0
+        ? `\n\n---\n**Remember:** rate these newly loaded skills via \`rate_skill\` before exiting: ${injectedSlugs.map((s) => `\`${s}\``).join(", ")}.`
+        : "";
+      const body = skillLines.length > 0 ? `\n\n${skillLines.join("\n").trim()}` : "\n\n(No auto-fetch skills found for this program.)";
+      return { content: [{ type: "text" as const, text: `${header}${body}${ratingReminder}` }] };
     },
   );
 

@@ -183,6 +183,7 @@ export class JobsRepo {
   private pickNextStmt;
   private pickNextForWorkerStmt;
   private setWorkspaceModeStmt;
+  private setBridgeProgramStmt;
   private deleteStmt;
   private deleteBulkStmt;
   private resumeStmt;
@@ -290,6 +291,9 @@ export class JobsRepo {
     );
     this.setWorkspaceModeStmt = db.prepare(
       `UPDATE jobs SET workspace_mode = ? WHERE id = ?`,
+    );
+    this.setBridgeProgramStmt = db.prepare(
+      `UPDATE jobs SET bridge_program = ? WHERE id = ?`,
     );
     this.deleteStmt = db.prepare(
       `UPDATE jobs SET deleted_at = ? WHERE id = ? AND status IN ('paused', 'completed', 'failed', 'cancelled')`,
@@ -711,6 +715,16 @@ export class JobsRepo {
 
   setWorkspaceMode(jobId: string, mode: WorkspaceMode) {
     this.setWorkspaceModeStmt.run(mode, jobId);
+  }
+
+  /**
+   * Update the bridge_program tag for a running job. Used when an agent
+   * discovers the job was tagged with the wrong bridge (e.g. tagged houdini
+   * but actually a Blender task) and wants to retarget so subsequent skill
+   * ranking and effectiveness stats align with the real program.
+   */
+  setBridgeProgram(jobId: string, program: string | null) {
+    this.setBridgeProgramStmt.run(program ?? null, jobId);
   }
 
   delete(jobId: string): boolean {

@@ -1237,6 +1237,15 @@ export async function executeLocalAgenticToolCall(
     const program = parseStringArg(args.program) || undefined;
     const results = deps.skillIndex.search(query, { limit: 8, program });
     if (results.length === 0) return { ok: true, data: "No matching skills found." };
+    // Record lightweight usage for each returned result so the skill shows
+    // up in effectiveness stats and rate_skill has a row to update, even if
+    // the agent acts on description alone without calling get_skill.
+    if (deps.skillEffectivenessRepo) {
+      for (const r of results) {
+        const s = deps.skillIndex.get(r.slug, r.program || undefined);
+        if (s) deps.skillEffectivenessRepo.recordUsageOnce(s.id, job.id);
+      }
+    }
     return {
       ok: true,
       data: results.map((r) => ({
@@ -1252,6 +1261,9 @@ export async function executeLocalAgenticToolCall(
     const program = parseStringArg(args.program) || undefined;
     const skill = deps.skillIndex.get(slug, program);
     if (!skill) return { ok: false, error: `Skill not found: ${slug}` };
+    if (deps.skillEffectivenessRepo) {
+      deps.skillEffectivenessRepo.recordUsageOnce(skill.id, job.id);
+    }
     return { ok: true, data: `# ${skill.title || slug} [${skill.program}]\n\n${skill.content || "(empty)"}` };
   }
 
@@ -1310,6 +1322,53 @@ export async function executeLocalAgenticToolCall(
       deps.skillEffectivenessRepo.recordOutcome(job.id, skillOutcome);
     }
     return { ok: true, data: `Job rated: ${rating}${notes.trim() ? ` — ${notes.trim()}` : ""}` };
+  }
+
+  if (call.tool === "retarget_job") {
+    const program = (parseStringArg(args.program) || "").trim().toLowerCase();
+    const reason = parseStringArg(args.reason) || "";
+    if (!program) return { ok: false, error: "retarget_job requires program" };
+    const previous = (job.bridgeProgram || "").trim().toLowerCase();
+    if (previous === program) {
+      return { ok: true, data: `Job already tagged ${program} — no change.` };
+    }
+    deps.jobsRepo.setBridgeProgram(job.id, program);
+    // Mutate the in-memory job object so subsequent tool calls in this
+    // loop see the new program without re-fetching.
+    (job as any).bridgeProgram = program;
+    let reloaded = 0;
+    const injected: string[] = [];
+    const blocks: string[] = [];
+    if (deps.skillsRepo && deps.skillIndex) {
+      try {
+        const allEnabled = deps.skillsRepo.listAll({ enabled: true });
+        const matching = allEnabled.filter((s: any) => {
+          if (!s.autoFetch) return false;
+          const sp = (s.program || "").trim().toLowerCase();
+          return !sp || sp === "global" || sp === program;
+        });
+        for (const s of matching) {
+          reloaded++;
+          injected.push(s.slug);
+          blocks.push(`### ${s.title || s.slug}${s.program && s.program !== "global" ? ` [${s.program}]` : ""}\n${(s.content || "").slice(0, 4000)}`);
+          if (deps.skillEffectivenessRepo) {
+            deps.skillEffectivenessRepo.recordUsageOnce((s as any).id, job.id);
+          }
+        }
+      } catch {
+        // best effort
+      }
+    }
+    const body = blocks.length > 0
+      ? `## Coordinator Knowledge (retargeted → ${program})\n${blocks.join("\n\n")}`
+      : "(No auto-fetch skills found for this program.)";
+    const rateReminder = injected.length > 0
+      ? `\n\nRate these newly loaded skills before exit: ${injected.join(", ")}`
+      : "";
+    return {
+      ok: true,
+      data: `Retargeted: ${previous || "(untagged)"} → ${program}${reason ? ` — ${reason}` : ""}\n\n${body}${rateReminder}`,
+    };
   }
 
   return { ok: false, error: `Unsupported tool: ${call.tool}` };
@@ -1864,19 +1923,25 @@ export async function spawnAgent(
 
       // Tell the agent to rate skills and their own job outcome
       const autoFetchSlugs = autoFetchSkills.map((s) => s.slug);
-      skillLines.push("\n## Job & Skill Feedback");
+      skillLines.push("\n## Job & Skill Feedback — MANDATORY before exit");
       skillLines.push(
-        "Before finishing your task, you MUST do the following:\n" +
-        "1. **Create skills if you learned something new** — if you discovered workarounds, non-obvious techniques, error fixes, " +
-        "API quirks, or multi-step workflows during this task, call `create_skill` for each one. " +
-        "Include concrete code examples, parameter values, and gotchas. " +
-        "Skip this if the task was straightforward and didn't teach you anything new.\n" +
-        "2. **Rate your job outcome** — call `rate_job` with `good`, `average`, or `poor` to self-assess how well the task went.\n" +
-        "3. **Rate skills you used** — call `rate_skill` for each skill you loaded or referenced, rating it `useful`, `not_useful`, or `partial`." +
+        "These three calls are REQUIRED, not optional. Jobs that skip them are considered incomplete " +
+        "because they break the learning loop that makes every future job better. Do all three:\n\n" +
+        "1. **create_skill** — Call this for every reusable pattern, working snippet, gotcha, or multi-step recipe " +
+        "you used or discovered in this task. The bar is not 'groundbreaking insight' — it's 'future-me on a similar " +
+        "task would save time reading this'. Include the actual working code, concrete parameter values, and any " +
+        "pitfalls. Recent jobs have been skipping this — DO NOT skip unless the task was a trivial one-liner " +
+        "already documented everywhere. When in doubt, create.\n" +
+        "2. **rate_job** — Call `rate_job(\"good\"|\"average\"|\"poor\", notes)` exactly once near the end. This is " +
+        "your self-assessment of how the whole task went.\n" +
+        "3. **rate_skill** — Call `rate_skill(slug, \"useful\"|\"not_useful\"|\"partial\")` for every skill you " +
+        "touched: the auto-fetched Coordinator Knowledge skills AND anything you loaded via search_skills/get_skill." +
         (autoFetchSlugs.length > 0
-          ? `\n   Auto-fetched skills to rate: ${autoFetchSlugs.map((s) => `\`${s}\``).join(", ")}.`
+          ? `\n   Auto-fetched skills that MUST be rated: ${autoFetchSlugs.map((s) => `\`${s}\``).join(", ")}.`
           : "") +
-        "\n\nThis feedback is critical — it improves skill recommendations and helps the system learn from your work.",
+        "\n\n**If this job was tagged with the wrong bridge program** (e.g. tagged 'houdini' but you're actually " +
+        "working in Blender), call `retarget_job(program, reason)` as early as possible. It updates the tag, " +
+        "reloads the correct coordinator/bridge skills inline, and aligns effectiveness stats with the real program.",
       );
 
       const skillBlock = skillLines.join("\n").trim();
@@ -1889,7 +1954,7 @@ export async function spawnAgent(
       // the effectiveness data is meaningful.
       if (deps.skillEffectivenessRepo) {
         for (const skill of autoFetchSkills) {
-          deps.skillEffectivenessRepo.recordUsage(skill.id, job.id);
+          deps.skillEffectivenessRepo.recordUsageOnce(skill.id, job.id);
         }
       }
     }
@@ -1920,7 +1985,7 @@ export async function spawnAgent(
 
         // Track effectiveness
         if (deps.skillEffectivenessRepo) {
-          deps.skillEffectivenessRepo.recordUsage(skill.id, job.id);
+          deps.skillEffectivenessRepo.recordUsageOnce(skill.id, job.id);
         }
       }
       const requestedBlock = requestedLines.join("\n").trim();

@@ -120,6 +120,17 @@ Created through the admin panel or API. Users can set any category, priority, an
 
 ## Effectiveness Tracking
 
+Usage is recorded whenever an agent touches a skill through any of these paths:
+
+- `search_skills` MCP tool — records a usage row for each returned result (lightweight "seen" tracking so rate_skill has a row to update even when the agent acts on title+description without fetching content)
+- `get_skill` MCP tool — records usage on fetch
+- Auto-fetch at spawn time — records usage for every skill injected into the Coordinator Knowledge section
+- `GET /api/skills/:slug` and `POST /api/skills/search` REST routes — record usage when called with an `X-Job-Id` header (this is what the `am` CLI sends, so CLI-path skill access is tracked too)
+
+All paths use `recordUsageOnce(skillId, jobId)` which is idempotent per (skill, job) pair — multiple code paths touching the same skill in one job won't inflate counts.
+
+`rate_skill` is an **UPSERT**: if an agent rates a skill but no usage row exists yet (e.g. rated after only `search_skills` on an older code path, or via `am skills rate` CLI), `recordSkillOutcome` creates a new row with the outcome so the rating is never silently dropped.
+
 Every time an agent loads a skill through MCP tools (`search_skills`/`get_skill`), the `skill_effectiveness` table records the usage:
 
 ```
@@ -170,6 +181,25 @@ MCP: `rate_skill(slug, rating, notes?)`
 CLI: `am skills rate <slug> <useful|not_useful|partial>`
 
 The `get_skill` response appends a reminder to rate the skill after use. Auto-fetched skills are also listed in the "Job & Skill Feedback" prompt section for agents to rate.
+
+### `retarget_job` — Fix a Mis-tagged Job
+
+Agents call this when they discover the job was tagged with the wrong `bridgeProgram` (e.g. tagged `houdini` but the actual work is in Blender). The tool:
+
+1. Updates `jobs.bridge_program` in the database
+2. Reloads all matching auto-fetch coordinator/bridge skills for the new program
+3. Returns the reloaded skill content inline so the agent can use it without another round-trip
+4. Records usage rows under the current job id so effectiveness stats follow the real program
+5. Broadcasts the updated job to clients so the UI reflects the corrected tag
+
+MCP: `retarget_job(program, reason)`
+
+This is critical because without it, a mis-tagged job:
+- Gets the wrong bridge coordinator auto-fetched at spawn time
+- Ranks skills against the wrong program
+- Inflates stats for the wrong program and leaves the real program's skills invisible
+
+Agents are instructed in the global coordinator prompt to call this the moment they notice the mismatch — before writing any execution code.
 
 ### `rate_job` — Self-Rate the Job Outcome
 
