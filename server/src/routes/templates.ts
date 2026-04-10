@@ -9,11 +9,11 @@ import { errorResponse } from "../utils/errors.js";
 const TemplateCreateSchema = z.object({
   name: z.string().trim().min(1),
   slug: z.string().trim().optional(),
-  type: z.enum(["chat", "project", "job_preset"]),
+  type: z.enum(["chat", "project", "job_preset", "path_mapping"]),
   category: z.string().trim().optional(),
   subcategory: z.string().trim().nullable().optional(),
   description: z.string().optional(),
-  content: z.string(),
+  content: z.string().optional().default(""),
   icon: z.string().nullable().optional(),
   options: z.record(z.unknown()).nullable().optional(),
   sortOrder: z.number().int().optional(),
@@ -23,7 +23,7 @@ const TemplateCreateSchema = z.object({
 const TemplateUpdateSchema = z.object({
   name: z.string().trim().min(1).optional(),
   slug: z.string().trim().optional(),
-  type: z.enum(["chat", "project", "job_preset"]).optional(),
+  type: z.enum(["chat", "project", "job_preset", "path_mapping"]).optional(),
   category: z.string().trim().optional(),
   subcategory: z.string().trim().nullable().optional(),
   description: z.string().optional(),
@@ -206,7 +206,7 @@ export function seedDefaultTemplates(templatesRepo: TemplatesRepo): number {
 interface SeedTemplate {
   name: string;
   slug: string;
-  type: "chat" | "project" | "job_preset";
+  type: "chat" | "project" | "job_preset" | "path_mapping";
   category: string;
   subcategory?: string;
   description: string;
@@ -372,5 +372,42 @@ const DEFAULT_TEMPLATES: SeedTemplate[] = [
     icon: "\uD83D\uDD12",
     options: { verificationMode: "required", verificationWeight: 99, bridgeExecutionMode: "live" },
     sortOrder: 30,
+  },
+
+  // ── Path Mapping presets ──────────────────────────────────────────────
+  // Example cross-platform path equivalences. Admins should customize for their studio.
+  {
+    name: "Network Drive",
+    slug: "path-network-drive",
+    type: "path_mapping",
+    category: "Shared Storage",
+    description: "Shared studio network drive mounted on each platform",
+    content: "",
+    icon: "🌐",
+    options: {
+      entries: [
+        { platform: "Windows", path: "W:/" },
+        { platform: "macOS", path: "/Volumes/work" },
+        { platform: "Linux", path: "/mnt/work" },
+      ],
+    },
+    sortOrder: 10,
+  },
+  {
+    name: "Project Share",
+    slug: "path-project-share",
+    type: "path_mapping",
+    category: "Shared Storage",
+    description: "Project files share mounted per platform",
+    content: "",
+    icon: "📁",
+    options: {
+      entries: [
+        { platform: "Windows", path: "P:/" },
+        { platform: "macOS", path: "/Volumes/projects" },
+        { platform: "Linux", path: "/mnt/projects" },
+      ],
+    },
+    sortOrder: 20,
   },
 ];

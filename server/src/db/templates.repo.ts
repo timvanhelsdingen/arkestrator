@@ -5,7 +5,7 @@ export interface PromptTemplate {
   id: string;
   name: string;
   slug: string;
-  type: "chat" | "project" | "job_preset";
+  type: "chat" | "project" | "job_preset" | "path_mapping";
   category: string;
   subcategory: string | null;
   description: string;
@@ -60,7 +60,7 @@ function rowToTemplate(row: TemplateRow): PromptTemplate {
 export interface TemplateCreateInput {
   name: string;
   slug?: string;
-  type: "chat" | "project" | "job_preset";
+  type: "chat" | "project" | "job_preset" | "path_mapping";
   category?: string;
   subcategory?: string | null;
   description?: string;
@@ -75,7 +75,7 @@ export interface TemplateCreateInput {
 export interface TemplateUpdateInput {
   name?: string;
   slug?: string;
-  type?: "chat" | "project" | "job_preset";
+  type?: "chat" | "project" | "job_preset" | "path_mapping";
   category?: string;
   subcategory?: string | null;
   description?: string;

@@ -988,6 +988,8 @@ export const api = {
       const qs = params.toString();
       return request(`/api/templates${qs ? `?${qs}` : ""}`);
     },
+    create: (data: any): Promise<any> =>
+      request("/api/templates", { method: "POST", body: JSON.stringify(data) }),
     categories: (type?: string): Promise<any> =>
       request(`/api/templates/categories${type ? `?type=${encodeURIComponent(type)}` : ""}`),
   },
