@@ -196,7 +196,7 @@
       bridges[i] = { ...bs, installing: true, error: "" };
       try {
         const targetPath = resolveInstallPath(bs.bridge, bs.selectedPath);
-        await invoke("download_and_install_bridge", {
+        const files = await invoke<string[]>("download_and_install_bridge", {
           downloadUrl: bs.bridge.downloadUrl,
           installPath: targetPath,
         });
@@ -204,6 +204,8 @@
           bridgeId: bs.bridge.id,
           version: bs.bridge.version,
           installPath: targetPath,
+          installType: bs.bridge.installType,
+          files,
         });
         bridges[i] = { ...bs, installing: false, installed: true, error: "" };
         count++;
