@@ -50,7 +50,7 @@
   let skillViewData = $state<SkillEntry | null>(null);
   let skillViewPlaybooks = $state<Array<{ path: string; content: string | null; error?: string }>>([]);
   let skillViewEffectiveness = $state<{ totalUsed: number; successRate: number; pendingOutcomes: number; goodOutcomes: number; averageOutcomes: number; poorOutcomes: number } | null>(null);
-  let skillViewFeedback = $state<Array<{ jobOutcome: string; ratingNotes?: string; relevance?: string; accuracy?: string; completeness?: string; createdAt: string }>>([]);
+  let skillViewFeedback = $state<Array<{ id?: string; jobId?: string; jobOutcome: string; ratingNotes?: string; relevance?: string; accuracy?: string; completeness?: string; createdAt: string }>>([]);
   let skillViewLoading = $state(false);
   let skillEditMode = $state(false);
   let skillEditContent = $state("");
@@ -338,6 +338,40 @@
       skillViewData = { id: "", slug, program: prog, category: "", title: slug, content: `Error: ${err.message}` } as any;
     } finally {
       skillViewLoading = false;
+    }
+  }
+
+  async function wipeAllRatings() {
+    const ok = confirm("Reset ALL skill ratings and uses for EVERY skill? Skills themselves stay — only their usage stats are cleared. This cannot be undone.");
+    if (!ok) return;
+    try {
+      const result = await api.skills.wipeAllEffectiveness();
+      // Refresh the active skill detail view (if open) to reflect zero stats
+      if (skillViewSlug && skillViewData) {
+        const prog = skillViewData.program;
+        try {
+          const eff = await api.skills.getEffectiveness(skillViewSlug, prog);
+          skillViewEffectiveness = eff?.stats ?? null;
+          skillViewFeedback = (eff as any)?.records ?? [];
+        } catch {}
+      }
+      // Refresh the main list to clear any per-card badges
+      await loadSkills();
+      alert(`Cleared ${result.deleted} rating record(s).`);
+    } catch (err: any) {
+      alert(`Failed to reset ratings: ${err?.message ?? err}`);
+    }
+  }
+
+  async function deleteRatingRecord(recordId: string) {
+    if (!skillViewSlug || !skillViewData) return;
+    const program = skillViewData.program;
+    try {
+      const result = await api.skills.deleteEffectivenessRecord(skillViewSlug, recordId, program, "delete");
+      skillViewEffectiveness = result?.stats ?? skillViewEffectiveness;
+      skillViewFeedback = result?.records ?? skillViewFeedback.filter((r) => r.id !== recordId);
+    } catch (err: any) {
+      alert(`Failed to delete rating: ${err?.message ?? err}`);
     }
   }
 
@@ -771,6 +805,13 @@
           {skillsPulling ? "Updating..." : "Update All from Repo"}
         </button>
         {#if canManage}
+          <button
+            class="btn secondary"
+            title="Clear all skill ratings and uses for every skill. Does not delete skills."
+            onclick={wipeAllRatings}
+          >
+            Reset All Ratings
+          </button>
           <button class="btn" onclick={() => { skillCreateOpen = !skillCreateOpen; skillCreateProgram = skillFilterProgram || "global"; }}>
             {skillCreateOpen ? "Cancel" : "Create Skill"}
           </button>
@@ -1132,12 +1173,21 @@
             <div class="skill-detail-section">
               <strong>Recent Feedback ({skillViewFeedback.length}):</strong>
               {#each skillViewFeedback as fb}
-                <div class="feedback-entry" style="padding: 4px 0; border-bottom: 1px solid var(--border); font-size: var(--font-size-sm);">
-                  <span class="badge {fb.jobOutcome === 'positive' ? 'success' : fb.jobOutcome === 'negative' ? 'bad' : 'warn'}">{fb.jobOutcome ?? "?"}</span>
+                <div class="feedback-entry" style="padding: 4px 0; border-bottom: 1px solid var(--border); font-size: var(--font-size-sm); display: flex; align-items: center; gap: 6px;">
+                  <span class="badge {fb.jobOutcome === 'positive' || fb.jobOutcome === 'good' ? 'success' : fb.jobOutcome === 'negative' || fb.jobOutcome === 'poor' ? 'bad' : fb.jobOutcome ? 'warn' : 'muted'}">{fb.jobOutcome ?? "pending"}</span>
+                  {#if fb.jobId}<span class="mono mini muted" title={fb.jobId}>job {fb.jobId.slice(0, 8)}</span>{/if}
                   {#if fb.relevance}<span class="muted" style="margin-left: 6px;">relevance: {fb.relevance}</span>{/if}
                   {#if fb.accuracy}<span class="muted" style="margin-left: 6px;">accuracy: {fb.accuracy}</span>{/if}
                   {#if fb.completeness}<span class="muted" style="margin-left: 6px;">completeness: {fb.completeness}</span>{/if}
-                  {#if fb.ratingNotes}<div class="mini" style="margin-top: 2px; color: var(--text-secondary);">{fb.ratingNotes}</div>{/if}
+                  <span style="flex: 1;"></span>
+                  {#if fb.id}
+                    <button
+                      class="btn btn-ghost btn-sm"
+                      title="Remove this rating record"
+                      onclick={() => deleteRatingRecord(fb.id!)}
+                    >×</button>
+                  {/if}
+                  {#if fb.ratingNotes}<div class="mini" style="margin-top: 2px; color: var(--text-secondary); flex-basis: 100%;">{fb.ratingNotes}</div>{/if}
                 </div>
               {/each}
             </div>
