@@ -1937,6 +1937,8 @@ pub fn run() {
             comfyui::launch_comfyui,
             comfyui::stop_comfyui,
             comfyui::is_comfyui_running,
+            comfyui::check_comfyui_port,
+            comfyui::kill_process_on_port,
             comfyui::check_comfyui_nodes,
             comfyui::get_comfyui_autostart,
             comfyui::set_comfyui_autostart

@@ -113,6 +113,18 @@
     } finally {
       loading = false;
     }
+    // Always refresh ComfyUI running state on mount so the status card
+    // and Stop button reflect reality after navigating away and back.
+    try {
+      const managed = await invoke<boolean>("is_comfyui_running");
+      comfyManagedByApp = managed;
+      if (managed) {
+        comfyRunning = true;
+      } else {
+        // Detect externally-launched ComfyUI via port check
+        comfyRunning = await invoke<boolean>("check_comfyui_port", { port: 8188 });
+      }
+    } catch { /* non-critical */ }
   }
 
   function openInstallPreset(preset: PresetInfo) {
@@ -320,6 +332,7 @@
   let comfyTestResult = $state<{ reachable: boolean; latencyMs: number; error?: string } | null>(null);
 
   let comfyRunning = $state(false);
+  let comfyManagedByApp = $state(false); // true when Arkestrator launched this process
   let comfyLaunching = $state(false);
   let comfyAutoStart = $state(false);
   let comfySaving = $state(false);
@@ -343,7 +356,9 @@
       if (pathConfig.path) {
         comfySelectedPath = pathConfig.path;
       }
-      comfyRunning = await invoke<boolean>("is_comfyui_running");
+      const managed = await invoke<boolean>("is_comfyui_running");
+      comfyManagedByApp = managed;
+      comfyRunning = managed || await invoke<boolean>("check_comfyui_port", { port: 8188 });
       if (pathConfig.path) {
         const nodes = await invoke<{ installed: boolean }>("check_comfyui_nodes", { comfyuiPath: pathConfig.path });
         comfyNodesInstalled = nodes.installed;
@@ -425,6 +440,7 @@
       const msg = await invoke<string>("launch_comfyui", { comfyuiPath: path, extraArgs: ["--listen"] });
       comfySuccess = msg;
       comfyRunning = true;
+      comfyManagedByApp = true;
       setTimeout(() => comfyTestConnection(), 5000);
       setTimeout(() => comfyTestConnection(), 15000);
     } catch (e: any) {
@@ -436,9 +452,13 @@
   async function comfyStop() {
     comfyError = "";
     try {
-      const msg = await invoke<string>("stop_comfyui");
-      comfySuccess = msg;
+      // Stop managed process (no-op if not managed)
+      await invoke<string>("stop_comfyui");
+      // Also kill any external process still on the ComfyUI port
+      try { await invoke("kill_process_on_port", { port: 8188 }); } catch { /* fine if nothing there */ }
+      comfySuccess = "ComfyUI stopped";
       comfyRunning = false;
+      comfyManagedByApp = false;
     } catch (e: any) {
       comfyError = e?.toString() ?? "Stop failed";
     }
@@ -852,7 +872,7 @@ cd ComfyUI</pre>
           <div class="comfy-row">
             {#if comfyRunning}
               <button class="btn danger" onclick={comfyStop}>Stop</button>
-              <span class="comfy-status online">Running</span>
+              <span class="comfy-status online">Running{comfyManagedByApp ? "" : " (external)"}</span>
             {:else}
               <button class="btn" onclick={comfyStart}
                 disabled={comfyLaunching || (!comfySavedPath && !comfySelectedPath && !comfyCustomPath)}>

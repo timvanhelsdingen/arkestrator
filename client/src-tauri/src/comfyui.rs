@@ -273,6 +273,73 @@ pub fn is_comfyui_running() -> bool {
     }
 }
 
+/// Check if a local port is open (used to detect externally-launched ComfyUI).
+#[tauri::command]
+pub fn check_comfyui_port(port: u16) -> bool {
+    use std::net::{SocketAddr, TcpStream};
+    use std::time::Duration;
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    TcpStream::connect_timeout(&addr, Duration::from_millis(500)).is_ok()
+}
+
+/// Kill whatever process is listening on the given local port.
+/// Used to stop ComfyUI that was not launched by Arkestrator.
+#[tauri::command]
+pub fn kill_process_on_port(port: u16) -> Result<String, String> {
+    #[cfg(target_os = "windows")]
+    {
+        // Find PID via netstat, then taskkill
+        let out = Command::new("netstat")
+            .args(["-ano"])
+            .output()
+            .map_err(|e| format!("netstat failed: {e}"))?;
+        let text = String::from_utf8_lossy(&out.stdout);
+        let target = format!(":{port}");
+        for line in text.lines() {
+            if !line.contains(&target) || !line.contains("LISTENING") {
+                continue;
+            }
+            if let Some(pid_str) = line.split_whitespace().last() {
+                if pid_str == "0" {
+                    continue;
+                }
+                let kill = Command::new("taskkill")
+                    .args(["/PID", pid_str, "/F"])
+                    .output()
+                    .map_err(|e| format!("taskkill failed: {e}"))?;
+                if kill.status.success() {
+                    return Ok(format!("Killed PID {pid_str} on port {port}"));
+                }
+                return Err(format!(
+                    "taskkill failed: {}",
+                    String::from_utf8_lossy(&kill.stderr)
+                ));
+            }
+        }
+        Err(format!("No process found listening on port {port}"))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        // lsof -ti:<port> prints PID(s); kill them
+        let out = Command::new("lsof")
+            .args(["-ti", &format!(":{port}")])
+            .output()
+            .map_err(|e| format!("lsof failed: {e}"))?;
+        let pids = String::from_utf8_lossy(&out.stdout);
+        let pids: Vec<&str> = pids.split_whitespace().collect();
+        if pids.is_empty() {
+            return Err(format!("No process found listening on port {port}"));
+        }
+        let mut killed = vec![];
+        for pid in &pids {
+            let _ = Command::new("kill").args(["-9", pid]).output();
+            killed.push(*pid);
+        }
+        Ok(format!("Killed PID(s) {} on port {port}", killed.join(", ")))
+    }
+}
+
 /// Check if arkestrator custom nodes are installed in ComfyUI.
 #[tauri::command]
 pub fn check_comfyui_nodes(comfyui_path: String) -> Result<Value, String> {
