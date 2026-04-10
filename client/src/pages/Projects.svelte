@@ -55,6 +55,34 @@
     [...FALLBACK_PRESETS],
   );
 
+  // Path mapping presets loaded from server (type=path_mapping)
+  interface PathMappingPreset {
+    id: string;
+    name: string;
+    icon: string;
+    entries: PathMappingEntry[];
+  }
+  let pathMappingPresets = $state<PathMappingPreset[]>([]);
+
+  const isAdmin = $derived(connection.userRole === "admin");
+
+  async function loadPathMappingPresets() {
+    try {
+      const res: any = await api.templates.list("path_mapping");
+      const templates = Array.isArray(res) ? res : Array.isArray(res?.templates) ? res.templates : [];
+      pathMappingPresets = templates
+        .map((t: any) => ({
+          id: t.id ?? "",
+          name: t.name ?? "",
+          icon: t.icon ?? "",
+          entries: Array.isArray(t.options?.entries) ? t.options.entries : [],
+        }))
+        .filter((p: PathMappingPreset) => p.entries.length > 0);
+    } catch {
+      pathMappingPresets = [];
+    }
+  }
+
   // Load project presets from server, fall back to hardcoded defaults
   $effect(() => {
     if (!connection.isConnected) return;
@@ -72,6 +100,8 @@
     }).catch(() => {
       // keep fallback presets on error
     });
+
+    loadPathMappingPresets();
   });
 
   let projects = $state<Project[]>([]);
@@ -306,8 +336,53 @@
 
   // Multiparm helpers
   function addPathMapping() {
-    form.pathMappings = [...form.pathMappings, { label: "", entries: [{ platform: "Windows", path: "" }, { platform: "Linux", path: "" }] }];
+    form.pathMappings = [
+      ...form.pathMappings,
+      {
+        label: "",
+        entries: [
+          { platform: "Windows", path: "" },
+          { platform: "macOS", path: "" },
+          { platform: "Linux", path: "" },
+        ],
+      },
+    ];
     expandedSections.pathMappings = true;
+  }
+
+  function applyPathMappingPreset(preset: PathMappingPreset) {
+    // Snapshot: copy the preset's entries into a new mapping row (fully independent)
+    const entries = preset.entries.map((e) => ({ platform: e.platform, path: e.path }));
+    form.pathMappings = [...form.pathMappings, { label: preset.name, entries }];
+    expandedSections.pathMappings = true;
+  }
+
+  async function saveMappingAsPreset(mapping: PathMapping) {
+    const cleanEntries = mapping.entries
+      .map((e) => ({ platform: e.platform.trim(), path: e.path.trim() }))
+      .filter((e) => e.platform && e.path);
+    if (cleanEntries.length === 0) {
+      error = "Add at least one platform + path entry before saving as preset.";
+      return;
+    }
+    const defaultName = mapping.label.trim() || "New Preset";
+    const name = (globalThis.prompt?.("Preset name:", defaultName) ?? "").trim();
+    if (!name) return;
+    try {
+      await api.templates.create({
+        name,
+        type: "path_mapping",
+        category: "Shared Storage",
+        description: "",
+        content: "",
+        options: { entries: cleanEntries },
+        enabled: true,
+      });
+      await loadPathMappingPresets();
+      error = "";
+    } catch (err: any) {
+      error = `Failed to save preset: ${err.message}`;
+    }
   }
 
   function removePathMapping(i: number) {
@@ -456,10 +531,33 @@
           {#if expandedSections.pathMappings}
             <div class="section-body">
               <span class="field-hint">Cross-platform path equivalences (e.g., W:/ on Windows = /mnt/work on Linux)</span>
+              {#if pathMappingPresets.length > 0}
+                <div class="preset-bar">
+                  <span class="preset-label">Presets:</span>
+                  {#each pathMappingPresets as preset (preset.id)}
+                    <button
+                      type="button"
+                      class="preset-chip"
+                      onclick={() => applyPathMappingPreset(preset)}
+                      title={preset.entries.map((e) => `${e.platform}: ${e.path}`).join("\n")}
+                    >
+                      {#if preset.icon}{preset.icon} {/if}{preset.name}
+                    </button>
+                  {/each}
+                </div>
+              {/if}
               {#each form.pathMappings as mapping, i}
                 <div class="multiparm-group">
                   <div class="multiparm-group-header">
                     <input bind:value={mapping.label} placeholder="Label (e.g., Project Root)" class="input-sm" />
+                    {#if isAdmin}
+                      <button
+                        type="button"
+                        class="btn-save-preset"
+                        onclick={() => saveMappingAsPreset(mapping)}
+                        title="Save this mapping as a reusable preset"
+                      >💾 Save</button>
+                    {/if}
                     <button type="button" class="btn-remove" onclick={() => removePathMapping(i)} title="Remove mapping">&times;</button>
                   </div>
                   {#each mapping.entries as entry, j}
@@ -938,6 +1036,21 @@
     flex-shrink: 0;
   }
   .btn-remove:hover { color: var(--status-failed); }
+  .btn-save-preset {
+    font-size: 11px;
+    color: var(--text-muted);
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+  .btn-save-preset:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
   .btn-remove-sm {
     font-size: 16px;
     color: var(--text-muted);
