@@ -60,6 +60,9 @@ pub fn detect_comfyui_paths() -> Vec<DetectedComfyPath> {
     let mut candidates: Vec<PathBuf> = Vec::new();
 
     if let Some(home) = home_dir() {
+        // Prefer subdirectory installs (e.g. ~/AI/ComfyUI) which tend to have proper venvs
+        candidates.push(home.join("AI").join("ComfyUI"));
+        candidates.push(home.join("ai").join("ComfyUI"));
         candidates.push(home.join("ComfyUI"));
         candidates.push(home.join("comfyui"));
         // Common dev/git checkout locations

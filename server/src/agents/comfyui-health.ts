@@ -2,20 +2,28 @@ import type { WebSocketHub } from "../ws/hub.js";
 import type { WorkersRepo } from "../db/workers.repo.js";
 import type { Config } from "../config.js";
 import { logger } from "../utils/logger.js";
-import { enrichWorkersWithLivePresence } from "../utils/worker-status.js";
 import { hostname } from "node:os";
 
 const POLL_INTERVAL_MS = 15_000;
 const FETCH_TIMEOUT_MS = 5_000;
 const COMFYUI_DEFAULT_PORT = 8188;
 
+function isLoopback(ip: string): boolean {
+  return ip === "127.0.0.1" || ip === "::1" || ip.startsWith("127.");
+}
+
+function buildUrl(ip: string, port: number): string {
+  const host = ip.includes(":") ? `[${ip}]` : ip;
+  return `http://${host}:${port}`;
+}
+
 /**
  * Polls ComfyUI HTTP endpoints on every known worker and registers
  * a virtual bridge per worker. Supports any number of machines.
  *
  * - Server-local: polls config.comfyuiUrl (default http://127.0.0.1:8188)
- * - Remote workers: polls http://{worker.lastIp}:8188/system_stats
- * - Each worker gets its own virtual bridge ID: virtual:comfyui:{workerName}
+ * - Remote workers: polls http://{bridge.ip}:8188 for every live bridge connection
+ *   This uses live bridge IPs directly so it works regardless of worker DB status.
  */
 export class ComfyUiHealthChecker {
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -40,7 +48,6 @@ export class ComfyUiHealthChecker {
       clearInterval(this.timer);
       this.timer = null;
     }
-    // Remove all comfyui virtual bridges
     for (const vb of this.hub.getVirtualBridges()) {
       if (vb.program === "comfyui") {
         this.hub.removeVirtualBridge(vb.id);
@@ -54,44 +61,41 @@ export class ComfyUiHealthChecker {
     if (this.running) return;
     this.running = true;
     try {
-      // Build list of endpoints to poll: local + every online worker with a known IP
       const endpoints: Array<{ workerName: string; url: string; machineId?: string; ip: string }> = [];
 
-      // Local server endpoint — resolve machineId from workers repo so dedup works
+      // Always probe local ComfyUI
       const localUrl = String(this.config.comfyuiUrl || `http://127.0.0.1:${COMFYUI_DEFAULT_PORT}`).replace(/\/+$/, "");
       const rawWorkers = this.workersRepo?.list() ?? [];
-      const workers = enrichWorkersWithLivePresence(
-        rawWorkers,
-        this.hub.getBridges(),
-        this.hub.getClients(),
-      );
-      const localWorker = workers.find((w) => w.name.toLowerCase() === this.serverHostname);
+      const localWorker = rawWorkers.find((w) => w.name.toLowerCase() === this.serverHostname);
       endpoints.push({ workerName: this.serverHostname, url: localUrl, ip: "127.0.0.1", machineId: localWorker?.machineId });
 
-      // Remote workers — poll their IP on the default ComfyUI port
-      logger.info("comfyui-health", `Check: ${workers.length} workers in DB, serverHostname=${this.serverHostname}`);
-      for (const w of workers) {
-        logger.info("comfyui-health", `  worker=${w.name} status=${w.status} lastIp=${w.lastIp ?? "(none)"}`);
-        if (w.status !== "online") continue;
-        if (w.name.toLowerCase() === this.serverHostname) continue; // already covered by local
-        const ip = w.lastIp;
-        if (!ip || ip === "127.0.0.1" || ip === "::1") continue; // skip loopback (that's us)
-        const host = ip.includes(":") ? `[${ip}]` : ip; // wrap IPv6 in brackets
+      // Collect unique non-loopback IPs from all live bridge connections.
+      // This works without needing enriched worker status — any machine with
+      // an active bridge connection gets probed for ComfyUI.
+      const seenIps = new Set<string>(["127.0.0.1", "::1"]);
+      for (const bridge of this.hub.getBridges()) {
+        const ip = bridge.ip;
+        if (!ip || isLoopback(ip) || seenIps.has(ip)) continue;
+        // Skip virtual bridges (already registered ComfyUI instances)
+        if (bridge.id?.startsWith("virtual:")) continue;
+        seenIps.add(ip);
+        // Resolve worker identity from the bridge
+        const workerName = bridge.workerName ?? bridge.machineId ?? ip;
+        const machineId = bridge.machineId ?? undefined;
         endpoints.push({
-          workerName: w.name,
-          url: `http://${host}:${COMFYUI_DEFAULT_PORT}`,
-          machineId: w.machineId,
+          workerName,
+          url: buildUrl(ip, COMFYUI_DEFAULT_PORT),
+          machineId,
           ip,
         });
       }
+
       logger.info("comfyui-health", `Probing ${endpoints.length} endpoint(s): ${endpoints.map(e => e.url).join(", ")}`);
 
-      // Poll all endpoints concurrently
       const results = await Promise.allSettled(
         endpoints.map((ep) => this.probe(ep)),
       );
 
-      // Track which virtual bridges are still alive
       const aliveIds = new Set<string>();
       let changed = false;
 
@@ -119,7 +123,7 @@ export class ComfyUiHealthChecker {
         }
       }
 
-      // Remove stale virtual bridges for workers that went offline
+      // Remove stale virtual bridges
       for (const vb of this.hub.getVirtualBridges()) {
         if (vb.program === "comfyui" && !aliveIds.has(vb.id)) {
           logger.info("comfyui-health", `ComfyUI went offline on ${vb.workerName ?? vb.id}`);
@@ -135,7 +139,6 @@ export class ComfyUiHealthChecker {
   }
 
   private async probe(ep: { url: string }): Promise<{ version?: string } | null> {
-    // Try /system_stats first (returns version info), fall back to / (just checks alive)
     for (const path of ["/system_stats", "/"]) {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
