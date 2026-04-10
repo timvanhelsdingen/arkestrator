@@ -146,7 +146,7 @@ export const ApiBridgeConfig = z.object({
   /** Polling configuration for async APIs */
   pollConfig: ApiBridgePollConfig.optional(),
   /** MCP server configuration — if present, this is an MCP bridge */
-  mcpConfig: McpConfig.optional(),
+  mcpConfig: McpConfig.nullish(),
   /** Whether this bridge is active */
   enabled: z.boolean().default(true),
   createdAt: z.string().datetime(),

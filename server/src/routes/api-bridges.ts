@@ -20,7 +20,7 @@ const ApiBridgeCreateSchema = z.object({
   endpoints: z.record(z.string(), z.any()).default({}),
   defaultOptions: z.record(z.string(), z.unknown()).default({}),
   pollConfig: z.any().optional(),
-  mcpConfig: McpConfig.optional(),
+  mcpConfig: McpConfig.nullish(),
   enabled: z.boolean().default(true),
 });
 
