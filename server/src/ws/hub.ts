@@ -2,10 +2,13 @@ import type { ServerWebSocket } from "bun";
 import type { ContextItem, EditorContext } from "@arkestrator/protocol";
 import type { ApiKeyRole } from "../db/apikeys.repo.js";
 import type { WorkersRepo } from "../db/workers.repo.js";
+import type { ApiBridgesRepo } from "../db/api-bridges.repo.js";
+import type { SettingsRepo } from "../db/settings.repo.js";
 import { logger } from "../utils/logger.js";
 import { newId } from "../utils/id.js";
 import { enrichWorkersWithLivePresence } from "../utils/worker-status.js";
 import { ensureLiveWorkersPersisted } from "../utils/live-workers.js";
+import { buildServerWorkerAndBridges } from "../utils/server-worker-bridges.js";
 import { hostname } from "node:os";
 
 export interface WsData {
@@ -72,6 +75,15 @@ export class WebSocketHub {
   private virtualBridges = new Map<string, VirtualBridgeData>();
   /** Server's own hostname, resolved once at startup for stable virtual bridge identity. */
   private readonly serverHostname = hostname().toLowerCase();
+  /**
+   * Optional refs used to synthesize the "Arkestrator Server" virtual worker
+   * and its api-bridge entries in broadcasts. Wired up from index.ts after
+   * construction so WS `bridge_status` / `worker_status` stay consistent with
+   * the REST `/api/workers` response (previously WS omitted these, causing
+   * the server bridge to flicker in/out of the client UI).
+   */
+  private apiBridgesRepo?: ApiBridgesRepo;
+  private settingsRepo?: SettingsRepo;
 
   // --- Secondary indexes for O(1) lookups at scale ---
   /** program (lowercase) → Set of connection IDs. Updated on register/unregister. */
@@ -530,8 +542,25 @@ export class WebSocketHub {
     return false;
   }
 
+  /**
+   * Wire in the ApiBridgesRepo + SettingsRepo so broadcasts can include the
+   * synthetic "Arkestrator Server" worker and its api-bridge entries.
+   */
+  setApiBridgesRepo(repo: ApiBridgesRepo) {
+    this.apiBridgesRepo = repo;
+  }
+  setSettingsRepo(repo: SettingsRepo) {
+    this.settingsRepo = repo;
+  }
+
+  private virtualBridgeProgramsSet(): Set<string> {
+    return new Set(
+      Array.from(this.virtualBridges.values()).map((vb) => vb.program.toLowerCase()),
+    );
+  }
+
   private buildBridgeList() {
-    return this.getBridges().map((b) => {
+    const list: any[] = this.getBridges().map((b) => {
       return {
         id: b.id,
         name: b.name ?? b.id,
@@ -552,6 +581,19 @@ export class WebSocketHub {
         osUser: b.osUser,
       };
     });
+
+    // Append synthetic "Arkestrator Server" api-bridges so WS broadcasts
+    // match the REST `/api/workers` shape.
+    if (this.apiBridgesRepo) {
+      const { bridges: apiBridges } = buildServerWorkerAndBridges({
+        apiBridgesRepo: this.apiBridgesRepo,
+        settingsRepo: this.settingsRepo,
+        virtualBridgePrograms: this.virtualBridgeProgramsSet(),
+      });
+      for (const ab of apiBridges) list.push(ab);
+    }
+
+    return list;
   }
 
   broadcastBridgeStatus() {
@@ -609,7 +651,7 @@ export class WebSocketHub {
     const allWorkers = workersRepo.list(); // Already includes knownPrograms
 
     // Assign each virtual bridge's program to its specific worker
-    const enriched = enrichWorkersWithLivePresence(allWorkers, bridges, clients);
+    const enriched: any[] = enrichWorkersWithLivePresence(allWorkers, bridges, clients);
     for (const vb of this.getVirtualBridges()) {
       const targetWorker = vb.workerName?.toLowerCase() ?? this.serverHostname;
       for (const worker of enriched) {
@@ -618,6 +660,17 @@ export class WebSocketHub {
         }
       }
     }
+
+    // Append synthetic "Arkestrator Server" worker if there are enabled API bridges.
+    if (this.apiBridgesRepo) {
+      const { worker: serverWorker } = buildServerWorkerAndBridges({
+        apiBridgesRepo: this.apiBridgesRepo,
+        settingsRepo: this.settingsRepo,
+        virtualBridgePrograms: this.virtualBridgeProgramsSet(),
+      });
+      if (serverWorker) enriched.push(serverWorker);
+    }
+
     return enriched;
   }
 
