@@ -2,6 +2,7 @@ import type { WebSocketHub } from "../ws/hub.js";
 import type { WorkersRepo } from "../db/workers.repo.js";
 import type { Config } from "../config.js";
 import { logger } from "../utils/logger.js";
+import { enrichWorkersWithLivePresence } from "../utils/worker-status.js";
 import { hostname } from "node:os";
 
 const POLL_INTERVAL_MS = 15_000;
@@ -58,7 +59,12 @@ export class ComfyUiHealthChecker {
 
       // Local server endpoint — resolve machineId from workers repo so dedup works
       const localUrl = String(this.config.comfyuiUrl || `http://127.0.0.1:${COMFYUI_DEFAULT_PORT}`).replace(/\/+$/, "");
-      const workers = this.workersRepo?.list() ?? [];
+      const rawWorkers = this.workersRepo?.list() ?? [];
+      const workers = enrichWorkersWithLivePresence(
+        rawWorkers,
+        this.hub.getBridges(),
+        this.hub.getClients(),
+      );
       const localWorker = workers.find((w) => w.name.toLowerCase() === this.serverHostname);
       endpoints.push({ workerName: this.serverHostname, url: localUrl, ip: "127.0.0.1", machineId: localWorker?.machineId });
 

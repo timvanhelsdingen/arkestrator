@@ -351,7 +351,7 @@ pub fn auto_start_comfyui_if_configured() {
             std::thread::spawn(move || {
                 // Brief delay to let main window initialize
                 std::thread::sleep(std::time::Duration::from_secs(2));
-                match launch_comfyui(comfyui_path, vec![]) {
+                match launch_comfyui(comfyui_path, vec!["--listen".to_string()]) {
                     Ok(msg) => eprintln!("[arkestrator] ComfyUI auto-start: {msg}"),
                     Err(err) => eprintln!("[arkestrator] ComfyUI auto-start failed: {err}"),
                 }
