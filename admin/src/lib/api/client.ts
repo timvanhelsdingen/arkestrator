@@ -860,6 +860,27 @@ export const api = {
         ok: boolean;
         allowClientCoordination: boolean;
       }>,
+    // ── Community skill registry (arkestrator.com) admin controls ──
+    getCommunityAdmin: () =>
+      request("/api/settings/community") as Promise<{
+        agentAutoInstallEnabled: boolean;
+        baseUrl: string;
+        users: Array<{ id: string; username: string; hasSession: boolean }>;
+      }>,
+    setCommunityAgentAutoInstall: (enabled: boolean) =>
+      request("/api/settings/community/agent-auto-install", {
+        method: "PUT",
+        body: JSON.stringify({ enabled }),
+      }) as Promise<{ ok: boolean; agentAutoInstallEnabled: boolean }>,
+    setCommunityBaseUrl: (baseUrl: string | null) =>
+      request("/api/settings/community/base-url", {
+        method: "PUT",
+        body: JSON.stringify({ baseUrl }),
+      }) as Promise<{ ok: boolean; baseUrl: string | null }>,
+    clearCommunityUserSession: (userId: string) =>
+      request(`/api/settings/community/sessions/${encodeURIComponent(userId)}`, {
+        method: "DELETE",
+      }) as Promise<{ ok: boolean }>,
     getTrainingRepositoryPolicy: () =>
       request("/api/settings/training-repository-policy") as Promise<{
         policy: TrainingRepositoryPolicy;

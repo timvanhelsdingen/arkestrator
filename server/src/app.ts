@@ -267,6 +267,7 @@ export function createApp(deps: AppDeps) {
     skillsRepo: deps.skillsRepo,
     skillStore: deps.skillStore,
     apiBridgesRepo: deps.apiBridgesRepo,
+    usersRepo: deps.usersRepo,
   };
   app.route("/mcp", createMcpRoutes(mcpDeps, deps.apiKeysRepo, deps.usersRepo));
 

@@ -58,6 +58,8 @@ export interface McpDeps {
   handoffRepo?: import("../db/handoff.repo.js").HandoffRepo;
   /** API bridges repo for external REST API integrations. */
   apiBridgesRepo?: import("../db/api-bridges.repo.js").ApiBridgesRepo;
+  /** Users repo — needed to look up per-user community session tokens for MCP tools that call arkestrator.com. */
+  usersRepo?: import("../db/users.repo.js").UsersRepo;
 }
 
 const CLIENT_API_ALLOW_PREFIXES = [
@@ -1814,6 +1816,190 @@ export function createMcpServer(deps: McpDeps): McpServer {
       }
       const rateReminder = `\n\n---\n_After using this skill, call \`rate_skill("${slug}", "useful"|"not_useful"|"partial")\` to help improve future recommendations._`;
       return { content: [{ type: "text" as const, text: `# ${skill.title}\n\n${content}${rateReminder}` }] };
+    },
+  );
+
+  // ── Community skill tools (arkestrator.com registry) ────────────────
+  // These let agents search and install skills from the public community
+  // registry during a job, as a fallback when local search_skills returns
+  // nothing relevant. During the free beta phase, any GH-authenticated user
+  // can install. Post-beta, the server-side endpoint enforces subscription
+  // tier checks and returns 402 for non-subscribers.
+
+  server.tool(
+    "search_community_skills",
+    "Search the Arkestrator community skill registry at arkestrator.com. " +
+      "Use this as a FALLBACK only when search_skills returns no relevant local skills for your task. " +
+      "Results include an 'alreadyInstalledLocally' flag — if true, the skill is already available via get_skill with the local slug, so DO NOT call install_community_skill for it. " +
+      "Free for all users. Returns { skills: [{ id, slug, title, description, program, category, alreadyInstalledLocally }], unreachable?: true }. " +
+      "If unreachable is true, the community registry is temporarily offline — proceed with whatever local skills you have.",
+    {
+      query: z.string().describe("Natural language description of the skill or guidance you need"),
+      program: z.string().optional().describe("Filter by bridge program (e.g. 'blender', 'godot', 'houdini')"),
+      limit: z.number().optional().default(10).describe("Max results to return (default 10, max 25)"),
+    },
+    async ({ query, program, limit }) => {
+      const { searchCommunitySkills, resolveCommunityBaseUrl, isAgentCommunityEnabled } = await import("../skills/community-install.js");
+
+      if (!isAgentCommunityEnabled(deps.settingsRepo)) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: JSON.stringify({
+              skills: [],
+              error: "community_disabled",
+              message: "Agent community skill search is disabled on this server. Ask your admin to enable it in the admin panel.",
+            }),
+          }],
+        };
+      }
+
+      const baseUrl = resolveCommunityBaseUrl(deps.settingsRepo);
+      const result = await searchCommunitySkills({
+        baseUrl,
+        query,
+        program,
+        limit: Math.min(Math.max(1, limit ?? 10), 25),
+      });
+
+      // Enrich with alreadyInstalledLocally flag — saves the agent from reinstalling
+      // skills that are already in the local index under source='community'.
+      let enriched = result.skills.map((s) => ({ ...s, alreadyInstalledLocally: false }));
+      if (deps.skillsRepo && result.skills.length > 0) {
+        try {
+          const localCommunity = deps.skillsRepo.listBySource("community");
+          const localSlugs = new Set(localCommunity.map((sk: any) => sk.slug));
+          enriched = result.skills.map((s) => ({
+            ...s,
+            alreadyInstalledLocally: localSlugs.has(s.slug),
+          }));
+        } catch {
+          // Non-fatal — flag is optional
+        }
+      }
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({
+            skills: enriched,
+            ...(result.unreachable ? { unreachable: true } : {}),
+          }),
+        }],
+      };
+    },
+  );
+
+  server.tool(
+    "install_community_skill",
+    "Install a skill from the Arkestrator community registry into the local skill store. " +
+      "Call search_community_skills first to find a candidate id. After install, the skill is immediately available via search_skills and get_skill using the returned local slug. " +
+      "REQUIRES the user to be logged into arkestrator.com via the client Community tab (for usage attribution during the free beta). " +
+      "If installation fails, the response includes a structured error with an 'error' code and 'message' field — relay the message field to the user verbatim. " +
+      "Possible error codes: 'community_disabled' (admin killswitch), 'not_logged_in' (user needs to connect in Community tab), 'sponsorship_required' (post-beta paywall), 'slots_exhausted' (post-beta seat cap), 'not_found', 'unreachable', 'rate_limited'.",
+    {
+      communityId: z.string().describe("The id from search_community_skills results"),
+    },
+    async ({ communityId }) => {
+      const { installCommunitySkill, resolveCommunityBaseUrl, isAgentCommunityEnabled } = await import("../skills/community-install.js");
+
+      if (!isAgentCommunityEnabled(deps.settingsRepo)) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: JSON.stringify({
+              ok: false,
+              error: "community_disabled",
+              message: "Agent community skill install is disabled on this server. Ask your admin to enable it in the admin panel.",
+            }),
+          }],
+          isError: true,
+        };
+      }
+
+      if (!deps.skillsRepo) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: JSON.stringify({
+              ok: false,
+              error: "internal",
+              message: "Skills system not initialized",
+            }),
+          }],
+          isError: true,
+        };
+      }
+
+      // Resolve the acting user from the current job
+      let sessionToken: string | null = null;
+      let actingUserId: string | null = null;
+      if (deps.callerJobId && deps.jobsRepo) {
+        const job = deps.jobsRepo.getById(deps.callerJobId);
+        const submittedBy = (job as any)?.submittedBy ?? null;
+        if (submittedBy && deps.usersRepo) {
+          actingUserId = submittedBy;
+          sessionToken = deps.usersRepo.getCommunitySessionToken(submittedBy);
+        }
+      }
+
+      if (!sessionToken) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: JSON.stringify({
+              ok: false,
+              error: "not_logged_in",
+              message: "You are not logged in to arkestrator.com. Open the Community tab in the Arkestrator client settings and sign in with GitHub to enable agent community skill install.",
+            }),
+          }],
+          isError: true,
+        };
+      }
+
+      const baseUrl = resolveCommunityBaseUrl(deps.settingsRepo);
+      const result = await installCommunitySkill({
+        communityId,
+        baseUrl,
+        sessionToken,
+        agentDriven: true,
+        skillsRepo: deps.skillsRepo,
+        skillIndex: deps.skillIndex,
+        skillStore: deps.skillStore,
+      });
+
+      if (!result.ok) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: JSON.stringify(result),
+          }],
+          isError: true,
+        };
+      }
+
+      // Record usage against the current job so the newly installed skill's
+      // outcome is tied back to the job that chose to install it.
+      if (deps.skillEffectivenessRepo && deps.callerJobId) {
+        try {
+          deps.skillEffectivenessRepo.recordUsageOnce(result.skill.id, deps.callerJobId);
+        } catch {}
+      }
+
+      const betaNote = result.beta ? " (free during beta — will become a paid feature later)" : "";
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({
+            ok: true,
+            slug: result.slug,
+            program: result.program,
+            title: result.skill.title,
+            description: result.skill.description,
+            message: `Installed community skill '${result.slug}' for program '${result.program}'${betaNote}. Call get_skill("${result.slug}") to read its content.`,
+          }),
+        }],
+      };
     },
   );
 

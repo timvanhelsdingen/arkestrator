@@ -4168,5 +4168,136 @@ export function createSettingsGeneralRoutes(deps: SettingsRouteDeps) {
     return c.json({ ok: true, path: (path ?? "").trim() || null, defaultPath: getDefaultProjectDir() });
   });
 
+  // ── Community (arkestrator.com) session token ───────────────────────
+  // Per-user token pushed from the client after GH OAuth login. Used by
+  // MCP tools (search_community_skills, install_community_skill) to
+  // authenticate upstream calls on behalf of the acting user.
+
+  router.put("/community-session", async (c) => {
+    const user = getAuthenticatedUser(c, usersRepo);
+    if (!user) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+
+    let body: any;
+    try {
+      body = await c.req.json();
+    } catch {
+      return errorResponse(c, 400, "Invalid JSON body", "INVALID_JSON");
+    }
+
+    const rawToken = body?.token;
+    const token = rawToken == null || rawToken === ""
+      ? null
+      : (typeof rawToken === "string" ? rawToken.trim() : null);
+    if (rawToken != null && rawToken !== "" && token == null) {
+      return errorResponse(c, 400, "token must be a string or null", "INVALID_INPUT");
+    }
+
+    usersRepo.setCommunitySessionToken(user.id, token);
+
+    auditRepo.log({
+      userId: user.id,
+      username: user.username,
+      action: token ? "community_session_set" : "community_session_cleared",
+      resource: "settings",
+      ipAddress: getClientIp(c),
+    });
+
+    return c.json({ ok: true, hasSession: token != null });
+  });
+
+  router.get("/community-session", async (c) => {
+    const user = getAuthenticatedUser(c, usersRepo);
+    if (!user) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+    const token = usersRepo.getCommunitySessionToken(user.id);
+    // Never return the token itself — just whether one exists.
+    return c.json({ hasSession: token != null });
+  });
+
+  // ── Admin: community feature kill switch, base URL override, dashboard ──
+
+  router.get("/community", async (c) => {
+    const user = requireAdmin(c, usersRepo);
+    if (!user) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+    const agentAutoInstallEnabled = (() => {
+      const raw = settingsRepo.get("community.agentAutoInstallEnabled");
+      if (raw == null) return true;
+      return String(raw).toLowerCase() !== "false";
+    })();
+    const baseUrl = (() => {
+      const raw = settingsRepo.get("community.baseUrl");
+      if (raw && typeof raw === "string" && raw.trim()) return raw.trim();
+      return process.env.ARKESTRATOR_COMMUNITY_BASE_URL?.trim() || "https://arkestrator.com";
+    })();
+    const users = usersRepo.listWithCommunitySession();
+    return c.json({
+      agentAutoInstallEnabled,
+      baseUrl,
+      users,
+    });
+  });
+
+  router.put("/community/agent-auto-install", async (c) => {
+    const user = requireAdmin(c, usersRepo);
+    if (!user) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+    let body: any;
+    try { body = await c.req.json(); } catch { return errorResponse(c, 400, "Invalid JSON body", "INVALID_JSON"); }
+    const { enabled } = body;
+    if (typeof enabled !== "boolean") {
+      return errorResponse(c, 400, "enabled must be a boolean", "INVALID_INPUT");
+    }
+    settingsRepo.set("community.agentAutoInstallEnabled", enabled ? "true" : "false");
+    auditRepo.log({
+      userId: user.id,
+      username: user.username,
+      action: enabled ? "community_agent_auto_install_enabled" : "community_agent_auto_install_disabled",
+      resource: "settings",
+      ipAddress: getClientIp(c),
+    });
+    return c.json({ ok: true, agentAutoInstallEnabled: enabled });
+  });
+
+  router.put("/community/base-url", async (c) => {
+    const user = requireAdmin(c, usersRepo);
+    if (!user) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+    let body: any;
+    try { body = await c.req.json(); } catch { return errorResponse(c, 400, "Invalid JSON body", "INVALID_JSON"); }
+    const raw = body?.baseUrl;
+    const baseUrl = raw == null || raw === "" ? null : String(raw).trim();
+    if (baseUrl != null) {
+      try { new URL(baseUrl); } catch {
+        return errorResponse(c, 400, "baseUrl must be a valid URL or null", "INVALID_INPUT");
+      }
+    }
+    if (baseUrl == null) {
+      settingsRepo.set("community.baseUrl", "");
+    } else {
+      settingsRepo.set("community.baseUrl", baseUrl);
+    }
+    auditRepo.log({
+      userId: user.id,
+      username: user.username,
+      action: baseUrl ? "community_base_url_set" : "community_base_url_cleared",
+      resource: "settings",
+      ipAddress: getClientIp(c),
+    });
+    return c.json({ ok: true, baseUrl: baseUrl ?? null });
+  });
+
+  router.delete("/community/sessions/:userId", async (c) => {
+    const admin = requireAdmin(c, usersRepo);
+    if (!admin) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+    const userId = c.req.param("userId");
+    if (!userId) return errorResponse(c, 400, "userId required", "INVALID_INPUT");
+    usersRepo.setCommunitySessionToken(userId, null);
+    auditRepo.log({
+      userId: admin.id,
+      username: admin.username,
+      action: "community_session_cleared_by_admin",
+      resource: `user:${userId}`,
+      ipAddress: getClientIp(c),
+    });
+    return c.json({ ok: true });
+  });
+
   return router;
 }

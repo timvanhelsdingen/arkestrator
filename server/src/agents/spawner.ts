@@ -211,6 +211,7 @@ export interface SpawnerDeps {
   commandFilterPolicies?: Policy[];
   processPriority?: import("../policies/enforcer.js").ProcessPriorityLevel | null;
   apiBridgesRepo?: import("../db/api-bridges.repo.js").ApiBridgesRepo;
+  usersRepo?: import("../db/users.repo.js").UsersRepo;
 }
 
 /** Resolve the effective job timeout: per-job override → DB override → env/config fallback.
@@ -1433,6 +1434,7 @@ async function runLocalAgenticLoop(
     skillStore: deps.skillStore,
     handoffRepo: deps.handoffRepo,
     apiBridgesRepo: deps.apiBridgesRepo,
+    usersRepo: deps.usersRepo,
   };
   const mcpClient = await createInProcessMcpClient(mcpDeps);
 
@@ -1908,7 +1910,15 @@ export async function spawnAgent(
           "Search AGAIN whenever you hit errors, unexpected results, or need to retry — use the specific problem as the query. " +
           "Do not keep guessing when a skill might already have the answer. " +
           "When you learn something non-trivial (workarounds, error fixes, API quirks, multi-step patterns), " +
-          "create a skill with `create_skill` so future tasks benefit.",
+          "create a skill with `create_skill` so future tasks benefit.\n\n" +
+          "**Community fallback:** if `search_skills` returns no relevant local skills for your task, " +
+          "call `search_community_skills` to check the Arkestrator community registry at arkestrator.com. " +
+          "Each result includes an `alreadyInstalledLocally` flag — if true, the skill is already in the local " +
+          "index and you should call `get_skill` with its local slug instead of reinstalling. " +
+          "If a promising match is NOT already installed, call `install_community_skill` with its id, then " +
+          "`get_skill` with the returned slug. The feature is free during early beta but requires the user to " +
+          "be logged into arkestrator.com via the client Community tab. If install returns an error, read the " +
+          "`message` field and relay it to the user verbatim so they know what action to take.",
         );
       }
 

@@ -15,6 +15,7 @@ import { requireAnyPrincipal, requirePrincipalAccess } from "../middleware/auth.
 import { errorResponse } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
 import { pullBridgeSkills, pullAllBridgeSkills, importSkillsFromGitHub, BRIDGE_REGISTRY_URL, BRIDGE_RAW_BASE_URL } from "../skills/skill-registry.js";
+import { installCommunitySkill, resolveCommunityBaseUrl } from "../skills/community-install.js";
 
 // --- Registry cache (URLs shared with skill-registry.ts) ---
 const REGISTRY_URL = BRIDGE_REGISTRY_URL;
@@ -456,6 +457,8 @@ export function createSkillsRoutes(
   });
 
   // POST /install-community — install a skill from the community (arkestrator.com)
+  // Free, unauthenticated path used by the client UI. For agent-driven installs
+  // with sponsor gating, see the install_community_skill MCP tool in tool-server.ts.
   router.post("/install-community", async (c) => {
     const auth = await requireWriteAccess(c);
     if (!auth) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
@@ -476,81 +479,28 @@ export function createSkillsRoutes(
     }
 
     const { communityId, communityBaseUrl } = parsed.data;
-    const baseUrl = (communityBaseUrl || "https://arkestrator.com").replace(/\/+$/, "");
+    const baseUrl = communityBaseUrl ?? resolveCommunityBaseUrl(settingsRepo);
 
-    // Fetch skill detail from community API
-    let detail: any;
-    try {
-      const res = await fetch(`${baseUrl}/api/skills/${encodeURIComponent(communityId)}`);
-      if (!res.ok) return errorResponse(c, 502, `Community API error: ${res.status}`, "UPSTREAM_ERROR");
-      detail = await res.json();
-    } catch (err: any) {
-      return errorResponse(c, 502, `Failed to reach community API: ${err?.message}`, "UPSTREAM_ERROR");
+    const result = await installCommunitySkill({
+      communityId,
+      baseUrl,
+      agentDriven: false,
+      skillsRepo,
+      skillIndex,
+      skillStore,
+    });
+
+    if (!result.ok) {
+      const status = result.error === "not_found" ? 404
+        : result.error === "unreachable" || result.error === "download_failed" ? 502
+        : 500;
+      return errorResponse(c, status, result.message, "UPSTREAM_ERROR");
     }
 
-    // Fetch SKILL.md content and parse it to extract body + metadata
-    let rawContent: string;
-    try {
-      const res = await fetch(`${baseUrl}/api/skills/${encodeURIComponent(communityId)}/download`);
-      if (!res.ok) return errorResponse(c, 502, `Failed to download skill content: ${res.status}`, "UPSTREAM_ERROR");
-      rawContent = await res.text();
-    } catch (err: any) {
-      return errorResponse(c, 502, `Failed to download skill content: ${err?.message}`, "UPSTREAM_ERROR");
-    }
-
-    // Parse SKILL.md to separate body from frontmatter
-    const { parseSkillFile, skillFileToSkillFields } = await import("../skills/skill-file.js");
-    const parsedSkill = parseSkillFile(rawContent);
-    // Use parsed body (without frontmatter) if available, else fall back to raw
-    const content = parsedSkill ? parsedSkill.body : rawContent;
-    const parsedFields = parsedSkill ? skillFileToSkillFields(parsedSkill) : null;
-
-    let slug = detail.slug || communityId;
-    const program = detail.program || "global";
-
-    // Map community category to valid server categories
-    const VALID_CATEGORIES = ["coordinator", "bridge", "training", "playbook", "verification", "project", "project-reference", "housekeeping", "custom"];
-    const category = VALID_CATEGORIES.includes(detail.category) ? detail.category : "custom";
-
-    // Create on local server
-    try {
-      const skillInput = {
-        name: slug,
-        slug,
-        program,
-        category,
-        title: detail.title || slug,
-        description: detail.description || "",
-        keywords: detail.keywords || [],
-        relatedSkills: parsedFields?.relatedSkills ?? detail.relatedSkills ?? [],
-        content,
-        enabled: true,
-      };
-
-      let skill: any;
-      try {
-        skill = skillStore
-          ? await skillStore.create(skillInput, "community")
-          : skillsRepo.create(skillInput, "community");
-      } catch (err: any) {
-        // Handle slug collision — retry with suffix
-        if (String(err?.message).includes("UNIQUE") || String(err?.message).toLowerCase().includes("exists")) {
-          slug = `${slug}-community`;
-          skillInput.name = slug;
-          skillInput.slug = slug;
-          skill = skillStore
-            ? await skillStore.create(skillInput, "community")
-            : skillsRepo.create(skillInput, "community");
-        } else {
-          throw err;
-        }
-      }
-
-      if (!skillStore) skillIndex.refresh();
-      return c.json({ skill, communityId, slug, program }, 201);
-    } catch (err: any) {
-      return errorResponse(c, 500, err?.message ?? "Failed to install community skill", "INTERNAL_ERROR");
-    }
+    return c.json(
+      { skill: result.skill, communityId: result.communityId, slug: result.slug, program: result.program },
+      201,
+    );
   });
 
   // POST /pull/:program — manually trigger skill pull from bridge repo for a program

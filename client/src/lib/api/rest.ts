@@ -609,6 +609,36 @@ export const api = {
         method: "PUT",
         body: JSON.stringify({ enabled }),
       }),
+    // Community (arkestrator.com) session token — pushed from client after GH login
+    // so the local server can forward it as a Bearer token on MCP community calls.
+    setCommunitySession: (token: string | null) =>
+      request("/api/settings/community-session", {
+        method: "PUT",
+        body: JSON.stringify({ token }),
+      }) as Promise<{ ok: boolean; hasSession: boolean }>,
+    getCommunitySession: () =>
+      request("/api/settings/community-session") as Promise<{ hasSession: boolean }>,
+    // Admin: community kill switch + base URL + per-user session dashboard
+    getCommunityAdmin: () =>
+      request("/api/settings/community") as Promise<{
+        agentAutoInstallEnabled: boolean;
+        baseUrl: string;
+        users: Array<{ id: string; username: string; hasSession: boolean }>;
+      }>,
+    setCommunityAgentAutoInstall: (enabled: boolean) =>
+      request("/api/settings/community/agent-auto-install", {
+        method: "PUT",
+        body: JSON.stringify({ enabled }),
+      }) as Promise<{ ok: boolean; agentAutoInstallEnabled: boolean }>,
+    setCommunityBaseUrl: (baseUrl: string | null) =>
+      request("/api/settings/community/base-url", {
+        method: "PUT",
+        body: JSON.stringify({ baseUrl }),
+      }) as Promise<{ ok: boolean; baseUrl: string | null }>,
+    clearCommunityUserSession: (userId: string) =>
+      request(`/api/settings/community/sessions/${encodeURIComponent(userId)}`, {
+        method: "DELETE",
+      }) as Promise<{ ok: boolean }>,
     getDefaultProjectDir: () =>
       request("/api/settings/default-project-dir") as Promise<{
         path: string | null;

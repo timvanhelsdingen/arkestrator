@@ -1,5 +1,6 @@
 <script lang="ts">
   import { loadSettings, saveSettings, communityApi, type CommunityUser } from "../../api/community";
+  import { api } from "../../api/rest";
   import { toast } from "../../stores/toast.svelte";
   import { open } from "@tauri-apps/plugin-shell";
 
@@ -12,15 +13,41 @@
   let tokenInput = $state("");
   let communityUser = $state<CommunityUser | null>(null);
   let loadingUser = $state(false);
+  let localHasSession = $state(false);
+
+  // Push the community session token to the local Arkestrator server so that
+  // agent MCP tools (search_community_skills, install_community_skill) can
+  // forward it as a Bearer token when calling arkestrator.com. Silent on failure
+  // so users aren't bothered if the feature isn't reachable on the local server.
+  async function pushSessionToLocalServer(token: string | null) {
+    try {
+      const res = await api.settings.setCommunitySession(token);
+      localHasSession = res.hasSession;
+    } catch {
+      // Non-critical — the feature degrades to "not logged in" on the agent side,
+      // but everything else in the Community tab still works.
+    }
+  }
 
   $effect(() => {
     if (settings.authToken && !communityUser) {
       loadingUser = true;
       communityApi.me()
-        .then((u) => { communityUser = u; })
+        .then((u) => {
+          communityUser = u;
+          // Keep the local server in sync whenever we confirm a valid token
+          pushSessionToLocalServer(settings.authToken);
+        })
         .catch(() => { communityUser = null; })
         .finally(() => { loadingUser = false; });
     }
+  });
+
+  // Check local server session state on mount
+  $effect(() => {
+    api.settings.getCommunitySession()
+      .then((res) => { localHasSession = res.hasSession; })
+      .catch(() => { localHasSession = false; });
   });
 
   function save() {
@@ -57,24 +84,33 @@
     }
   }
 
-  function saveToken() {
+  async function saveToken() {
     if (!tokenInput.trim()) return;
     settings.authToken = tokenInput.trim();
     saveSettings(settings);
+    const newToken = tokenInput.trim();
     tokenInput = "";
     // Reload user
     communityUser = null;
     loadingUser = true;
-    communityApi.me()
-      .then((u) => { communityUser = u; toast.success("GitHub account connected"); })
-      .catch(() => { communityUser = null; toast.error("Invalid token"); })
-      .finally(() => { loadingUser = false; });
+    try {
+      const u = await communityApi.me();
+      communityUser = u;
+      await pushSessionToLocalServer(newToken);
+      toast.success("GitHub account connected");
+    } catch {
+      communityUser = null;
+      toast.error("Invalid token");
+    } finally {
+      loadingUser = false;
+    }
   }
 
-  function disconnectAccount() {
+  async function disconnectAccount() {
     settings.authToken = "";
     saveSettings(settings);
     communityUser = null;
+    await pushSessionToLocalServer(null);
     toast.info("GitHub account disconnected");
   }
 </script>
@@ -138,6 +174,36 @@
         />
         <button class="btn" onclick={saveToken} disabled={!tokenInput.trim()}>Save</button>
       </div>
+    {/if}
+  </div>
+</section>
+
+<section>
+  <h3>
+    Agent Auto-Install
+    <span class="beta-badge">BETA</span>
+  </h3>
+  <div class="form-group">
+    <p class="desc">
+      Agents can automatically search and install community skills from arkestrator.com
+      during jobs, as a fallback when local skills don't cover the task. This feature is
+      <strong>free during early access</strong>. When pricing launches later, beta users
+      will receive advance notice.
+    </p>
+    {#if settings.authToken && communityUser && localHasSession}
+      <p class="desc status-ok">
+        ✓ Ready. Agents on this server can use community auto-install.
+      </p>
+    {:else if settings.authToken && communityUser && !localHasSession}
+      <p class="desc status-warn">
+        Your GitHub account is connected, but the local server hasn't received the
+        session token yet. Try refreshing this tab or reconnecting.
+      </p>
+    {:else}
+      <p class="desc status-warn">
+        Agent auto-install requires connecting your GitHub account above. Without
+        a connected account, agents on this server cannot install community skills.
+      </p>
     {/if}
   </div>
 </section>
@@ -251,5 +317,23 @@
   .btn-danger-text:hover {
     text-decoration: underline;
     background: transparent;
+  }
+  .beta-badge {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 2px 6px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    background: var(--accent);
+    color: #fff;
+    border-radius: var(--radius-sm);
+    vertical-align: middle;
+  }
+  .status-ok {
+    color: var(--status-completed, #4ade80);
+  }
+  .status-warn {
+    color: var(--text-muted);
   }
 </style>
