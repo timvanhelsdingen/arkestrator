@@ -41,6 +41,26 @@ export class SkillEffectivenessRepo {
     }
   }
 
+  /**
+   * Record a usage row only if no row already exists for (skillId, jobId).
+   * Use this from any code path that may fire multiple times per job (search,
+   * get, auto-fetch) to avoid inflating usage counts.
+   */
+  recordUsageOnce(skillId: string, jobId: string): void {
+    try {
+      const existing = this.db.prepare(
+        `SELECT id FROM skill_effectiveness WHERE skill_id = ? AND job_id = ? LIMIT 1`,
+      ).get(skillId, jobId);
+      if (existing) return;
+      this.db.prepare(
+        `INSERT INTO skill_effectiveness (id, skill_id, job_id, created_at)
+         VALUES (?, ?, ?, ?)`,
+      ).run(newId(), skillId, jobId, new Date().toISOString());
+    } catch {
+      // Table may not exist yet on older DBs
+    }
+  }
+
   /** Update the outcome for all skill usages associated with a job (fallback for unrated skills). */
   recordOutcome(jobId: string, outcome: string): void {
     try {
@@ -53,12 +73,23 @@ export class SkillEffectivenessRepo {
     }
   }
 
-  /** Update the outcome for a specific skill+job pair (agent self-assessment). */
+  /**
+   * Update the outcome for a specific skill+job pair (agent self-assessment).
+   * Upserts: if no usage row exists yet (e.g. agent rated after only
+   * `search_skills`, or via am CLI), a new row is created so the rating
+   * isn't silently dropped.
+   */
   recordSkillOutcome(skillId: string, jobId: string, outcome: string): void {
     try {
-      this.db.prepare(
+      const res = this.db.prepare(
         `UPDATE skill_effectiveness SET job_outcome = ? WHERE skill_id = ? AND job_id = ?`,
       ).run(outcome, skillId, jobId);
+      if (res.changes === 0) {
+        this.db.prepare(
+          `INSERT INTO skill_effectiveness (id, skill_id, job_id, job_outcome, created_at)
+           VALUES (?, ?, ?, ?, ?)`,
+        ).run(newId(), skillId, jobId, outcome, new Date().toISOString());
+      }
     } catch {
       // Table may not exist
     }
