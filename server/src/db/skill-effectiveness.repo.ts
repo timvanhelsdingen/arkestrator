@@ -197,17 +197,11 @@ export class SkillEffectivenessRepo {
     }
   }
 
-  /** Clear the outcome on a single record (back to pending). Returns true if it was updated. */
-  clearRecordOutcome(recordId: string): boolean {
-    try {
-      const res = this.db.prepare(
-        `UPDATE skill_effectiveness SET job_outcome = NULL WHERE id = ?`,
-      ).run(recordId);
-      return res.changes > 0;
-    } catch {
-      return false;
-    }
-  }
+  // clearRecordOutcome was removed intentionally: leaving a row with
+  // job_outcome = NULL while still counting it as a usage inflates the
+  // phase counter in the ranking algorithm without contributing any
+  // outcome signal. Removing a rating now always deletes the full row
+  // via deleteRecord() so "used" and "rated" stay in sync.
 
   /** List recent usage records for a skill (newest first). */
   listForSkill(skillId: string, limit = 20): SkillEffectivenessRecord[] {

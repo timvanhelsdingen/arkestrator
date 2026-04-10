@@ -1122,8 +1122,10 @@ export function createSkillsRoutes(
     return c.json({ ok: true, deleted, stats, records });
   });
 
-  // DELETE /:slug/effectiveness/:recordId — remove a single rating record (or clear its outcome)
-  // Query: ?mode=delete (default) removes the row entirely; ?mode=clear sets outcome to null
+  // DELETE /:slug/effectiveness/:recordId — remove a single rating record
+  // (full row delete — removes both outcome and the usage counter together
+  // so the phase counter can't be inflated by leftover pending rows).
+  // Any ?mode= query param is ignored for backward compatibility.
   router.delete("/:slug/effectiveness/:recordId", async (c) => {
     const auth = await requireWriteAccess(c);
     if (!auth) return errorResponse(c, 403, "Admin or editCoordinator required", "FORBIDDEN");
@@ -1135,19 +1137,16 @@ export function createSkillsRoutes(
     const slug = c.req.param("slug");
     const recordId = c.req.param("recordId");
     const program = c.req.query("program");
-    const mode = c.req.query("mode") === "clear" ? "clear" : "delete";
 
     const skill = skillIndex.get(slug, program || undefined);
     if (!skill) return errorResponse(c, 404, `Skill not found: ${slug}`, "NOT_FOUND");
 
-    const ok = mode === "clear"
-      ? skillEffectivenessRepo.clearRecordOutcome(recordId)
-      : skillEffectivenessRepo.deleteRecord(recordId);
+    const ok = skillEffectivenessRepo.deleteRecord(recordId);
     if (!ok) return errorResponse(c, 404, `Record not found: ${recordId}`, "NOT_FOUND");
 
     const stats = skillEffectivenessRepo.getStats(skill.id);
     const records = skillEffectivenessRepo.listForSkill(skill.id, 20);
-    return c.json({ ok: true, mode, stats, records });
+    return c.json({ ok: true, stats, records });
   });
 
   // POST /:slug/rate — rate a skill's usefulness for a job (for non-MCP agents via am CLI)
