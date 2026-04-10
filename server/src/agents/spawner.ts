@@ -1852,15 +1852,24 @@ export async function spawnAgent(
     // are available on-demand via search_skills/get_skill MCP tools — the
     // coordinator agent should pull them during execution when needed.
     const allEnabled = deps.skillsRepo.listAll({ enabled: true });
+    // When the user turns verification off for this job, the verification helper
+    // skills have nothing to contribute — injecting them just teaches agents to
+    // rate them "not_useful", polluting their effectiveness stats with ratings
+    // from jobs where the skill never had a chance to help.
+    const verificationDisabled = job.runtimeOptions?.verificationMode === "disabled";
+    const isVerificationSkill = (s: { slug: string; category: string }) =>
+      s.slug === "verification" || s.category === "verification";
     // Only inject auto-fetch skills that match the job's program or are global.
     // Don't inject houdini skills into blender jobs (they'd just get rated negative).
     const autoFetchSkills = allEnabled.filter((s) => {
       if (!s.autoFetch) return false;
+      if (verificationDisabled && isVerificationSkill(s)) return false;
       const sp = s.program.trim().toLowerCase();
       return !sp || sp === "global" || sp === jobProgram;
     });
     const rankedSkillCount = allEnabled.filter((s) => {
       if (s.autoFetch) return false;
+      if (verificationDisabled && isVerificationSkill(s)) return false;
       const sp = s.program.trim().toLowerCase();
       return !sp || sp === "global" || sp === jobProgram;
     }).length;
