@@ -397,6 +397,31 @@ export class UsersRepo {
     }
     return false;
   }
+
+  // --- Community (arkestrator.com) session token ---
+
+  /** Set (or clear with null) the arkestrator.com session token for a user. */
+  setCommunitySessionToken(userId: string, token: string | null): void {
+    this.db
+      .prepare(`UPDATE users SET community_session_token = ?, updated_at = ? WHERE id = ?`)
+      .run(token, new Date().toISOString(), userId);
+  }
+
+  /** Get the user's stored arkestrator.com session token, or null. */
+  getCommunitySessionToken(userId: string): string | null {
+    const row = this.db
+      .prepare(`SELECT community_session_token FROM users WHERE id = ?`)
+      .get(userId) as { community_session_token: string | null } | null;
+    return row?.community_session_token ?? null;
+  }
+
+  /** List users that currently have a stored community session (for admin dashboard). */
+  listWithCommunitySession(): Array<{ id: string; username: string; hasSession: boolean }> {
+    const rows = this.db
+      .prepare(`SELECT id, username, community_session_token FROM users ORDER BY username`)
+      .all() as Array<{ id: string; username: string; community_session_token: string | null }>;
+    return rows.map((r) => ({ id: r.id, username: r.username, hasSession: !!r.community_session_token }));
+  }
 }
 
 function generateSessionToken(): string {

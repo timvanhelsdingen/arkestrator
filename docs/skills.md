@@ -322,6 +322,54 @@ POST /api/skills/import
 
 The admin Skills page includes a registry browser for one-click installation of community skills.
 
+## Community Skills for Agents (BETA)
+
+Agents can autonomously search and install skills from the **Arkestrator community registry** on arkestrator.com as a fallback when `search_skills` returns no relevant local skills for their task. This closes the loop: local skills are always tried first, and if nothing matches, agents reach out to the public catalog, install the best match, and immediately use it — all within a single job.
+
+**Beta status:** this feature is **currently free** for everyone with a GitHub-authenticated arkestrator.com account. It will become a paid feature later (billed via Lemon Squeezy, not GitHub Sponsors), at which point beta users will get advance notice and preferential pricing. Usage is tracked via minimal counters (total install count, last-active timestamp) on the arkestrator.com side so pricing decisions can be grounded in real data rather than guesswork.
+
+### Prerequisites
+
+Before an agent can use this feature, the user running the local Arkestrator server must:
+
+1. Open the desktop client → **Settings → Community tab**
+2. Click **Connect with GitHub** and complete OAuth on arkestrator.com
+3. Paste the returned token back into the client
+
+When they save the token, the client automatically pushes it to the local Arkestrator server (`PUT /api/settings/community-session`), which stores it per-user in the `users.community_session_token` column. The MCP tools then forward it as a `Bearer` token on upstream calls to arkestrator.com.
+
+The admin panel includes a **Community Skills** section under System Settings that shows which users on the server have active community sessions, lets admins disable the feature with a kill switch, override the community base URL (for self-hosted or local testing), and clear individual users' sessions if tokens are leaked or users leave the team.
+
+### MCP Tools
+
+Two new tools are available to agents during jobs:
+
+**`search_community_skills(query, program?, limit?)`** — Free for everyone, no gating. Searches the public community registry via `GET arkestrator.com/api/skills`. Returns summaries (id, slug, title, description, program, category, keywords) plus an **`alreadyInstalledLocally`** flag per result so agents skip re-installing skills they already have. On network failure, returns `{ skills: [], unreachable: true }` for graceful degradation.
+
+**`install_community_skill(communityId)`** — Requires the user's community session token. Hits `POST arkestrator.com/api/skills/:id/agent-install` which enforces authentication and records telemetry. Downloads the SKILL.md, installs it locally with `source: "community"` (handling slug collisions with a `-community` suffix), records usage for effectiveness tracking tied to the current job, and returns the local slug so the agent can immediately call `get_skill`.
+
+Agents are instructed in the "Available Skills" section of the spawner prompt to:
+1. Call `search_skills` first (local)
+2. If nothing relevant, call `search_community_skills` as a fallback
+3. If a promising result is not `alreadyInstalledLocally`, call `install_community_skill`
+4. Read the resulting skill via `get_skill` and use it
+
+### Forward-compatible error handling
+
+The MCP tool's error handling is deliberately forward-compatible: any non-2xx response from arkestrator.com has its JSON body passed through verbatim (with `error` + `message` fields). This means that when the paywall is eventually flipped on and the arkestrator.com endpoint starts returning new error shapes (`subscription_required`, `slots_exhausted`, `rate_limited`, etc.), old beta builds of Arkestrator will automatically relay those messages to users without any client update. The client is a pass-through, not a translator.
+
+### Admin kill switch
+
+Admins can disable this feature server-wide at `Admin → System → Community Skills → Enable agent community auto-install`. When disabled, both MCP tools return `{ error: "community_disabled", message: ... }` and the feature is effectively unavailable until re-enabled.
+
+### Server files
+
+- `server/src/skills/community-install.ts` — shared install helper with forward-compatible error handling (used by both `POST /install-community` HTTP route and the `install_community_skill` MCP tool)
+- `server/src/mcp/tool-server.ts` — MCP tool registration for `search_community_skills` and `install_community_skill`
+- `server/src/routes/settings-general.ts` — `PUT /api/settings/community-session` (per-user), admin community kill-switch/base-url endpoints
+- `server/src/db/users.repo.ts` — `setCommunitySessionToken`, `getCommunitySessionToken`, `listWithCommunitySession`
+- `server/src/agents/spawner.ts` — Available Skills instruction block with community fallback wording
+
 ## Managing Skills
 
 ### Admin Panel

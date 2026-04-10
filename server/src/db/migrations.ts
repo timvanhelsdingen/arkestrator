@@ -466,6 +466,10 @@ const COLUMN_ADDITIONS = [
   // Hash of original repo skill content — null for non-repo skills.
   // When source='repo' and hash(content) !== repo_content_hash, the skill is "modified".
   `ALTER TABLE skills ADD COLUMN repo_content_hash TEXT`,
+  // Per-user session token for arkestrator.com community API calls.
+  // Pushed from the client after GH OAuth login; forwarded as Bearer by MCP tools
+  // (search_community_skills, install_community_skill) when calling upstream.
+  `ALTER TABLE users ADD COLUMN community_session_token TEXT`,
 ];
 
 // Reset any jobs stuck in 'running' state (server crashed while they were active)

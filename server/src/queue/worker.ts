@@ -284,6 +284,7 @@ export class WorkerLoop {
       resourceLeaseManager: this.deps.resourceLeaseManager,
       localLlmGate: this.deps.localLlmGate,
       policiesRepo: this.deps.policiesRepo,
+      usersRepo: this.deps.usersRepo,
       toolRestrictions,
       filePathPolicies,
       commandFilterPolicies,

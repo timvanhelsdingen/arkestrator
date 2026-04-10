@@ -21,6 +21,69 @@
   let policyLoading = $state(false);
   let policySaving = $state(false);
 
+  // ── Community (arkestrator.com) admin controls ──
+  let communityLoading = $state(false);
+  let communitySaving = $state(false);
+  let communityAgentAutoInstall = $state(true);
+  let communityBaseUrl = $state("");
+  let communityBaseUrlInput = $state("");
+  let communityUsers = $state<Array<{ id: string; username: string; hasSession: boolean }>>([]);
+
+  async function loadCommunityAdmin() {
+    if (!auth.isAdmin) return;
+    communityLoading = true;
+    try {
+      const result = await api.settings.getCommunityAdmin();
+      communityAgentAutoInstall = result.agentAutoInstallEnabled;
+      communityBaseUrl = result.baseUrl;
+      communityBaseUrlInput = result.baseUrl;
+      communityUsers = result.users;
+    } catch (err: any) {
+      // Non-critical — feature may not be enabled on this server
+    } finally {
+      communityLoading = false;
+    }
+  }
+
+  async function setCommunityAgentAutoInstallEnabled(enabled: boolean) {
+    communitySaving = true;
+    try {
+      const result = await api.settings.setCommunityAgentAutoInstall(enabled);
+      communityAgentAutoInstall = result.agentAutoInstallEnabled;
+      toast.success(enabled ? "Agent community auto-install enabled" : "Agent community auto-install disabled");
+    } catch (err: any) {
+      toast.error(err?.message ?? "Failed to update community setting");
+    } finally {
+      communitySaving = false;
+    }
+  }
+
+  async function saveCommunityBaseUrl() {
+    communitySaving = true;
+    try {
+      const next = communityBaseUrlInput.trim() || null;
+      const result = await api.settings.setCommunityBaseUrl(next);
+      communityBaseUrl = result.baseUrl ?? "";
+      communityBaseUrlInput = communityBaseUrl;
+      toast.success("Community base URL updated");
+    } catch (err: any) {
+      toast.error(err?.message ?? "Failed to update base URL");
+    } finally {
+      communitySaving = false;
+    }
+  }
+
+  async function clearCommunityUserSession(userId: string, username: string) {
+    if (!confirm(`Clear the community session for ${username}? They will need to re-connect their GitHub account in the client.`)) return;
+    try {
+      await api.settings.clearCommunityUserSession(userId);
+      toast.success(`Cleared session for ${username}`);
+      await loadCommunityAdmin();
+    } catch (err: any) {
+      toast.error(err?.message ?? "Failed to clear session");
+    }
+  }
+
   async function loadConfig() {
     loading = true;
     try {
@@ -83,6 +146,7 @@
 
   // Load on mount
   $effect(() => { loadConfig(); });
+  $effect(() => { loadCommunityAdmin(); });
 
   // ── Danger Zone state ──
   let showResetModal = $state(false);
@@ -321,6 +385,80 @@
                 <p class="muted">Loading...</p>
               {:else if policySaving}
                 <p class="muted">Saving...</p>
+              {/if}
+            </div>
+          {/if}
+
+          {#if auth.isAdmin}
+            <div class="policy-section">
+              <h3>Community Skills (arkestrator.com)
+                <span class="beta-badge">BETA</span>
+              </h3>
+              <p class="hint">
+                Agents can automatically search and install community skills from arkestrator.com
+                during jobs. The feature is free during early access. Per-user GitHub auth still
+                happens in each client's Community tab — this panel is server-wide policy and visibility.
+              </p>
+
+              <label class="toggle-label">
+                <input
+                  type="checkbox"
+                  checked={communityAgentAutoInstall}
+                  onchange={(e) => setCommunityAgentAutoInstallEnabled((e.target as HTMLInputElement).checked)}
+                  disabled={communityLoading || communitySaving}
+                />
+                <span>Enable agent community auto-install on this server</span>
+              </label>
+
+              <div class="setting" style="margin-top:12px;">
+                <label for="communityBaseUrl">Community Base URL</label>
+                <p class="hint">Defaults to https://arkestrator.com. Override for testing against a local or self-hosted instance.</p>
+                <div style="display:flex; gap:8px; align-items:center;">
+                  <input
+                    id="communityBaseUrl"
+                    type="text"
+                    placeholder="https://arkestrator.com"
+                    bind:value={communityBaseUrlInput}
+                    style="flex:1;"
+                  />
+                  <button class="btn-primary" onclick={saveCommunityBaseUrl} disabled={communitySaving || communityBaseUrlInput.trim() === communityBaseUrl}>
+                    Save
+                  </button>
+                </div>
+              </div>
+
+              {#if communityUsers.length > 0}
+                <div class="setting" style="margin-top:16px;">
+                  <h4 style="margin:0 0 8px;">Per-User Community Sessions</h4>
+                  <p class="hint">
+                    Users on this server with a stored arkestrator.com GitHub session.
+                    Clear a session if a user leaves or their token is compromised.
+                  </p>
+                  <table class="community-users-table">
+                    <thead>
+                      <tr><th>Username</th><th>Status</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                      {#each communityUsers as user}
+                        <tr>
+                          <td>{user.username}</td>
+                          <td>
+                            {#if user.hasSession}
+                              <span class="status-ok">Connected</span>
+                            {:else}
+                              <span class="status-none">Not connected</span>
+                            {/if}
+                          </td>
+                          <td>
+                            {#if user.hasSession}
+                              <button class="btn-small" onclick={() => clearCommunityUserSession(user.id, user.username)}>Clear session</button>
+                            {/if}
+                          </td>
+                        </tr>
+                      {/each}
+                    </tbody>
+                  </table>
+                </div>
               {/if}
             </div>
           {/if}
@@ -758,5 +896,53 @@
     font-size: var(--font-size-xs);
     color: var(--text-secondary);
     padding: 2px 0;
+  }
+
+  .beta-badge {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 2px 6px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    background: var(--accent, #006d77);
+    color: #fff;
+    border-radius: 4px;
+    vertical-align: middle;
+  }
+  .community-users-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--font-size-sm);
+    margin-top: 8px;
+  }
+  .community-users-table th,
+  .community-users-table td {
+    padding: 8px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  .community-users-table th {
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
+  .community-users-table .status-ok {
+    color: var(--status-completed, #4ade80);
+  }
+  .community-users-table .status-none {
+    color: var(--text-muted);
+  }
+  .btn-small {
+    padding: 4px 10px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    font-size: var(--font-size-xs);
+    cursor: pointer;
+  }
+  .btn-small:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
   }
 </style>
