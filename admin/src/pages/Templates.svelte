@@ -4,6 +4,8 @@
   import { toast } from "../lib/stores/toast.svelte";
   import Modal from "../lib/components/ui/Modal.svelte";
 
+  interface PathMappingEntry { platform: string; path: string; }
+
   interface Template {
     id: string;
     type: string;
@@ -13,6 +15,7 @@
     description: string | null;
     content: string;
     icon: string | null;
+    options: Record<string, any> | null;
     sortOrder: number;
     enabled: boolean;
     verificationMode: string | null;
@@ -22,12 +25,13 @@
     updatedAt: string;
   }
 
-  type TabType = "chat" | "project" | "job_preset";
+  type TabType = "chat" | "project" | "job_preset" | "path_mapping";
 
   const tabs: { key: TabType; label: string }[] = [
     { key: "chat", label: "Chat Prompts" },
     { key: "project", label: "Project Prompts" },
     { key: "job_preset", label: "Job Presets" },
+    { key: "path_mapping", label: "Path Mappings" },
   ];
 
   let activeTab = $state<TabType>("chat");
@@ -52,7 +56,16 @@
     verificationMode: "none",
     verificationWeight: 1,
     bridgeExecutionMode: "normal",
+    pathEntries: [] as PathMappingEntry[],
   });
+
+  function addPathEntry() {
+    form.pathEntries = [...form.pathEntries, { platform: "", path: "" }];
+  }
+
+  function removePathEntry(i: number) {
+    form.pathEntries = form.pathEntries.filter((_, j) => j !== i);
+  }
 
   let filtered = $derived(templates.filter((t) => t.type === activeTab));
 
@@ -99,12 +112,20 @@
       verificationMode: "none",
       verificationWeight: 1,
       bridgeExecutionMode: "normal",
+      pathEntries: activeTab === "path_mapping"
+        ? [
+            { platform: "Windows", path: "" },
+            { platform: "macOS", path: "" },
+            { platform: "Linux", path: "" },
+          ]
+        : [],
     };
     showModal = true;
   }
 
   function openEdit(t: Template) {
     editingId = t.id;
+    const rawEntries = (t.options?.entries as PathMappingEntry[] | undefined) ?? [];
     form = {
       name: t.name,
       type: t.type,
@@ -118,6 +139,7 @@
       verificationMode: t.verificationMode ?? "none",
       verificationWeight: t.verificationWeight ?? 1,
       bridgeExecutionMode: t.bridgeExecutionMode ?? "normal",
+      pathEntries: rawEntries.map((e) => ({ platform: e.platform ?? "", path: e.path ?? "" })),
     };
     showModal = true;
   }
@@ -150,6 +172,19 @@
         payload.verificationMode = form.verificationMode;
         payload.verificationWeight = form.verificationWeight;
         payload.bridgeExecutionMode = form.bridgeExecutionMode;
+      }
+
+      if (form.type === "path_mapping") {
+        const cleanEntries = form.pathEntries
+          .map((e) => ({ platform: e.platform.trim(), path: e.path.trim() }))
+          .filter((e) => e.platform && e.path);
+        if (cleanEntries.length === 0) {
+          toast.error("Add at least one platform + path entry");
+          saving = false;
+          return;
+        }
+        payload.options = { entries: cleanEntries };
+        payload.content = ""; // path_mapping templates don't use content
       }
 
       if (editingId) {
@@ -260,7 +295,13 @@
                     {/if}
                     <span>{t.name}</span>
                   </td>
-                  <td class="desc-cell">{t.description ?? ""}</td>
+                  <td class="desc-cell">
+                    {#if t.type === "path_mapping" && t.options?.entries}
+                      {(t.options.entries as PathMappingEntry[]).map((e) => `${e.platform}: ${e.path}`).join(" | ")}
+                    {:else}
+                      {t.description ?? ""}
+                    {/if}
+                  </td>
                   <td>{t.subcategory ?? ""}</td>
                   <td class="num-cell">{t.sortOrder}</td>
                   <td>
@@ -314,10 +355,36 @@
       <input type="text" bind:value={form.description} placeholder="Brief description" />
     </label>
 
-    <label class="field">
-      <span class="label">Content</span>
-      <textarea bind:value={form.content} rows="8" placeholder="Template content / prompt text"></textarea>
-    </label>
+    {#if form.type !== "path_mapping"}
+      <label class="field">
+        <span class="label">Content</span>
+        <textarea bind:value={form.content} rows="8" placeholder="Template content / prompt text"></textarea>
+      </label>
+    {:else}
+      <div class="field">
+        <span class="label">Platform Paths</span>
+        <div class="path-entries">
+          {#each form.pathEntries as entry, i}
+            <div class="path-row">
+              <input
+                type="text"
+                class="path-platform"
+                bind:value={entry.platform}
+                placeholder="Platform (Windows, macOS, Linux)"
+              />
+              <input
+                type="text"
+                class="path-value"
+                bind:value={entry.path}
+                placeholder="/path/on/this/platform"
+              />
+              <button type="button" class="btn secondary small" onclick={() => removePathEntry(i)}>&times;</button>
+            </div>
+          {/each}
+          <button type="button" class="btn secondary small" onclick={addPathEntry}>+ Add Entry</button>
+        </div>
+      </div>
+    {/if}
 
     <div class="row-3">
       <label class="field">
@@ -630,5 +697,24 @@
     justify-content: flex-end;
     gap: 8px;
     margin-top: 8px;
+  }
+
+  .path-entries {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .path-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+  .path-platform {
+    width: 180px;
+    flex-shrink: 0;
+  }
+  .path-value {
+    flex: 1;
+    font-family: var(--font-mono);
   }
 </style>

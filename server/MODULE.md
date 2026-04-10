@@ -56,7 +56,7 @@ src/
 | `usage.repo.ts` | Token usage stats per job. **Per-user aggregation**: `getByUserIdSince(userId, since)` returns `{ totalInput, totalOutput, jobCount }` for token budget checking. |
 | `dependencies.repo.ts` | Job dependency edges: add, remove, getDependencies, getDependents, getBlockingDeps |
 | `headless-programs.repo.ts` | Headless CLI program registry (blender, godot, houdini). CRUD + `getByProgram()`. Template-based args with `{{SCRIPT}}`, `{{SCRIPT_FILE}}`, `{{PROJECT_PATH}}` placeholders. |
-| `templates.repo.ts` | Prompt template CRUD for `prompt_templates` table. Types: `chat`, `project`, `job_preset`. Methods: `create()`, `getById()`, `list(filters?)` (type/category/enabled), `update()`, `delete()`, `listCategories(type?)`, `slugExists(slug, excludeId?)`. Auto-generates slugs from names. Options stored as JSON. |
+| `templates.repo.ts` | Prompt template CRUD for `prompt_templates` table. Types: `chat`, `project`, `job_preset`, `path_mapping`. Methods: `create()`, `getById()`, `list(filters?)` (type/category/enabled), `update()`, `delete()`, `listCategories(type?)`, `slugExists(slug, excludeId?)`. Auto-generates slugs from names. Options stored as JSON. `path_mapping` templates store `{ entries: [{ platform, path }, ...] }` in `options` (content is empty). |
 | `api-bridges.repo.ts` | SQLite CRUD for `api_bridges` table. Methods: `create()`, `getById()`, `list()`, `update()`, `delete()`, `getByName()`. Stores API bridge configurations with name, type (preset/custom), base URL, auth credentials (JSON), actions (JSON), preset ID, and enabled flag. |
 
 ### Job Queue SQL (pickNext)
