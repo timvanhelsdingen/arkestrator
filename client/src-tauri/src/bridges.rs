@@ -18,6 +18,11 @@ pub struct InstalledBridge {
     pub version: String,
     pub install_path: String,
     pub installed_at: String,
+    /// Relative paths (under install_path) of every file extracted during
+    /// install. Optional for back-compat with pre-0.1.76 entries — when
+    /// absent, uninstall falls back to a recursive "arkestrator" name scan.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub files: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -316,7 +321,7 @@ pub async fn fetch_bridge_registry(repo: String, force_refresh: Option<bool>) ->
 pub async fn download_and_install_bridge(
     download_url: String,
     install_path: String,
-) -> Result<(), String> {
+) -> Result<Vec<String>, String> {
     let expanded = expand_path(&install_path);
     let dest = PathBuf::from(&expanded);
 
@@ -404,7 +409,11 @@ pub async fn download_and_install_bridge(
         })
     };
 
-    // Extract files — strip common prefix and place directly into dest
+    // Extract files — strip common prefix and place directly into dest.
+    // Track every file (not directory) we extract so uninstall can remove
+    // exactly what was installed, even when living in a shared directory
+    // alongside unrelated user files.
+    let mut installed_files: Vec<String> = Vec::new();
     for i in 0..archive.len() {
         let mut file = archive
             .by_index(i)
@@ -453,10 +462,12 @@ pub async fn download_and_install_bridge(
                     let _ = fs::set_permissions(&out_path, fs::Permissions::from_mode(mode));
                 }
             }
+
+            installed_files.push(relative.to_string_lossy().replace('\\', "/"));
         }
     }
 
-    Ok(())
+    Ok(installed_files)
 }
 
 // ─── Program Detection ──────────────────────────────────────────────────
@@ -706,6 +717,7 @@ pub fn save_bridge_installation(
     version: String,
     install_path: String,
     install_type: Option<String>,
+    files: Option<Vec<String>>,
 ) -> Result<(), String> {
     let path = bridges_state_path()?;
     let mut state: InstalledBridgesFile = fs::read_to_string(&path)
@@ -732,6 +744,7 @@ pub fn save_bridge_installation(
         version,
         install_path: expanded,
         installed_at: now_iso(),
+        files,
     });
 
     // Write
@@ -746,60 +759,119 @@ pub fn save_bridge_installation(
     Ok(())
 }
 
+/// Recursively remove any filesystem entry whose path contains "arkestrator"
+/// (case-insensitive) in any component. Used as a fallback for pre-0.1.76
+/// installs that don't have a tracked file list.
+fn recursive_remove_arkestrator(dir: &std::path::Path) -> u32 {
+    let mut removed = 0u32;
+    let entries = match fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return 0,
+    };
+    for entry in entries.flatten() {
+        let p = entry.path();
+        let name = entry.file_name().to_string_lossy().to_lowercase();
+        if name.contains("arkestrator") {
+            if p.is_dir() {
+                if fs::remove_dir_all(&p).is_ok() {
+                    removed += 1;
+                }
+            } else if fs::remove_file(&p).is_ok() {
+                removed += 1;
+            }
+            continue;
+        }
+        if p.is_dir() {
+            removed += recursive_remove_arkestrator(&p);
+        }
+    }
+    removed
+}
+
+/// Remove empty ancestor directories up to (but not including) `stop_at`.
+fn prune_empty_dirs(mut dir: PathBuf, stop_at: &std::path::Path) {
+    while dir.starts_with(stop_at) && dir != stop_at {
+        match fs::read_dir(&dir) {
+            Ok(mut it) => {
+                if it.next().is_some() {
+                    return;
+                }
+            }
+            Err(_) => return,
+        }
+        if fs::remove_dir(&dir).is_err() {
+            return;
+        }
+        if !dir.pop() {
+            return;
+        }
+    }
+}
+
 #[tauri::command]
 pub fn uninstall_bridge(bridge_id: String, install_path: String) -> Result<(), String> {
     let expanded = expand_path(&install_path);
     let target = PathBuf::from(&expanded);
 
-    // If the target directory name contains "arkestrator", it's bridge-owned and
-    // can be deleted entirely.  Otherwise it's a shared directory (e.g. Fusion's
-    // Config/ or Houdini's packages/) — remove only arkestrator-specific entries
-    // inside it instead of wiping the whole thing.
+    // Look up the tracking entry first — we need its `files` list (if any)
+    // to know exactly what to remove from shared directories.
+    let state_path = bridges_state_path()?;
+    let mut state: InstalledBridgesFile = fs::read_to_string(&state_path)
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or(InstalledBridgesFile { installed: Vec::new() });
+
+    let tracked = state
+        .installed
+        .iter()
+        .find(|b| b.id == bridge_id && b.install_path == expanded)
+        .cloned();
+
     if target.exists() {
         let is_bridge_owned = target
             .file_name()
             .and_then(|n| n.to_str())
             .map(|n| n.to_lowercase().contains("arkestrator"))
             .unwrap_or(false);
+
         if is_bridge_owned {
-            fs::remove_dir_all(&target)
-                .map_err(|e| format!("Failed to remove {}: {e}", target.display()))?;
-        } else {
-            // Shared directory — selectively remove arkestrator files/subdirs
-            let mut removed = 0u32;
-            if let Ok(entries) = fs::read_dir(&target) {
-                for entry in entries.flatten() {
-                    let name = entry.file_name().to_string_lossy().to_lowercase();
-                    if name.contains("arkestrator") {
-                        let p = entry.path();
-                        if p.is_dir() {
-                            let _ = fs::remove_dir_all(&p);
-                        } else {
-                            let _ = fs::remove_file(&p);
-                        }
-                        removed += 1;
-                    }
+            // Bridge-owned directory: delete it entirely.
+            if let Err(e) = fs::remove_dir_all(&target) {
+                eprintln!("[bridges] uninstall: failed to remove {}: {e}", target.display());
+            }
+        } else if let Some(files) = tracked.as_ref().and_then(|t| t.files.as_ref()) {
+            // Shared directory with a tracked file list: remove exactly those
+            // files, then prune any now-empty ancestor dirs up to target.
+            for rel in files {
+                let p = target.join(rel);
+                if p.exists() {
+                    let _ = fs::remove_file(&p);
+                }
+                if let Some(parent) = p.parent() {
+                    prune_empty_dirs(parent.to_path_buf(), &target);
                 }
             }
+        } else {
+            // Fallback for old installs without a tracked file list:
+            // recursively scan for any path component containing "arkestrator".
+            let removed = recursive_remove_arkestrator(&target);
             if removed == 0 {
-                return Err(format!(
-                    "No arkestrator files found in shared directory {}",
+                eprintln!(
+                    "[bridges] uninstall: no arkestrator files found under {}",
                     target.display()
-                ));
+                );
             }
         }
     }
 
-    // Remove from tracking
-    let state_path = bridges_state_path()?;
-    if let Ok(raw) = fs::read_to_string(&state_path) {
-        if let Ok(mut state) = serde_json::from_str::<InstalledBridgesFile>(&raw) {
-            state.installed.retain(|b| b.id != bridge_id);
-            let content = serde_json::to_string_pretty(&state)
-                .map_err(|e| format!("JSON error: {e}"))?;
-            let _ = fs::write(&state_path, format!("{content}\n"));
-        }
-    }
+    // Always remove the tracking entry, even if filesystem cleanup was a
+    // no-op. Leaving a stale entry means the UI gets stuck showing a bridge
+    // as "installed" with no way to uninstall it.
+    state
+        .installed
+        .retain(|b| !(b.id == bridge_id && b.install_path == expanded));
+    let content = serde_json::to_string_pretty(&state).map_err(|e| format!("JSON error: {e}"))?;
+    let _ = fs::write(&state_path, format!("{content}\n"));
 
     Ok(())
 }

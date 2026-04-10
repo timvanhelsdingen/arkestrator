@@ -60,6 +60,11 @@
   }
 
   function hasUpdate(bridge: BridgeEntry): boolean {
+    // Per-project bridges are tied to specific project folders — the cached
+    // "installed" entry reflects only the most recently touched project, so
+    // a global "update available" signal is meaningless. Users re-add to each
+    // project explicitly via "Add to Project".
+    if (bridge.installType === "project") return false;
     const iv = getInstalledVersion(bridge.id);
     return iv !== null && iv !== bridge.version;
   }
@@ -185,7 +190,7 @@
     installSuccess = { ...installSuccess, [bridge.id]: "" };
 
     try {
-      await invoke("download_and_install_bridge", {
+      const files = await invoke<string[]>("download_and_install_bridge", {
         downloadUrl: bridge.downloadUrl,
         installPath: targetPath,
       });
@@ -194,6 +199,7 @@
         version: bridge.version,
         installPath: targetPath,
         installType: bridge.installType,
+        files,
       });
       await loadInstalled();
       installSuccess = { ...installSuccess, [bridge.id]: `Installed to ${targetPath}` };
@@ -260,7 +266,7 @@
 
       try {
         const targetPath = inst.installPath;
-        await invoke("download_and_install_bridge", {
+        const files = await invoke<string[]>("download_and_install_bridge", {
           downloadUrl: bridge.downloadUrl,
           installPath: targetPath,
         });
@@ -269,6 +275,7 @@
           version: bridge.version,
           installPath: targetPath,
           installType: bridge.installType,
+          files,
         });
         installSuccess = { ...installSuccess, [bridge.id]: `Updated to v${bridge.version}` };
       } catch (e: any) {
@@ -346,9 +353,6 @@
             {#if isInstalling}
               <button class="btn" disabled>Installing...</button>
             {:else if isInstalled && bridge.installType === "project"}
-              {#if updateAvailable}
-                <button class="btn" onclick={() => openInstallDialog(bridge)}>Update</button>
-              {/if}
               <button class="btn secondary" onclick={() => openInstallDialog(bridge)}>Add to Project</button>
             {:else if isInstalled && updateAvailable}
               <button class="btn" onclick={() => openInstallDialog(bridge)}>Update</button>
