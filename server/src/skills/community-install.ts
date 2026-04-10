@@ -17,7 +17,16 @@ import type { SkillsRepo, Skill } from "../db/skills.repo.js";
 import type { SkillStore } from "./skill-store.js";
 import type { SkillIndex } from "./skill-index.js";
 import { parseSkillFile, skillFileToSkillFields } from "./skill-file.js";
+import { validateSkill } from "./skill-validator.js";
 import { logger } from "../utils/logger.js";
+
+/**
+ * Hard cap on community skill body size. 256 KB is well above every
+ * legitimate SKILL.md we've seen and cheap to enforce; without this a
+ * hostile or buggy upstream could stuff the local DB with megabytes of
+ * content per call.
+ */
+const MAX_COMMUNITY_SKILL_BYTES = 256 * 1024;
 
 const VALID_CATEGORIES = [
   "coordinator",
@@ -164,6 +173,13 @@ async function fetchCommunitySkill(opts: CommunityInstallOptions): Promise<
       relatedSkills: Array.isArray(body.relatedSkills) ? body.relatedSkills : undefined,
     };
     const content = String(body.content ?? "");
+    if (content.length > MAX_COMMUNITY_SKILL_BYTES) {
+      return {
+        ok: false,
+        error: "content_too_large",
+        message: `Community skill content is ${content.length} bytes — exceeds the ${MAX_COMMUNITY_SKILL_BYTES}-byte limit.`,
+      };
+    }
     // The content from agent-install may or may not have frontmatter;
     // try parsing and fall back to raw.
     const parsed = parseSkillFile(content);
@@ -221,6 +237,14 @@ async function fetchCommunitySkill(opts: CommunityInstallOptions): Promise<
     };
   }
 
+  if (rawContent.length > MAX_COMMUNITY_SKILL_BYTES) {
+    return {
+      ok: false,
+      error: "content_too_large",
+      message: `Community skill content is ${rawContent.length} bytes — exceeds the ${MAX_COMMUNITY_SKILL_BYTES}-byte limit.`,
+    };
+  }
+
   const parsed = parseSkillFile(rawContent);
   const parsedFields = parsed ? skillFileToSkillFields(parsed) : null;
   const content = parsed ? parsed.body : rawContent;
@@ -273,6 +297,24 @@ export async function installCommunitySkill(
     content,
     enabled: true,
   };
+
+  // Reject obviously broken community skills (empty content, invalid regex
+  // keywords, etc.) before they hit the DB. Warnings are allowed but logged.
+  const validation = validateSkill(skillInput as any, (s) => opts.skillIndex?.get(s) != null);
+  const validationErrors = validation.issues.filter((i) => i.severity === "error");
+  if (validationErrors.length > 0) {
+    return {
+      ok: false,
+      error: "invalid_content",
+      message: `Community skill failed validation: ${validationErrors.map((i) => i.message).join("; ")}`,
+    };
+  }
+  if (validation.issues.some((i) => i.severity === "warning")) {
+    logger.warn(
+      "community-install",
+      `Installed ${slug} with warnings: ${validation.issues.filter((i) => i.severity === "warning").map((i) => i.message).join("; ")}`,
+    );
+  }
 
   try {
     let skill: Skill;
@@ -367,26 +409,58 @@ export async function searchCommunitySkills(opts: {
 
 /**
  * Resolve the configured community base URL.
- * Priority: env var > server_settings key > default.
+ *
+ * Priority: server_settings key > env var > default.
+ *
+ * The admin setting wins over the env var on purpose — operators edit it
+ * via the UI and reasonably expect that value to be authoritative.
+ *
+ * Only `https:` URLs are accepted to prevent session tokens from travelling
+ * in the clear; a badly-configured override silently falls back to the
+ * default instead of downgrading the channel. `http://localhost` and
+ * `http://127.0.0.1` are allowed for local development.
  */
 export function resolveCommunityBaseUrl(
   settingsRepo?: { get(key: string): string | null | undefined },
 ): string {
-  const envUrl = process.env.ARKESTRATOR_COMMUNITY_BASE_URL?.trim();
-  if (envUrl) return normalizeBaseUrl(envUrl);
+  const defaultUrl = "https://arkestrator.com";
+  const isSafeUrl = (candidate: string): boolean => {
+    try {
+      const parsed = new URL(candidate);
+      if (parsed.protocol === "https:") return true;
+      if (parsed.protocol === "http:" && (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1")) return true;
+      return false;
+    } catch {
+      return false;
+    }
+  };
   const settingUrl = settingsRepo?.get("community.baseUrl");
-  if (settingUrl && typeof settingUrl === "string") return normalizeBaseUrl(settingUrl);
-  return "https://arkestrator.com";
+  if (settingUrl && typeof settingUrl === "string" && settingUrl.trim()) {
+    const candidate = normalizeBaseUrl(settingUrl.trim());
+    if (isSafeUrl(candidate)) return candidate;
+    logger.warn("community-install", `Ignoring community.baseUrl="${candidate}" — must be https (or http://localhost).`);
+  }
+  const envUrl = process.env.ARKESTRATOR_COMMUNITY_BASE_URL?.trim();
+  if (envUrl) {
+    const candidate = normalizeBaseUrl(envUrl);
+    if (isSafeUrl(candidate)) return candidate;
+    logger.warn("community-install", `Ignoring ARKESTRATOR_COMMUNITY_BASE_URL="${candidate}" — must be https (or http://localhost).`);
+  }
+  return defaultUrl;
 }
 
 /**
  * Check whether agent community auto-install is enabled on this server.
- * Default: enabled.
+ *
+ * Default: **disabled**. This feature sends per-user bearer tokens to an
+ * external origin and injects third-party content into agent prompts, so
+ * operators must explicitly opt in via the admin Community panel (or by
+ * setting `community.agentAutoInstallEnabled = "true"` directly).
  */
 export function isAgentCommunityEnabled(
   settingsRepo?: { get(key: string): string | null | undefined },
 ): boolean {
   const raw = settingsRepo?.get("community.agentAutoInstallEnabled");
-  if (raw == null) return true; // default enabled
-  return String(raw).toLowerCase() !== "false";
+  if (raw == null) return false; // default disabled — explicit opt-in required
+  return String(raw).toLowerCase() === "true";
 }

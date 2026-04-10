@@ -652,9 +652,14 @@ async function main() {
     logger.info("server", "Cleaned expired sessions");
   }, 60 * 60 * 1000);
 
-  // 8. Create skill index (shared between worker and app)
-  const skillIndex = new SkillIndex(() =>
-    materializeSkills({ skillsRepo }),
+  // 8. Create skill index (shared between worker and app).
+  // The index uses settingsRepo to read admin-tuned ranking config at
+  // score time and skillEffectivenessRepo to compute effectiveness per
+  // skill — both are passed in so rankForJob actually takes effect.
+  const skillIndex = new SkillIndex(
+    () => materializeSkills({ skillsRepo }),
+    settingsRepo,
+    skillEffectivenessRepo,
   );
 
   // 8a. Create SkillStore (dual-write: SQLite + SKILL.md on disk)

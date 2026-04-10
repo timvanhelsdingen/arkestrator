@@ -37,7 +37,7 @@ Skills marked `autoFetch: true` are unconditionally injected into every job that
 - **Verification helper skills** (slug `verification` or category `verification`) — *skipped* when the job has `runtimeOptions.verificationMode === "disabled"`, since the skill has no chance to help and agents will only end up rating it `not_useful`
 - Any custom skill explicitly marked as auto-fetch
 
-Auto-fetch skills appear under a `## Coordinator Knowledge` section in the system prompt. Each skill gets a `### Title [program]` header followed by its content, capped at 4,000 characters per skill.
+Auto-fetch skills appear under a `## Coordinator Knowledge` section in the system prompt, sorted by `priority` DESC so coordinators (90) come before bridges (70) before custom auto-fetch skills. Duplicate slugs (e.g. a `global` skill colliding with a program-specific override) collapse into whichever has the higher priority. Each skill gets a `### Title [program]` header followed by its content, capped at 4,000 characters per skill and 15,000 characters for the whole section. Truncation is markdown-aware — it never cuts inside a code fence and will close any open ``` block before the cut, so agents never see half-written code. The "Job & Skill Feedback" prompt lists the slugs that were actually injected (after verification-disabled filtering and content-budget truncation), so the agent can't be asked to rate a slug that never made it into the prompt.
 
 ### Tier 2: On-Demand (MCP tool search)
 
@@ -53,11 +53,24 @@ The `SkillIndex.rankForJob()` method scores each skill using a weighted combinat
 
 | Component       | Weight | Description                                           |
 |-----------------|--------|-------------------------------------------------------|
-| Lexical score   | 50%    | Fraction of query tokens found in the skill's index   |
+| Lexical score   | 50%    | Field-weighted BM25-flavoured score with IDF          |
 | Semantic score  | 30%    | Cosine similarity of 48-dimensional hash vectors      |
-| Effectiveness   | 20%    | Success rate adjusted by usage confidence              |
+| Effectiveness   | 20%    | Success rate adjusted by graduated-confidence phase   |
 
-The semantic vectors use a locality-sensitive hashing approach: tokens and 4-character n-grams are hashed into a fixed-size vector, then cosine similarity measures the overlap. This is fast (no external embedding model) and works well for DCC-specific terminology.
+**Lexical scoring** is not "fraction of query tokens hit" — it's a BM25 variant with per-field weights and inverse-document-frequency:
+
+- Title tokens count 3.5×, keywords 3.0×, description 2.0×, content 1.0×.
+- Each matched term contributes `idf(term) × tf_saturation(term, doc)` where `tf_saturation` uses `k1 = 1.2`, `b = 0.6` with the skill's weighted token length normalised against the corpus average.
+- The total is divided by the query's best-case contribution so the score is comparable across queries of different lengths.
+- Short DCC terms (`ui`, `api`, `2d`, `rgb`, `fx`, `hdr`, `pbr`, `sss`, etc.) are allowlisted through the 3-character minimum so they stay rankable.
+
+**Semantic scoring** uses a locality-sensitive hash vector: tokens and 4-character n-grams are hashed into a 48-dim vector and cosine similarity measures overlap. It's correlated with lexical but catches near-synonyms and substring overlaps that the BM25 term match misses.
+
+**Effectiveness** uses the graduated-confidence model below. It is driven by a dedicated SQL aggregate (`getRankingInfoForAllSkills()`) that counts only rows with a non-null outcome as "rated". Pending rows — e.g. from `search_skills` touches the agent never fetched — do **not** advance the phase counter. Before this, `ratedCount` was never populated and every skill stayed locked in exploration at a constant 0.6 regardless of history.
+
+**Priority + program bonuses.** On top of the weighted combination, the scorer adds up to ±0.05 from the skill's `priority` field (so admin-curated skills tie-break correctly) and +0.03 for any skill whose program matches the job's bridge (so a `blender`-specific skill edges out an equivalent `global` one on Blender jobs).
+
+**Shared scorer.** Both the MCP `search_skills` tool (on-demand search) and the spawner's auto-fetch ranker go through the same `scoreSkill()` pipeline and read the same ranking config from `server_settings`, so the admin "Ranking Tuning" sliders actually take effect at the agent level. Previously `search()` hardcoded `0.65 / 0.35` weights and ignored effectiveness entirely — the agent and the admin UI saw two different ranking systems.
 
 ## Skill Categories
 
@@ -120,14 +133,16 @@ Created through the admin panel or API. Users can set any category, priority, an
 
 ## Effectiveness Tracking
 
-Usage is recorded whenever an agent touches a skill through any of these paths:
+Usage is recorded whenever an agent actually loads a skill's content during a job:
 
-- `search_skills` MCP tool — records a usage row for each returned result (lightweight "seen" tracking so rate_skill has a row to update even when the agent acts on title+description without fetching content)
 - `get_skill` MCP tool — records usage on fetch
-- Auto-fetch at spawn time — records usage for every skill injected into the Coordinator Knowledge section
-- `GET /api/skills/:slug` and `POST /api/skills/search` REST routes — record usage when called with an `X-Job-Id` header (this is what the `am` CLI sends, so CLI-path skill access is tracked too)
+- Auto-fetch at spawn time — records usage for every skill whose content was actually injected into the Coordinator Knowledge section (not the full filter list — verification-disabled skills and content-budget overflow are filtered out first)
+- `GET /api/skills/:slug` REST route with an `X-Job-Id` header — the `am` CLI path
+- `retarget_job` MCP tool — records usage for newly-loaded skills after a mid-job program retarget
 
-All paths use `recordUsageOnce(skillId, jobId)` which is idempotent per (skill, job) pair — multiple code paths touching the same skill in one job won't inflate counts.
+**`search_skills` deliberately does NOT record usage for its returned results.** Previously it stamped every result as "seen" on the assumption the agent might act on title+description alone, but that inflated effectiveness counts and — worse — let the `rate_job` fallback stamp an outcome onto skills the agent never actually opened. Usage is now only recorded when the agent commits to inspecting the content.
+
+All paths use `recordUsageOnce(skillId, jobId)`, which is an `INSERT OR IGNORE` against a `UNIQUE(skill_id, job_id)` index — safe under concurrent MCP calls from parallel agents. Before this release, idempotency depended on a racy SELECT-then-INSERT that could double-insert under load.
 
 `rate_skill` is an **UPSERT**: if an agent rates a skill but no usage row exists yet (e.g. rated after only `search_skills` on an older code path, or via `am skills rate` CLI), `recordSkillOutcome` creates a new row with the outcome so the rating is never silently dropped.
 
@@ -362,7 +377,17 @@ The MCP tool's error handling is deliberately forward-compatible: any non-2xx re
 
 ### Admin kill switch
 
-Admins can disable this feature server-wide at `Admin → System → Community Skills → Enable agent community auto-install`. When disabled, both MCP tools return `{ error: "community_disabled", message: ... }` and the feature is effectively unavailable until re-enabled.
+This feature is **disabled by default**. Operators must explicitly enable it at `Admin → System → Community Skills → Enable agent community auto-install` because it sends per-user bearer tokens to an external origin and installs third-party content into agent prompts. The kill switch now gates **both** the MCP tools AND the `POST /install-community` REST route used by the client UI — when disabled, every install path (agent or human) is blocked with `error: "community_disabled"` until re-enabled.
+
+### Hardening
+
+The community install pipeline (client UI + agent MCP) enforces:
+
+- **Size cap:** 256 KB hard limit on the downloaded SKILL.md body. Oversized payloads are rejected with `error: "content_too_large"`.
+- **Semantic validation:** every install runs through `validateSkill()` before touching the DB. Empty content, invalid regex keywords, and other error-severity issues are rejected with `error: "invalid_content"` instead of being silently written.
+- **HTTPS only:** the community base URL must be `https://` (loopback `http://localhost` and `http://127.0.0.1` are allowed for local dev). Non-HTTPS overrides are rejected at the admin PUT endpoint and ignored by `resolveCommunityBaseUrl()`.
+- **No caller-supplied base URL:** `POST /install-community` no longer accepts `communityBaseUrl` in the request body — the server always resolves it from config. This closes an authenticated SSRF vector where any user with write access could force the server to fetch from an arbitrary host.
+- **Resolution priority:** `server_settings community.baseUrl` > `ARKESTRATOR_COMMUNITY_BASE_URL` env var > default. The admin UI is authoritative over the env var.
 
 ### Server files
 

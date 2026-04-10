@@ -161,6 +161,17 @@ export async function pullBridgeSkills(
   // Use the dir from the registry entry (e.g. "api/meshy") or fall back to program name
   const bridgeDir = bridge?.dir ?? normalized;
 
+  // Shared skip check: locked or user-sourced skills are never overwritten,
+  // and bridge-repo/repo skills whose content hash has drifted from the
+  // upstream (i.e. someone edited them in the admin panel) are preserved
+  // via upsertRepoSkill, which updates metadata only.
+  const isProtectedFromFullOverwrite = (existing: { source: string; locked: boolean } | null): boolean => {
+    if (!existing) return false;
+    if (existing.locked) return true;
+    if (existing.source === "user") return true;
+    return false;
+  };
+
   // 3. Try to fetch coordinator.md regardless of registry entry
   const baseUrl = `${BRIDGE_RAW_BASE}/${bridgeDir}`;
   try {
@@ -168,13 +179,14 @@ export async function pullBridgeSkills(
     if (coordinatorRes.ok) {
       const rawCoordinator = await coordinatorRes.text();
       if (rawCoordinator.trim()) {
-        // Don't overwrite user-edited skills
+        // Don't overwrite user-edited or locked skills
         const existing = skillsRepo.getAny?.(`${normalized}-coordinator`, normalized);
-        if (!existing || existing.source !== "user") {
+        if (!isProtectedFromFullOverwrite(existing as any)) {
           // Try to parse as SKILL.md format to extract version
           const parsedCoord = parseSkillFile(rawCoordinator);
           const coordContent = parsedCoord ? parsedCoord.body : rawCoordinator;
           const coordVersion = parsedCoord?.frontmatter.version;
+          const repoContentHash = Bun.hash(coordContent).toString(16);
           const input = {
             name: `${normalized}-coordinator`,
             slug: `${normalized}-coordinator`,
@@ -189,15 +201,22 @@ export async function pullBridgeSkills(
             priority: 70,
             autoFetch: true,
             enabled: true,
+            repoContentHash,
             ...(coordVersion !== undefined && { version: coordVersion }),
           };
+          // upsertRepoSkill preserves content when the user has edited it
+          // (detected via repoContentHash drift) while still refreshing
+          // metadata like title/description/keywords/priority.
+          skillsRepo.upsertRepoSkill(input);
           if (skillStore) {
-            await skillStore.upsertBySlugAndProgram(input);
-          } else {
-            skillsRepo.upsertBySlugAndProgram(input);
+            // Let the store re-materialize the disk copy for the metadata change.
+            const refreshed = skillsRepo.getAny(`${normalized}-coordinator`, normalized);
+            if (refreshed) await skillStore.upsertBySlugAndProgram({ ...refreshed, source: refreshed.source });
           }
           pulled++;
           logger.info("skill-registry", `Pulled coordinator for ${normalized} from bridge repo`);
+        } else {
+          logger.debug("skill-registry", `Skipped coordinator for ${normalized}: user-owned or locked`);
         }
       }
     }
@@ -218,9 +237,12 @@ export async function pullBridgeSkills(
         const rawContent = await skillRes.text();
         if (!rawContent.trim()) continue;
 
-        // Don't overwrite user-edited skills
+        // Don't overwrite user-edited or locked skills
         const existing = skillsRepo.getAny?.(skillEntry.slug, normalized);
-        if (existing && existing.source === "user") continue;
+        if (isProtectedFromFullOverwrite(existing as any)) {
+          logger.debug("skill-registry", `Skipped bridge skill ${skillEntry.slug}: user-owned or locked`);
+          continue;
+        }
 
         // Try to parse as SKILL.md format to extract version and body
         const parsed = parseSkillFile(rawContent);
@@ -248,12 +270,17 @@ export async function pullBridgeSkills(
           priority: 50,
           autoFetch: isCoordinator || isVerification,
           enabled: true,
+          repoContentHash: Bun.hash(content).toString(16),
           ...(skillVersion !== undefined && { version: skillVersion }),
         };
+        // upsertRepoSkill preserves content when the user has edited it
+        // (detected via repoContentHash drift); otherwise it upserts
+        // normally. This closes the gap where a user-modified bridge
+        // skill with source="bridge-repo" would get clobbered on re-pull.
+        skillsRepo.upsertRepoSkill(skillInput);
         if (skillStore) {
-          await skillStore.upsertBySlugAndProgram(skillInput);
-        } else {
-          skillsRepo.upsertBySlugAndProgram(skillInput);
+          const refreshed = skillsRepo.getAny(skillEntry.slug, normalized);
+          if (refreshed) await skillStore.upsertBySlugAndProgram({ ...refreshed, source: refreshed.source });
         }
         pulled++;
         logger.info("skill-registry", `Pulled skill ${skillEntry.slug} for ${normalized}`);

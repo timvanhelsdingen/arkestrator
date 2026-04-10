@@ -4191,6 +4191,11 @@ export function createSettingsGeneralRoutes(deps: SettingsRouteDeps) {
     if (rawToken != null && rawToken !== "" && token == null) {
       return errorResponse(c, 400, "token must be a string or null", "INVALID_INPUT");
     }
+    // Bound the token length so the DB row can't be stuffed with megabytes
+    // of payload by a misbehaving client.
+    if (token != null && token.length > 4096) {
+      return errorResponse(c, 400, "token exceeds 4096 chars", "INVALID_INPUT");
+    }
 
     usersRepo.setCommunitySessionToken(user.id, token);
 
@@ -4264,8 +4269,16 @@ export function createSettingsGeneralRoutes(deps: SettingsRouteDeps) {
     const raw = body?.baseUrl;
     const baseUrl = raw == null || raw === "" ? null : String(raw).trim();
     if (baseUrl != null) {
-      try { new URL(baseUrl); } catch {
+      let parsed: URL;
+      try { parsed = new URL(baseUrl); } catch {
         return errorResponse(c, 400, "baseUrl must be a valid URL or null", "INVALID_INPUT");
+      }
+      // Reject anything that would downgrade session-token traffic to clear
+      // text. Local-dev loopbacks over http:// are allowed so contributors
+      // can point at a local arkestrator.com stand-in.
+      const isLoopback = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1";
+      if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && isLoopback)) {
+        return errorResponse(c, 400, "baseUrl must be https:// (http:// is only allowed for localhost)", "INVALID_INPUT");
       }
     }
     if (baseUrl == null) {

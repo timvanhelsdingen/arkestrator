@@ -242,9 +242,13 @@ export function createApp(deps: AppDeps) {
     ),
   );
 
-  // Skills system — unified lazy-loaded prompt context
-  const skillIndex = deps.skillIndex ?? new SkillIndex(() =>
-    materializeSkills({ skillsRepo: deps.skillsRepo }),
+  // Skills system — unified lazy-loaded prompt context. The index needs the
+  // settings + effectiveness repos so ranking config and effectiveness stats
+  // are actually applied at search time (rankForJob).
+  const skillIndex = deps.skillIndex ?? new SkillIndex(
+    () => materializeSkills({ skillsRepo: deps.skillsRepo }),
+    deps.settingsRepo,
+    deps.skillEffectivenessRepo,
   );
   app.route("/api/skills", createSkillsRoutes(deps.skillsRepo, skillIndex, deps.usersRepo, deps.apiKeysRepo, deps.settingsRepo, deps.workersRepo, deps.skillEffectivenessRepo, deps.config.coordinatorPlaybooksDir, deps.skillStore));
 

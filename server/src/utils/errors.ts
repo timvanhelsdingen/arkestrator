@@ -23,7 +23,9 @@ export type ErrorCode =
   | "INTERNAL"
   | "INTERNAL_ERROR"
   | "UPSTREAM_ERROR"
-  | "UNAVAILABLE";
+  | "UNAVAILABLE"
+  | "LOCKED"
+  | "COMMUNITY_DISABLED";
 
 /**
  * Return a structured error response with { error, code }.

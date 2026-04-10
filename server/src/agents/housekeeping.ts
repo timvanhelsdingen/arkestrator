@@ -364,6 +364,10 @@ export async function processHousekeepingOutput(
         // Disable an existing skill
         const existing = skillsRepo.get(slug, skillProgram);
         if (existing) {
+          if (existing.locked) {
+            logger.warn("housekeeping", `Skipped disable: skill "${slug}" (${skillProgram}) is locked`);
+            continue;
+          }
           if (skillStore) {
             await skillStore.update(slug, { enabled: false }, skillProgram);
           } else {
@@ -381,6 +385,10 @@ export async function processHousekeepingOutput(
         // Update an existing skill's content
         const existing = skillsRepo.get(slug, skillProgram);
         if (existing) {
+          if (existing.locked) {
+            logger.warn("housekeeping", `Skipped update: skill "${slug}" (${skillProgram}) is locked`);
+            continue;
+          }
           const updateData = {
             content: body || undefined,
             title: title !== slug ? title : undefined,
@@ -423,6 +431,10 @@ export async function processHousekeepingOutput(
       if (!body) continue;
       const existing = skillsRepo.get(slug, skillProgram);
       if (existing) {
+        if (existing.locked) {
+          logger.warn("housekeeping", `Skipped overwrite: skill "${slug}" (${skillProgram}) is locked`);
+          continue;
+        }
         const updateData = {
           content: body,
           title,
