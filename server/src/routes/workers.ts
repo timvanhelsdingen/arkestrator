@@ -12,6 +12,7 @@ import { errorResponse } from "../utils/errors.js";
 import { getWorkerRule, updateWorkerRule } from "../security/worker-rules.js";
 import { enrichWorkersWithLivePresence } from "../utils/worker-status.js";
 import { ensureLiveWorkersPersisted } from "../utils/live-workers.js";
+import { buildServerWorkerAndBridges } from "../utils/server-worker-bridges.js";
 import {
   checkWorkerLocalLlmHealth,
   resolveWorkerLocalLlmEndpoint,
@@ -111,49 +112,19 @@ export function createWorkerRoutes(
       }
     }
 
-    // Inject a virtual "Server" worker for cloud API bridges (Meshy, Stability, etc.)
-    // Exclude bridges that are already tracked as virtual bridges in the hub (e.g. ComfyUI)
-    // since those show under the machine worker where they run.
-    const enabledApiBridges = apiBridgesRepo?.listEnabled() ?? [];
+    // Inject a virtual "Arkestrator Server" worker + api-bridge entries for
+    // cloud API bridges (Meshy, Stability, etc.). Shared with the WS hub so
+    // REST and WS broadcasts stay consistent.
     const virtualBridgePrograms = new Set(
       hub.getVirtualBridges().map((vb) => vb.program.toLowerCase()),
     );
-    const serverOnlyBridges = enabledApiBridges.filter(
-      (ab) => !virtualBridgePrograms.has(ab.name.toLowerCase()),
-    );
-    if (serverOnlyBridges.length > 0) {
-      const serverName = "Arkestrator Server";
-      const now = new Date().toISOString();
-      const apiBridgePrograms = serverOnlyBridges.map((b) => b.displayName);
-
-      enriched.push({
-        id: "server-worker",
-        name: serverName,
-        status: "online",
-        activeBridgeCount: serverOnlyBridges.length,
-        knownPrograms: apiBridgePrograms,
-        workerModeEnabled: true,
-        isServerWorker: true,
-        firstSeenAt: now,
-        lastSeenAt: now,
-        rule: getWorkerRule(settingsRepo, serverName),
-      });
-
-      for (const ab of serverOnlyBridges) {
-        const hasKey = !!apiBridgesRepo!.getApiKey(ab.id);
-        bridgeList.push({
-          id: `api-bridge:${ab.name}`,
-          name: ab.displayName,
-          type: "bridge",
-          connected: ab.enabled && hasKey,
-          lastSeen: ab.updatedAt,
-          program: ab.displayName,
-          bridgeVersion: "api-bridge",
-          workerName: serverName,
-          connectedAt: ab.enabled && hasKey ? ab.updatedAt : undefined,
-        });
-      }
-    }
+    const { worker: serverWorker, bridges: serverApiBridges } = buildServerWorkerAndBridges({
+      apiBridgesRepo,
+      settingsRepo,
+      virtualBridgePrograms,
+    });
+    if (serverWorker) enriched.push(serverWorker as any);
+    for (const ab of serverApiBridges) bridgeList.push(ab);
 
     return c.json({ workers: enriched, bridges: bridgeList });
   });

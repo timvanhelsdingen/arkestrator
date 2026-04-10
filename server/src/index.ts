@@ -592,6 +592,14 @@ async function main() {
 
   // 5. Create infrastructure
   const hub = new WebSocketHub();
+  // Wire API bridges + settings into the hub so WS `bridge_status` /
+  // `worker_status` broadcasts include the synthetic "Arkestrator Server"
+  // worker and its api-bridge entries, matching the REST `/api/workers`
+  // shape. Without this the server bridge flickers in/out of the client UI
+  // on every unrelated bridge event (editor context update, bridge command,
+  // heartbeat sweep, etc.).
+  hub.setApiBridgesRepo(apiBridgesRepo);
+  hub.setSettingsRepo(settingsRepo);
   const skillsPulledThisSession = new Set<string>(); // tracks which programs had skills pulled this session
   const processTracker = new ProcessTracker(() =>
     settingsRepo.getNumber("job_timeout_ms") ?? config.jobTimeoutMs
