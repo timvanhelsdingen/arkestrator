@@ -498,12 +498,19 @@
   }
 
   /**
-   * Router for ReferencePicker selections.
-   * Workers/bridges update selection state via chatStore (no inline tag — the
-   * machine dropdown is the source of truth). Contexts and skills insert an
-   * inline reference that downstream extractors/renderers already understand:
-   *   - context → `@N [program:name]` (same format ChatContextPanel emits)
-   *   - skill   → `/skill:slug` (handled by extractSkillTags on submit)
+   * Router for ReferencePicker selections. Goal: make it easy to tell the
+   * agent which worker/bridge/context/skill to use.
+   *
+   *   - worker  → setSelectedWorkers([name]) (routes job to that worker;
+   *               the Machines dropdown is visible feedback, no inline tag)
+   *   - bridge  → setSelectedWorkers([workerName]) AND insert
+   *               `/bridge:workerName/bridgeName` inline. The worker update
+   *               routes the job; the inline tag tells the agent *which*
+   *               bridge to address on that worker (important when a worker
+   *               hosts multiple bridges, e.g. Blender + Godot on one box).
+   *   - context → insert `@N [program:name]` (same format ChatContextPanel
+   *               emits, already handled by server-side extractors)
+   *   - skill   → insert `/skill:slug` (handled by extractSkillTags on submit)
    */
   function onReferenceSelect(item: PickerItem, opts: { trailingSpace: boolean }) {
     const cursor = textarea?.selectionStart ?? promptText.length;
@@ -514,9 +521,8 @@
     if (item.kind === "worker") {
       chatStore.setSelectedWorkers([item.name]);
     } else if (item.kind === "bridge") {
-      // Narrow to the bridge's worker. Per-bridge selection doesn't exist yet
-      // in chatStore; worker-level is the closest existing concept.
       chatStore.setSelectedWorkers([item.workerName]);
+      insertion = formatBridgeReference(item);
     } else if (item.kind === "context") {
       insertion = formatContextReference(item);
     } else if (item.kind === "skill") {
@@ -546,6 +552,19 @@
     if (program && name) return `@${idx} [${program}:${name}]`;
     if (name) return `@${idx} [${name}]`;
     return `@${idx}`;
+  }
+
+  /**
+   * Format a bridge tag the agent reads inline from the prompt. Prefer the
+   * DCC program name (blender/godot/houdini) since it's more meaningful than
+   * auto-generated bridge names and usually unique per worker. Falls back to
+   * the bridge's name when no program is set. Spaces in names get collapsed
+   * to hyphens so the tag survives tokenization.
+   */
+  function formatBridgeReference(item: Extract<PickerItem, { kind: "bridge" }>): string {
+    const worker = item.workerName.trim().replace(/\s+/g, "-");
+    const identifier = (item.program.trim() || item.bridgeName.trim()).replace(/\s+/g, "-");
+    return `/bridge:${worker}/${identifier}`;
   }
 
   const SKILL_TAG_RE = /\/skill:([a-zA-Z0-9_-]+)/g;
