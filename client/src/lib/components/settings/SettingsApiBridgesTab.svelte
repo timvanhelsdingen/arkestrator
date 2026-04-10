@@ -422,7 +422,7 @@
     try {
       const path = comfySavedPath || comfySelectedPath || comfyCustomPath;
       if (!path) throw new Error("No ComfyUI path configured");
-      const msg = await invoke<string>("launch_comfyui", { comfyuiPath: path, extraArgs: [] as string[] });
+      const msg = await invoke<string>("launch_comfyui", { comfyuiPath: path, extraArgs: ["--listen"] });
       comfySuccess = msg;
       comfyRunning = true;
       setTimeout(() => comfyTestConnection(), 5000);
