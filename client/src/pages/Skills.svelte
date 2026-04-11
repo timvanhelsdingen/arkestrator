@@ -8,6 +8,9 @@
   import PublishModal from "../lib/components/community/PublishModal.svelte";
   import LocalSkillCard from "../lib/components/skills/LocalSkillCard.svelte";
   import type { SkillEntry, SkillEffectiveness } from "../lib/types/skills";
+  import { nav } from "../lib/stores/navigation.svelte";
+  import { jobs } from "../lib/stores/jobs.svelte";
+  import { toast } from "../lib/stores/toast.svelte";
 
   const canManage = $derived(connection.canEditCoordinator || connection.userRole === "admin");
   const isAdmin = $derived(connection.userRole === "admin");
@@ -428,6 +431,43 @@
     } catch (err: any) {
       alert(`Failed to delete rating: ${err?.message ?? err}`);
     }
+  }
+
+  // Jump from a skill rating row to the job that produced it.
+  // The rating page doesn't preload archived/trashed lists, so we do a single
+  // GET to find out which bucket the job lives in and auto-switch viewMode.
+  // Permanently deleted jobs just surface a friendly toast — nothing to open.
+  async function openJobFromRating(jobId: string) {
+    try {
+      const job = (await api.jobs.get(jobId)) as { id: string; archivedAt?: string; deletedAt?: string } | null;
+      if (!job) {
+        toast.error("Job no longer exists");
+        return;
+      }
+      if (job.deletedAt) {
+        jobs.viewMode = "trash";
+      } else if (job.archivedAt) {
+        jobs.viewMode = "archived";
+      } else {
+        jobs.viewMode = "active";
+      }
+      jobs.selectedId = job.id;
+      nav.current = "jobs";
+    } catch (err: any) {
+      const msg = String(err?.message ?? err);
+      if (msg.includes("404") || /not.?found/i.test(msg)) {
+        toast.error("Job has been permanently deleted");
+      } else {
+        toast.error(`Failed to open job: ${msg}`);
+      }
+    }
+  }
+
+  function formatRatedDate(iso?: string): string {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    return d.toLocaleString();
   }
 
   function closeSkillView() {
@@ -1277,8 +1317,19 @@
               <strong>Recent Feedback ({skillViewFeedback.length}):</strong>
               {#each skillViewFeedback as fb}
                 <div class="feedback-entry" style="padding: 4px 0; border-bottom: 1px solid var(--border); font-size: var(--font-size-sm); display: flex; align-items: center; gap: 6px;">
-                  <span class="badge {fb.jobOutcome === 'positive' || fb.jobOutcome === 'good' ? 'success' : fb.jobOutcome === 'negative' || fb.jobOutcome === 'poor' ? 'bad' : fb.jobOutcome ? 'warn' : 'muted'}">{fb.jobOutcome ?? "pending"}</span>
-                  {#if fb.jobId}<span class="mono mini muted" title={fb.jobId}>job {fb.jobId.slice(0, 8)}</span>{/if}
+                  <span
+                    class="badge {fb.jobOutcome === 'positive' || fb.jobOutcome === 'good' ? 'success' : fb.jobOutcome === 'negative' || fb.jobOutcome === 'poor' ? 'bad' : fb.jobOutcome ? 'warn' : 'muted'}"
+                    title={fb.createdAt ? `Rated on ${formatRatedDate(fb.createdAt)}` : ""}
+                  >{fb.jobOutcome ?? "pending"}</span>
+                  {#if fb.jobId}
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-sm mono mini"
+                      style="padding: 0 4px; height: auto; min-height: 0; color: var(--accent);"
+                      title={`Open job ${fb.jobId}`}
+                      onclick={() => openJobFromRating(fb.jobId!)}
+                    >job {fb.jobId.slice(0, 8)}</button>
+                  {/if}
                   {#if fb.relevance}<span class="muted" style="margin-left: 6px;">relevance: {fb.relevance}</span>{/if}
                   {#if fb.accuracy}<span class="muted" style="margin-left: 6px;">accuracy: {fb.accuracy}</span>{/if}
                   {#if fb.completeness}<span class="muted" style="margin-left: 6px;">completeness: {fb.completeness}</span>{/if}
