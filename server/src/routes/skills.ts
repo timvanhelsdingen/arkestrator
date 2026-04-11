@@ -1274,6 +1274,7 @@ export function createSkillsRoutes(
     const program = body?.program;
     const rating = body?.rating; // "useful" | "not_useful" | "partial"
     const jobId = body?.jobId || c.req.header("x-job-id");
+    const notes = typeof body?.notes === "string" ? body.notes : null;
 
     if (!rating || !jobId) {
       return errorResponse(c, 400, "Missing required fields: rating, jobId", "INVALID_INPUT");
@@ -1288,7 +1289,7 @@ export function createSkillsRoutes(
 
     const outcomeMap: Record<string, string> = { useful: "positive", not_useful: "negative", partial: "average", positive: "positive", negative: "negative", average: "average" };
     const outcome = outcomeMap[rating] || "average";
-    skillEffectivenessRepo.recordSkillOutcome(skill.id, jobId, outcome);
+    skillEffectivenessRepo.recordSkillOutcome(skill.id, jobId, outcome, notes);
 
     return c.json({ ok: true, slug, rating, outcome });
   });

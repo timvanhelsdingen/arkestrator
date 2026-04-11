@@ -6,6 +6,7 @@ export interface SkillEffectivenessRecord {
   skillId: string;
   jobId: string;
   jobOutcome: string | null;
+  ratingNotes: string | null;
   createdAt: string;
 }
 
@@ -114,17 +115,26 @@ export class SkillEffectivenessRepo {
    * Upserts: if no usage row exists yet (e.g. agent rated after only
    * `search_skills`, or via am CLI), a new row is created so the rating
    * isn't silently dropped.
+   *
+   * Optional `notes` captures the agent's short reason for the rating so the
+   * UI can show *why* a skill was marked useful/partial/not_useful instead
+   * of just a bare outcome.
    */
-  recordSkillOutcome(skillId: string, jobId: string, outcome: string): void {
+  recordSkillOutcome(skillId: string, jobId: string, outcome: string, notes?: string | null): void {
+    const trimmedNotes = notes != null ? String(notes).trim() : "";
+    const noteValue = trimmedNotes.length > 0 ? trimmedNotes : null;
     try {
       const res = this.db.prepare(
-        `UPDATE skill_effectiveness SET job_outcome = ? WHERE skill_id = ? AND job_id = ?`,
-      ).run(outcome, skillId, jobId);
+        `UPDATE skill_effectiveness
+            SET job_outcome = ?,
+                rating_notes = ?
+          WHERE skill_id = ? AND job_id = ?`,
+      ).run(outcome, noteValue, skillId, jobId);
       if (res.changes === 0) {
         this.db.prepare(
-          `INSERT INTO skill_effectiveness (id, skill_id, job_id, job_outcome, created_at)
-           VALUES (?, ?, ?, ?, ?)`,
-        ).run(newId(), skillId, jobId, outcome, new Date().toISOString());
+          `INSERT INTO skill_effectiveness (id, skill_id, job_id, job_outcome, rating_notes, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+        ).run(newId(), skillId, jobId, outcome, noteValue, new Date().toISOString());
       }
     } catch {
       // Table may not exist
@@ -294,15 +304,20 @@ export class SkillEffectivenessRepo {
   listForSkill(skillId: string, limit = 20): SkillEffectivenessRecord[] {
     try {
       const rows = this.db.prepare(
-        `SELECT * FROM skill_effectiveness WHERE skill_id = ? ORDER BY created_at DESC LIMIT ?`,
+        `SELECT id, skill_id, job_id, job_outcome, rating_notes, created_at
+           FROM skill_effectiveness
+          WHERE skill_id = ?
+          ORDER BY created_at DESC
+          LIMIT ?`,
       ).all(skillId, limit) as Array<{
-        id: string; skill_id: string; job_id: string; job_outcome: string | null; created_at: string;
+        id: string; skill_id: string; job_id: string; job_outcome: string | null; rating_notes: string | null; created_at: string;
       }>;
       return rows.map((r) => ({
         id: r.id,
         skillId: r.skill_id,
         jobId: r.job_id,
         jobOutcome: r.job_outcome,
+        ratingNotes: r.rating_notes,
         createdAt: r.created_at,
       }));
     } catch {
