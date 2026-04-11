@@ -89,6 +89,7 @@ describe("skill-validator", () => {
       name: "test",
       slug: "test",
       program: "houdini",
+      mcpPresetId: null,
       category: "general",
       title: "Pyro Effects Guide",
       description: "How to use pyro in Houdini",

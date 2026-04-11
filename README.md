@@ -107,6 +107,10 @@ Seven DCC bridges — Godot, Blender, Houdini, Unreal Engine, Unity, Fusion/DaVi
 
 Webhook integrations for generative AI services — Meshy (3D), Runway (video), Flux (images), Kling AI (video), Luma AI (video & 3D), Ideogram (images), Tripo (3D), ElevenLabs (audio), Suno (music), and ComfyUI (generative workflows). API bridges support async polling for long-running generation tasks and return downloadable output files. Configure preset or custom integrations with flexible auth and endpoint templates.
 
+### MCP Server Presets
+
+One-click install for common Model Context Protocol servers — Filesystem (scoped asset access), GitHub (issues/PRs/releases), Context7 (up-to-date library docs), Fetch (web pages), Memory (knowledge graph), and Brave Search — alongside the custom MCP bridge form. Presets pre-fill the command, args, and env, show inline setup notes and upstream docs links, and are available from both the bootstrap wizard and the Settings → Bridges → MCP tab.
+
 ### Skills & Training
 
 A self-improving skill system that learns from your projects. Skills are ranked using a hybrid algorithm (50% lexical, 30% semantic, 20% effectiveness) and automatically injected into agent context at job time. The training pipeline analyzes your project files and extracts patterns into new skills, with three intensity levels and configurable scheduling. Coordinator scripts (global and per-program) define execution policies, and playbooks provide per-program task libraries matched semantically against your prompts. Effectiveness tracking records how well each skill performs, with a graduated confidence model that balances exploration and exploitation. [Details](docs/skills.md)

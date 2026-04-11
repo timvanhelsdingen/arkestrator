@@ -1352,8 +1352,20 @@ export async function executeLocalAgenticToolCall(
     if (deps.skillsRepo && deps.skillIndex) {
       try {
         const allEnabled = deps.skillsRepo.listAll({ enabled: true });
+        // Collect enabled MCP preset IDs so MCP tool-usage skills flow
+        // through the auto-fetch reload path too.
+        const reloadMcpPresetIds: string[] = [];
+        if (deps.apiBridgesRepo) {
+          for (const ab of deps.apiBridgesRepo.listEnabled()) {
+            if (ab.mcpConfig) {
+              const presetId = ab.presetId ?? ab.name;
+              if (presetId) reloadMcpPresetIds.push(presetId);
+            }
+          }
+        }
         const matching = allEnabled.filter((s: any) => {
           if (!s.autoFetch) return false;
+          if (s.mcpPresetId) return reloadMcpPresetIds.includes(s.mcpPresetId);
           const sp = (s.program || "").trim().toLowerCase();
           return !sp || sp === "global" || sp === program;
         });
@@ -1685,9 +1697,22 @@ export async function spawnAgent(
 
   // Resolve enabled API bridges for prompt injection
   const apiBridges: Array<{ name: string; displayName: string; actions: string[] }> = [];
+  /**
+   * MCP preset IDs for every enabled MCP bridge. Passed to the skill filter
+   * below so tool-usage skills tagged with `mcpPresetId` are included only
+   * when their bridge is actually available to this job.
+   */
+  const enabledMcpPresetIds: string[] = [];
   if (deps.apiBridgesRepo) {
     const { getPresetHandler } = await import("../api-bridges/index.js");
     for (const ab of deps.apiBridgesRepo.listEnabled()) {
+      if (ab.mcpConfig) {
+        // MCP bridge — the identity is the bridge name (local slug) or the
+        // preset ID if it was installed from a registered preset.
+        const presetId = ab.presetId ?? ab.name;
+        if (presetId) enabledMcpPresetIds.push(presetId);
+        continue;
+      }
       const handler = ab.type === "preset" && ab.presetId
         ? getPresetHandler(ab.presetId)
         : undefined;
@@ -1878,6 +1903,8 @@ export async function spawnAgent(
     const autoFetchCandidates = allEnabled.filter((s) => {
       if (!s.autoFetch) return false;
       if (verificationDisabled && isVerificationSkill(s)) return false;
+      // MCP-scoped skills: only include when the job has that bridge enabled.
+      if (s.mcpPresetId) return enabledMcpPresetIds.includes(s.mcpPresetId);
       const sp = s.program.trim().toLowerCase();
       return !sp || sp === "global" || sp === jobProgram;
     });
@@ -1894,6 +1921,7 @@ export async function spawnAgent(
     const rankedSkillCount = allEnabled.filter((s) => {
       if (s.autoFetch) return false;
       if (verificationDisabled && isVerificationSkill(s)) return false;
+      if (s.mcpPresetId) return enabledMcpPresetIds.includes(s.mcpPresetId);
       const sp = s.program.trim().toLowerCase();
       return !sp || sp === "global" || sp === jobProgram;
     }).length;

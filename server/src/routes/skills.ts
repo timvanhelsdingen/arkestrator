@@ -128,6 +128,7 @@ const SkillCreateSchema = z.object({
   name: z.string().trim().min(1),
   slug: z.string().trim().min(1),
   program: z.string().optional(),
+  mcpPresetId: z.string().trim().min(1).nullable().optional(),
   category: z.enum(["coordinator", "bridge", "training", "playbook", "verification", "project", "project-reference", "housekeeping", "custom"]),
   title: z.string().trim().min(1),
   description: z.string().optional(),
@@ -152,6 +153,7 @@ const SkillUpdateSchema = z.object({
   priority: z.number().optional(),
   autoFetch: z.boolean().optional(),
   enabled: z.boolean().optional(),
+  mcpPresetId: z.string().trim().min(1).nullable().optional(),
 });
 
 const SkillSearchSchema = z.object({

@@ -1,11 +1,14 @@
 import type { ApiBridgeHandler } from "./handler.js";
-import type { ApiBridgePresetInfo } from "@arkestrator/protocol";
+import type { ApiBridgePresetInfo, McpPresetInfo } from "@arkestrator/protocol";
 
 /** Global registry of preset API bridge handlers (TypeScript implementations). */
 const localHandlers = new Map<string, ApiBridgeHandler>();
 
 /** Remote preset metadata (fetched from GitHub / baked-in fallback). */
 const remotePresets = new Map<string, ApiBridgePresetInfo>();
+
+/** MCP preset metadata (fetched from GitHub / baked-in fallback). */
+const mcpPresets = new Map<string, McpPresetInfo>();
 
 /** Register a local TypeScript handler. Called at module load time. */
 export function registerPreset(handler: ApiBridgeHandler): void {
@@ -64,4 +67,31 @@ export function listPresetIds(): string[] {
   for (const id of localHandlers.keys()) ids.add(id);
   for (const id of remotePresets.keys()) ids.add(id);
   return Array.from(ids);
+}
+
+// ---------------------------------------------------------------------------
+// MCP preset registry
+// ---------------------------------------------------------------------------
+
+/** Register the full MCP preset list (called after remote fetch). */
+export function registerMcpPresets(presets: McpPresetInfo[]): void {
+  mcpPresets.clear();
+  for (const p of presets) {
+    mcpPresets.set(p.presetId, p);
+  }
+}
+
+/** List every known MCP preset. */
+export function listMcpPresets(): McpPresetInfo[] {
+  return Array.from(mcpPresets.values());
+}
+
+/** Check whether a preset ID is a known MCP preset. */
+export function isKnownMcpPreset(presetId: string): boolean {
+  return mcpPresets.has(presetId);
+}
+
+/** Look up a specific MCP preset by ID. */
+export function getMcpPreset(presetId: string): McpPresetInfo | undefined {
+  return mcpPresets.get(presetId);
 }

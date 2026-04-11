@@ -87,6 +87,7 @@ export function skillToSkillFile(skill: Skill, effectiveness?: SkillEffectivenes
 
   // Arkestrator extensions
   if (skill.program && skill.program !== "global") metadata.program = skill.program;
+  if (skill.mcpPresetId) metadata["mcp-preset-id"] = skill.mcpPresetId;
   if (skill.category) metadata.category = skill.category;
   if (skill.title && skill.title !== skill.slug) metadata.title = skill.title;
   if (skill.keywords?.length > 0) metadata.keywords = skill.keywords;
@@ -125,6 +126,7 @@ export function skillFileToSkillFields(parsed: ParsedSkillFile): {
   slug: string;
   name: string;
   program: string;
+  mcpPresetId: string | null;
   category: string;
   title: string;
   description: string;
@@ -140,11 +142,15 @@ export function skillFileToSkillFields(parsed: ParsedSkillFile): {
   version: number;
 } {
   const meta = (parsed.frontmatter.metadata ?? {}) as Record<string, any>;
+  const rawMcp = meta["mcp-preset-id"];
+  const mcpPresetId = typeof rawMcp === "string" && rawMcp.trim() ? rawMcp.trim() : null;
 
   return {
     slug: parsed.frontmatter.name,
     name: (meta.title as string) || parsed.frontmatter.name,
-    program: (meta.program as string) || "global",
+    // Exactly-one rule: MCP-scoped skills must live under program='global'.
+    program: mcpPresetId ? "global" : ((meta.program as string) || "global"),
+    mcpPresetId,
     category: (meta.category as string) || "custom",
     title: (meta.title as string) || parsed.frontmatter.name,
     description: parsed.frontmatter.description || "",

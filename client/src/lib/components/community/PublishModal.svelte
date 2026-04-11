@@ -23,6 +23,14 @@
   let selectedSlug = $state(preselect?.[0]?.slug ?? "");
   let selectedProgram = $state(preselect?.[0]?.program ?? "");
 
+  // MCP preset allowlist fetched from arkestrator.com. Used as a preflight
+  // gate so user-local MCP bridge slugs (e.g. "my-test-mcp") cannot leak
+  // into the community library. Empty array means the site hasn't shipped
+  // /api/mcp-presets yet — in that case we skip the preflight and let the
+  // server reject if needed (backward-compat rollout).
+  let mcpPresetAllowlist = $state<Set<string>>(new Set());
+  let allowlistLoaded = $state(false);
+
   // Batch publish state
   const isBatch = preselect && preselect.length > 1;
   let batchIndex = $state(0);
@@ -60,6 +68,19 @@
         })
         .catch(() => { localSkills = []; })
         .finally(() => { loadingSkills = false; });
+    }
+  });
+
+  // Fetch the MCP preset allowlist from arkestrator.com once per modal open.
+  // Gracefully degrades to an empty set if the endpoint doesn't exist yet.
+  $effect(() => {
+    if (hasToken && !allowlistLoaded) {
+      allowlistLoaded = true;
+      communityApi.getMcpPresets()
+        .then((presets) => {
+          mcpPresetAllowlist = new Set(presets.map((p) => p.presetId));
+        })
+        .catch(() => { mcpPresetAllowlist = new Set(); });
     }
   });
 
@@ -226,11 +247,28 @@
   // Publish
   // ---------------------------------------------------------------------------
 
+  /**
+   * Preflight: skills tagged with a local-only MCP bridge slug (i.e. one
+   * that isn't in arkestrator.com's registered preset allowlist) must not
+   * leak into the community library. If the allowlist came back empty the
+   * site hasn't shipped /api/mcp-presets yet — in that case we skip the
+   * gate and let the server reject. Returns an error string, or null if OK.
+   */
+  function checkMcpAllowlist(skill: any): string | null {
+    if (!skill.mcpPresetId) return null;
+    if (mcpPresetAllowlist.size === 0) return null;
+    if (mcpPresetAllowlist.has(skill.mcpPresetId)) return null;
+    return `MCP preset "${skill.mcpPresetId}" is not a registered preset on arkestrator.com. Only skills tagged with official MCP presets (filesystem, github, context7, fetch, memory, brave-search, ...) can be published.`;
+  }
+
   async function publishOne(skill: any) {
+    const gateError = checkMcpAllowlist(skill);
+    if (gateError) throw new Error(gateError);
     await communityApi.publish({
       title: skill.title,
       slug: skill.slug,
       program: skill.program || "global",
+      mcpPresetId: skill.mcpPresetId ?? null,
       category: skill.category || "custom",
       description: skill.description || "",
       keywords: skill.keywords || [],

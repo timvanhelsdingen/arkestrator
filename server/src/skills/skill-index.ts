@@ -436,7 +436,19 @@ export class SkillIndex {
    */
   search(
     query: string,
-    opts?: { program?: string; category?: string; limit?: number; rankingConfig?: Partial<SkillRankingConfig> },
+    opts?: {
+      program?: string;
+      category?: string;
+      limit?: number;
+      rankingConfig?: Partial<SkillRankingConfig>;
+      /**
+       * Enabled MCP preset IDs for the calling context (e.g. a spawning job's
+       * enabled MCP bridges). Skills tagged with `mcpPresetId` are only
+       * included when their preset is in this list. Pass `undefined` to
+       * include every MCP-tagged skill (backward-compat / admin search).
+       */
+      enabledMcpPresetIds?: string[];
+    },
   ): SkillSearchResult[] {
     this.ensureFresh();
 
@@ -445,6 +457,7 @@ export class SkillIndex {
     const queryTokens = tokenize(query);
     const queryVector = buildSemanticVector(query);
     const programFilter = opts?.program?.trim().toLowerCase() ?? "";
+    const enabledMcp = opts?.enabledMcpPresetIds;
     const effectivenessMap = this.buildEffectivenessMap();
 
     const scored: Array<{ index: number; score: number }> = [];
@@ -453,8 +466,17 @@ export class SkillIndex {
       const skill = this.skills[i];
       if (!skill.enabled) continue;
 
-      const sp = skill.program.trim().toLowerCase();
-      if (programFilter && sp && sp !== "global" && sp !== programFilter) continue;
+      // MCP-scoped skills: include only if their preset is in the caller's
+      // enabled list. If enabledMcp is undefined, fall through to the old
+      // program-based filter (backward-compat for callers that don't pass it).
+      if (skill.mcpPresetId) {
+        if (enabledMcp !== undefined && !enabledMcp.includes(skill.mcpPresetId)) continue;
+        // MCP skills always live under program='global', so skip the
+        // program-mismatch check below.
+      } else {
+        const sp = skill.program.trim().toLowerCase();
+        if (programFilter && sp && sp !== "global" && sp !== programFilter) continue;
+      }
       if (opts?.category && skill.category !== opts.category) continue;
 
       const { score } = this.scoreSkill(i, queryTokens, queryVector, effectivenessMap, rc);
@@ -510,6 +532,12 @@ export class SkillIndex {
       limit?: number;
       effectivenessScores?: Map<string, SkillEffectivenessInfo>;
       rankingConfig?: Partial<SkillRankingConfig>;
+      /**
+       * MCP preset IDs enabled for the job's bridge set. Tool-usage skills
+       * (those tagged with `mcpPresetId`) are only included when their preset
+       * is in this list. Omit to skip MCP filtering entirely.
+       */
+      enabledMcpPresetIds?: string[];
     },
   ): { results: SkillRankResult[] } {
     this.ensureFresh();
@@ -521,6 +549,7 @@ export class SkillIndex {
     const queryTokens = tokenize(prompt);
     const queryVector = buildSemanticVector(prompt);
     const programLower = program.trim().toLowerCase();
+    const enabledMcp = opts?.enabledMcpPresetIds;
 
     const autoFetchResults: SkillRankResult[] = [];
     const ranked: Array<{ index: number; score: number }> = [];
@@ -529,8 +558,15 @@ export class SkillIndex {
       const skill = this.skills[i];
       if (!skill.enabled) continue;
 
-      const sp = skill.program.trim().toLowerCase();
-      if (sp && sp !== "global" && programLower && sp !== programLower) continue;
+      // MCP-scoped skills: include only if the job has that MCP bridge
+      // enabled. When `enabledMcp` is undefined, MCP filtering is off and
+      // these skills fall through to the program check.
+      if (skill.mcpPresetId) {
+        if (enabledMcp !== undefined && !enabledMcp.includes(skill.mcpPresetId)) continue;
+      } else {
+        const sp = skill.program.trim().toLowerCase();
+        if (sp && sp !== "global" && programLower && sp !== programLower) continue;
+      }
 
       if (skill.autoFetch) {
         autoFetchResults.push({ skill, score: 1.0, reason: "auto-fetch" });

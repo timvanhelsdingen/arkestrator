@@ -179,3 +179,20 @@ export const ApiBridgePresetInfo = z.object({
   hasHandler: z.boolean().optional(),
 });
 export type ApiBridgePresetInfo = z.infer<typeof ApiBridgePresetInfo>;
+
+// --- MCP Preset Info (curated list of common MCP servers) ---
+
+export const McpPresetInfo = z.object({
+  presetId: z.string(),
+  displayName: z.string(),
+  description: z.string().optional(),
+  /** Category for UI grouping: "filesystem" | "dev" | "docs" | "research" | "memory" | "other" */
+  category: z.string().optional(),
+  /** Default MCP config used to pre-fill the bridge form */
+  mcpConfig: McpConfig,
+  /** Human-readable setup note shown alongside the form (e.g. required env vars) */
+  setupNote: z.string().optional(),
+  /** Link to upstream docs / repo */
+  homepage: z.string().url().optional(),
+});
+export type McpPresetInfo = z.infer<typeof McpPresetInfo>;

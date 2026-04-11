@@ -146,6 +146,7 @@ function buildSkillMd(skill: {
   slug: string;
   title: string;
   program: string;
+  mcpPresetId?: string | null;
   category: string;
   description: string;
   keywords?: string[];
@@ -156,12 +157,15 @@ function buildSkillMd(skill: {
   const rs = skill.relatedSkills?.length
     ? `\n  related-skills: [${skill.relatedSkills.join(", ")}]`
     : "";
+  // Exactly-one rule: if mcpPresetId is set, program must be "global".
+  // MCP tool-usage skills emit mcp-preset-id instead of their (always-global) program.
+  const mcpLine = skill.mcpPresetId ? `\n  mcp-preset-id: ${skill.mcpPresetId}` : "";
   return `---
 name: ${skill.slug}
 description: ${skill.description}
 metadata:
   title: ${skill.title}
-  program: ${skill.program}
+  program: ${skill.program}${mcpLine}
   category: ${skill.category}
   keywords: ${kw}${rs}
 ---
@@ -266,6 +270,7 @@ export const communityApi = {
     title: string;
     slug: string;
     program: string;
+    mcpPresetId?: string | null;
     category: string;
     description: string;
     keywords?: string[];
@@ -285,6 +290,7 @@ export const communityApi = {
     title?: string;
     slug?: string;
     program?: string;
+    mcpPresetId?: string | null;
     category?: string;
     description?: string;
     keywords?: string[];
@@ -298,6 +304,30 @@ export const communityApi = {
       headers: { "Content-Type": "text/markdown" },
       body: md,
     });
+  },
+
+  /**
+   * Fetch the allowlist of registered MCP presets from arkestrator.com.
+   * Used as a preflight gate by the publish modal: skills tagged with an
+   * `mcpPresetId` can only be published if the preset slug exists here.
+   * Returns an empty array if the endpoint is unavailable (older site
+   * versions) — callers should treat that as "allowlist unknown, skip the
+   * client-side preflight and let the server reject if needed".
+   */
+  async getMcpPresets(): Promise<Array<{ presetId: string; displayName: string; description?: string; domain?: string | null }>> {
+    try {
+      const res = await communityRequest<{ presets: any[] } | any[]>("/api/mcp-presets");
+      const list = Array.isArray(res) ? res : res?.presets ?? [];
+      return list.map((p: any) => ({
+        presetId: String(p.presetId ?? p.preset_id ?? ""),
+        displayName: String(p.displayName ?? p.display_name ?? p.presetId ?? ""),
+        description: p.description,
+        domain: p.domain ?? null,
+      })).filter((p) => p.presetId);
+    } catch {
+      // 404 / network error: site hasn't shipped mcp-preset support yet.
+      return [];
+    }
   },
 
   deletePublished(id: string): Promise<void> {

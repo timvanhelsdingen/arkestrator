@@ -11,6 +11,14 @@ export interface Skill {
   name: string;
   slug: string;
   program: string;
+  /**
+   * Optional MCP preset scope for tool-usage skills. When set, the skill is
+   * about how to effectively use that MCP server (query syntax, quirks,
+   * rate limits) rather than about a DCC program's domain knowledge. Skills
+   * with `mcpPresetId` set must have `program === 'global'` — the exactly-one
+   * rule is enforced in `skill-validator.ts`.
+   */
+  mcpPresetId: string | null;
   category: string;
   title: string;
   description: string;
@@ -54,6 +62,7 @@ interface SkillRow {
   name: string;
   slug: string;
   program: string;
+  mcp_preset_id: string | null;
   category: string;
   title: string;
   description: string;
@@ -79,6 +88,8 @@ export interface CreateSkillInput {
   name: string;
   slug: string;
   program?: string;
+  /** Optional MCP preset scope. Exactly-one rule: if set, program must be 'global'. */
+  mcpPresetId?: string | null;
   category: string;
   title: string;
   description?: string;
@@ -111,6 +122,8 @@ export interface UpdateSkillInput {
   autoFetch?: boolean;
   enabled?: boolean;
   locked?: boolean;
+  /** Set to null to clear, a string to set, or omit to leave unchanged. */
+  mcpPresetId?: string | null;
 }
 
 function parseJsonArray(raw: string | undefined | null): string[] {
@@ -124,6 +137,7 @@ function rowToSkill(row: SkillRow): Skill {
     name: row.name,
     slug: row.slug,
     program: row.program,
+    mcpPresetId: row.mcp_preset_id ?? null,
     category: row.category,
     title: row.title,
     description: row.description,
@@ -182,14 +196,15 @@ export class SkillsRepo {
       "SELECT * FROM skills WHERE slug = ? AND program = ? LIMIT 1",
     );
     this.insertStmt = db.prepare(`
-      INSERT INTO skills (id, name, slug, program, category, title, description, keywords, content, playbooks, related_skills, source, source_path, priority, auto_fetch, enabled, version, app_version, repo_content_hash, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO skills (id, name, slug, program, mcp_preset_id, category, title, description, keywords, content, playbooks, related_skills, source, source_path, priority, auto_fetch, enabled, version, app_version, repo_content_hash, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     this.upsertStmt = db.prepare(`
-      INSERT INTO skills (id, name, slug, program, category, title, description, keywords, content, playbooks, related_skills, source, source_path, priority, auto_fetch, enabled, version, app_version, repo_content_hash, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO skills (id, name, slug, program, mcp_preset_id, category, title, description, keywords, content, playbooks, related_skills, source, source_path, priority, auto_fetch, enabled, version, app_version, repo_content_hash, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(slug, program) DO UPDATE SET
-        name = excluded.name, category = excluded.category, title = excluded.title,
+        name = excluded.name, mcp_preset_id = excluded.mcp_preset_id,
+        category = excluded.category, title = excluded.title,
         description = excluded.description, keywords = excluded.keywords, content = excluded.content,
         playbooks = excluded.playbooks, related_skills = excluded.related_skills,
         source = excluded.source, source_path = excluded.source_path, priority = excluded.priority,
@@ -235,11 +250,12 @@ export class SkillsRepo {
   create(input: CreateSkillInput, source?: string): Skill {
     const now = new Date().toISOString();
     const id = crypto.randomUUID();
-    const program = input.program ?? "global";
+    // Exactly-one rule: MCP-scoped skills must live under program='global'.
+    const program = input.mcpPresetId ? "global" : (input.program ?? "global");
     const src = source ?? input.source ?? "user";
 
     this.insertStmt.run(
-      id, input.name, input.slug, program, input.category, input.title,
+      id, input.name, input.slug, program, input.mcpPresetId ?? null, input.category, input.title,
       input.description ?? "", JSON.stringify(input.keywords ?? []), input.content,
       JSON.stringify(input.playbooks ?? []), JSON.stringify(input.relatedSkills ?? []),
       src, input.sourcePath ?? null, input.priority ?? 50,
@@ -270,6 +286,7 @@ export class SkillsRepo {
     if (updates.autoFetch !== undefined) { sets.push("auto_fetch = ?"); values.push(updates.autoFetch ? 1 : 0); }
     if (updates.enabled !== undefined) { sets.push("enabled = ?"); values.push(updates.enabled ? 1 : 0); }
     if (updates.locked !== undefined) { sets.push("locked = ?"); values.push(updates.locked ? 1 : 0); }
+    if (updates.mcpPresetId !== undefined) { sets.push("mcp_preset_id = ?"); values.push(updates.mcpPresetId); }
 
     if (sets.length === 0) return existing;
 
@@ -389,10 +406,11 @@ export class SkillsRepo {
   upsertBySlugAndProgram(input: CreateSkillInput): Skill {
     const now = new Date().toISOString();
     const id = crypto.randomUUID();
-    const program = input.program ?? "global";
+    // Exactly-one rule: MCP-scoped skills must live under program='global'.
+    const program = input.mcpPresetId ? "global" : (input.program ?? "global");
 
     this.upsertStmt.run(
-      id, input.name ?? input.slug, input.slug, program, input.category, input.title,
+      id, input.name ?? input.slug, input.slug, program, input.mcpPresetId ?? null, input.category, input.title,
       input.description ?? "", JSON.stringify(input.keywords ?? []), input.content,
       JSON.stringify(input.playbooks ?? []), JSON.stringify(input.relatedSkills ?? []),
       input.source ?? "user", input.sourcePath ?? null, input.priority ?? 50,

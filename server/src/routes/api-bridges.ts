@@ -68,6 +68,26 @@ export function createApiBridgeRoutes(
     return c.json(listPresets());
   });
 
+  // List curated MCP bridge presets (public — needed by wizard before full auth)
+  router.get("/mcp-presets", async (_c) => {
+    const { listMcpPresets, refreshRemoteMcpPresets } = await import("../api-bridges/index.js");
+    // Ensure remote MCP presets are loaded (uses cache if fresh)
+    await refreshRemoteMcpPresets();
+    return _c.json(listMcpPresets());
+  });
+
+  // Force-refresh MCP presets from GitHub (admin only)
+  router.post("/mcp-presets/refresh", async (c) => {
+    const user = requireAdmin(c, usersRepo);
+    if (!user) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+
+    const { forceRefreshRemoteMcpPresets, listMcpPresets } = await import(
+      "../api-bridges/index.js"
+    );
+    await forceRefreshRemoteMcpPresets();
+    return c.json(listMcpPresets());
+  });
+
   // Get single bridge
   router.get("/:id", async (c) => {
     if (!await isAuthenticated(c, usersRepo, apiKeysRepo)) {
