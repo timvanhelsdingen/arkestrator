@@ -257,6 +257,85 @@ export function createSkillsRoutes(
     }
   });
 
+  // ── Ranking configuration ──
+  //
+  // These three routes MUST be registered before the generic /:slug routes
+  // below, otherwise Hono matches `ranking-config` as a skill slug and the
+  // wildcard `PUT /:slug` handler short-circuits with "Custom skill not
+  // found: ranking-config".
+
+  /** GET /ranking-config — read current skill ranking thresholds */
+  router.get("/ranking-config", async (c) => {
+    const auth = await requireWriteAccess(c);
+    if (!auth) return errorResponse(c, 403, "Admin or editCoordinator required", "FORBIDDEN");
+
+    const config = loadSkillRankingConfig(settingsRepo ?? null);
+    return c.json({ config, defaults: DEFAULT_SKILL_RANKING_CONFIG });
+  });
+
+  /** PUT /ranking-config — update skill ranking thresholds */
+  router.put("/ranking-config", async (c) => {
+    const auth = await requireWriteAccess(c);
+    if (!auth) return errorResponse(c, 403, "Admin or editCoordinator required", "FORBIDDEN");
+    if (!settingsRepo) return errorResponse(c, 500, "Settings not available", "INTERNAL");
+
+    let body: Record<string, unknown>;
+    try {
+      body = await c.req.json();
+    } catch {
+      return errorResponse(c, 400, "Invalid JSON body", "BAD_REQUEST");
+    }
+
+    // Per-field upper bounds so bad admin input can't blow up the ranker.
+    const BOUNDS: Record<keyof SkillRankingConfig, [number, number]> = {
+      explorationThreshold: [0, 10_000],
+      establishedThreshold: [0, 10_000],
+      explorationBonus: [0, 1],
+      effectivenessFloor: [0, 1],
+      weightLexical: [0, 10],
+      weightSemantic: [0, 10],
+      weightEffectiveness: [0, 10],
+      minScoreThreshold: [0, 1],
+    };
+
+    const updated: string[] = [];
+    for (const [field, dbKey] of Object.entries(SKILL_RANKING_SETTINGS_KEYS) as Array<[keyof SkillRankingConfig, string]>) {
+      if (!(field in body)) continue;
+      const val = Number(body[field]);
+      if (!Number.isFinite(val)) {
+        return errorResponse(c, 400, `Invalid value for ${field}: must be a number`, "BAD_REQUEST");
+      }
+      const [lo, hi] = BOUNDS[field];
+      if (val < lo || val > hi) {
+        return errorResponse(c, 400, `Invalid value for ${field}: must be in [${lo}, ${hi}]`, "BAD_REQUEST");
+      }
+      settingsRepo.setNumber(dbKey, val);
+      updated.push(field);
+    }
+
+    // Cross-field sanity: explorationThreshold must be <= establishedThreshold.
+    const snapshot = loadSkillRankingConfig(settingsRepo);
+    if (snapshot.explorationThreshold > snapshot.establishedThreshold) {
+      return errorResponse(c, 400, "explorationThreshold must be <= establishedThreshold", "BAD_REQUEST");
+    }
+
+    logger.info("skills", `Skill ranking config updated: ${updated.join(", ")}`);
+    return c.json({ ok: true, updated, config: snapshot });
+  });
+
+  /** POST /ranking-config/reset — reset ranking config to defaults */
+  router.post("/ranking-config/reset", async (c) => {
+    const auth = await requireWriteAccess(c);
+    if (!auth) return errorResponse(c, 403, "Admin or editCoordinator required", "FORBIDDEN");
+    if (!settingsRepo) return errorResponse(c, 500, "Settings not available", "INTERNAL");
+
+    for (const [field, dbKey] of Object.entries(SKILL_RANKING_SETTINGS_KEYS)) {
+      settingsRepo.setNumber(dbKey, DEFAULT_SKILL_RANKING_CONFIG[field as keyof SkillRankingConfig]);
+    }
+    logger.info("skills", "Skill ranking config reset to defaults");
+    return c.json({ ok: true, config: DEFAULT_SKILL_RANKING_CONFIG });
+  });
+
   // PUT /:slug — update custom skill
   router.put("/:slug", async (c) => {
     const auth = await requireWriteAccess(c);
@@ -1227,80 +1306,6 @@ export function createSkillsRoutes(
       }
     }
     return c.json({ playbooks });
-  });
-
-  // ── Ranking configuration ──
-
-  /** GET /ranking-config — read current skill ranking thresholds */
-  router.get("/ranking-config", async (c) => {
-    const auth = await requireWriteAccess(c);
-    if (!auth) return errorResponse(c, 403, "Admin or editCoordinator required", "FORBIDDEN");
-
-    const config = loadSkillRankingConfig(settingsRepo ?? null);
-    return c.json({ config, defaults: DEFAULT_SKILL_RANKING_CONFIG });
-  });
-
-  /** PUT /ranking-config — update skill ranking thresholds */
-  router.put("/ranking-config", async (c) => {
-    const auth = await requireWriteAccess(c);
-    if (!auth) return errorResponse(c, 403, "Admin or editCoordinator required", "FORBIDDEN");
-    if (!settingsRepo) return errorResponse(c, 500, "Settings not available", "INTERNAL");
-
-    let body: Record<string, unknown>;
-    try {
-      body = await c.req.json();
-    } catch {
-      return errorResponse(c, 400, "Invalid JSON body", "BAD_REQUEST");
-    }
-
-    // Per-field upper bounds so bad admin input can't blow up the ranker.
-    const BOUNDS: Record<keyof SkillRankingConfig, [number, number]> = {
-      explorationThreshold: [0, 10_000],
-      establishedThreshold: [0, 10_000],
-      explorationBonus: [0, 1],
-      effectivenessFloor: [0, 1],
-      weightLexical: [0, 10],
-      weightSemantic: [0, 10],
-      weightEffectiveness: [0, 10],
-      minScoreThreshold: [0, 1],
-    };
-
-    const updated: string[] = [];
-    for (const [field, dbKey] of Object.entries(SKILL_RANKING_SETTINGS_KEYS) as Array<[keyof SkillRankingConfig, string]>) {
-      if (!(field in body)) continue;
-      const val = Number(body[field]);
-      if (!Number.isFinite(val)) {
-        return errorResponse(c, 400, `Invalid value for ${field}: must be a number`, "BAD_REQUEST");
-      }
-      const [lo, hi] = BOUNDS[field];
-      if (val < lo || val > hi) {
-        return errorResponse(c, 400, `Invalid value for ${field}: must be in [${lo}, ${hi}]`, "BAD_REQUEST");
-      }
-      settingsRepo.setNumber(dbKey, val);
-      updated.push(field);
-    }
-
-    // Cross-field sanity: explorationThreshold must be <= establishedThreshold.
-    const snapshot = loadSkillRankingConfig(settingsRepo);
-    if (snapshot.explorationThreshold > snapshot.establishedThreshold) {
-      return errorResponse(c, 400, "explorationThreshold must be <= establishedThreshold", "BAD_REQUEST");
-    }
-
-    logger.info("skills", `Skill ranking config updated: ${updated.join(", ")}`);
-    return c.json({ ok: true, updated, config: snapshot });
-  });
-
-  /** POST /ranking-config/reset — reset ranking config to defaults */
-  router.post("/ranking-config/reset", async (c) => {
-    const auth = await requireWriteAccess(c);
-    if (!auth) return errorResponse(c, 403, "Admin or editCoordinator required", "FORBIDDEN");
-    if (!settingsRepo) return errorResponse(c, 500, "Settings not available", "INTERNAL");
-
-    for (const [field, dbKey] of Object.entries(SKILL_RANKING_SETTINGS_KEYS)) {
-      settingsRepo.setNumber(dbKey, DEFAULT_SKILL_RANKING_CONFIG[field as keyof SkillRankingConfig]);
-    }
-    logger.info("skills", "Skill ranking config reset to defaults");
-    return c.json({ ok: true, config: DEFAULT_SKILL_RANKING_CONFIG });
   });
 
   // GET /:slug — get skill by slug (from index) — MUST be last (catch-all param route)
