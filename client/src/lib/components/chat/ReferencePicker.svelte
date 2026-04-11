@@ -65,6 +65,13 @@
 
   interface Props {
     query: string;
+    /**
+     * Currently scoped workers from the chat tab. When non-empty, bridge
+     * results are filtered to only show bridges hosted on these workers so
+     * `/bridge` stays consistent with the Workers dropdown. When empty (Auto
+     * routing), all connected bridges are shown.
+     */
+    selectedWorkerNames: string[];
     onselect: (item: PickerItem, opts: { trailingSpace: boolean }) => void;
     onclose: () => void;
     /**
@@ -77,7 +84,7 @@
     onpickcategory: (category: Exclude<Category, "all">) => void;
   }
 
-  let { query, onselect, onclose, onpickcategory }: Props = $props();
+  let { query, selectedWorkerNames, onselect, onclose, onpickcategory }: Props = $props();
 
   type Category = "all" | "worker" | "bridge" | "context" | "skill";
 
@@ -189,17 +196,29 @@
     }));
   });
 
-  let bridgeItems = $derived.by<PickerItem[]>(() =>
-    workersStore.bridges
+  // When the tab has worker(s) scoped via the Workers dropdown, only show
+  // bridges hosted on those workers. Otherwise (Auto routing) show everything.
+  // Matching is case-insensitive on worker name to stay consistent with how
+  // selection is stored elsewhere.
+  let bridgeItems = $derived.by<PickerItem[]>(() => {
+    const scope = new Set(
+      (selectedWorkerNames ?? []).map((n) => n.trim().toLowerCase()).filter(Boolean),
+    );
+    return workersStore.bridges
       .filter((b) => b.connected)
+      .filter((b) => {
+        if (scope.size === 0) return true;
+        const name = String(b.workerName ?? "").trim().toLowerCase();
+        return scope.has(name);
+      })
       .map((b) => ({
         kind: "bridge" as const,
         workerName: String(b.workerName ?? "").trim() || "unknown",
         bridgeName: b.name,
         bridgeId: b.id,
         program: b.program ?? "",
-      })),
-  );
+      }));
+  });
 
   let contextItems = $derived.by<PickerItem[]>(() => {
     const out: PickerItem[] = [];
