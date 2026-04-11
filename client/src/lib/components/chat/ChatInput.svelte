@@ -347,7 +347,7 @@
       if (!worker) return workerName;
       return worker.status === "online" ? worker.name : `${worker.name} (offline)`;
     }
-    return `${selectedCount} machines`;
+    return `${selectedCount} workers`;
   });
 
   let isAuth = $derived(connection.isAuthenticated || !!connection.apiKey);
@@ -501,8 +501,10 @@
    * Router for ReferencePicker selections. Goal: make it easy to tell the
    * agent which worker/bridge/context/skill to use.
    *
-   *   - worker  → setSelectedWorkers([name]) (routes job to that worker;
-   *               the Machines dropdown is visible feedback, no inline tag)
+   *   - worker  → setSelectedWorkers([name]) AND insert `/worker:name` inline
+   *               so the user can see and address the worker reference in the
+   *               prompt text itself (the Workers dropdown is also updated as
+   *               visible routing feedback).
    *   - bridge  → setSelectedWorkers([workerName]) AND insert
    *               `/bridge:workerName/bridgeName` inline. The worker update
    *               routes the job; the inline tag tells the agent *which*
@@ -520,6 +522,7 @@
     let insertion = "";
     if (item.kind === "worker") {
       chatStore.setSelectedWorkers([item.name]);
+      insertion = formatWorkerReference(item);
     } else if (item.kind === "bridge") {
       chatStore.setSelectedWorkers([item.workerName]);
       insertion = formatBridgeReference(item);
@@ -591,6 +594,16 @@
     const worker = item.workerName.trim().replace(/\s+/g, "-");
     const identifier = (item.program.trim() || item.bridgeName.trim()).replace(/\s+/g, "-");
     return `/bridge:${worker}/${identifier}`;
+  }
+
+  /**
+   * Format a worker tag the agent reads inline from the prompt. Mirrors
+   * formatBridgeReference so the user can see the worker they picked as a
+   * visible token in the message instead of only as a dropdown state change.
+   */
+  function formatWorkerReference(item: Extract<PickerItem, { kind: "worker" }>): string {
+    const name = item.name.trim().replace(/\s+/g, "-");
+    return `/worker:${name}`;
   }
 
   const SKILL_TAG_RE = /\/skill:([a-zA-Z0-9_-]+)/g;
@@ -951,7 +964,7 @@
     </div>
 
     <div class="control-group bridge-dropdown">
-      <span class="control-label">Machines</span>
+      <span class="control-label">Workers</span>
       <button
         class="bridge-trigger"
         class:has-overrides={!isAutoTarget}
@@ -971,7 +984,7 @@
 
           {#if totalWorkerCount > 0}
             <div class="menu-divider"></div>
-            <div class="menu-section-label">Limit to machine(s):</div>
+            <div class="menu-section-label">Limit to worker(s):</div>
           {/if}
 
           {#each workerEntries as worker (worker.name)}
@@ -996,7 +1009,7 @@
           {/each}
 
           {#if totalWorkerCount === 0}
-            <div class="menu-empty">No machines discovered yet</div>
+            <div class="menu-empty">No workers discovered yet</div>
           {/if}
         </div>
       {/if}
@@ -1031,6 +1044,7 @@
       <ReferencePicker
         bind:this={pickerRef}
         query={pickerQuery}
+        selectedWorkerNames={selectedWorkerNames}
         onselect={onReferenceSelect}
         onpickcategory={onReferenceCategoryPick}
         onclose={() => (pickerOpen = false)}
