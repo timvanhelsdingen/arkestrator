@@ -545,6 +545,32 @@
     });
   }
 
+  /**
+   * Called by ReferencePicker when the user picks a category from the empty-query
+   * menu (or later, via prefix Tab). Replaces whatever the user has typed after
+   * the slash with `/category:` and puts the cursor right after the colon so
+   * they can keep typing to narrow down.
+   *
+   * The textarea stays the single source of truth: the picker's `parsed` will
+   * re-derive from the new query and flip into items mode on its own.
+   */
+  function onReferenceCategoryPick(category: "worker" | "bridge" | "context" | "skill") {
+    if (slashStartPos < 0) return;
+    const cursor = textarea?.selectionStart ?? promptText.length;
+    const before = promptText.slice(0, slashStartPos);
+    const after = promptText.slice(cursor);
+    const insertion = `/${category}:`;
+    promptText = `${before}${insertion}${after}`;
+    pickerQuery = `${category}:`;
+    pickerOpen = true;
+
+    const newCursor = before.length + insertion.length;
+    tick().then(() => {
+      textarea?.focus();
+      textarea?.setSelectionRange(newCursor, newCursor);
+    });
+  }
+
   function formatContextReference(item: Extract<PickerItem, { kind: "context" }>): string {
     const idx = item.item.index;
     const name = item.item.name.trim();
@@ -1006,6 +1032,7 @@
         bind:this={pickerRef}
         query={pickerQuery}
         onselect={onReferenceSelect}
+        onpickcategory={onReferenceCategoryPick}
         onclose={() => (pickerOpen = false)}
       />
     {/if}

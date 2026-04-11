@@ -17,14 +17,17 @@
    *   - Skill                   — inserts `/skill:slug` tag
    *
    * Category scoping:
+   *   `/`              → category menu (pick a category with arrows + Enter)
    *   `/foo`           → fuzzy search across all categories
+   *   `/w`, `/wo`,     → prefix-match to a category, empty search term
+   *     `/worker`         (so `/wo` is equivalent to `/worker:`)
    *   `/worker:foo`    → scope to workers only (also `/w:foo`)
    *   `/bridge:foo`    → scope to bridges only (also `/b:foo`)
    *   `/context:foo`   → scope to contexts only (also `/c:foo`)
    *   `/skill:foo`     → scope to skills only  (also `/s:foo`)
    *
    * Keybinds handled via exported handleKeydown():
-   *   ArrowUp/Down     → navigate
+   *   ArrowUp/Down     → navigate (categories in menu mode, items in list mode)
    *   Enter / Tab      → commit highlighted item (no trailing space)
    *   Space            → commit highlighted item + trailing space (keep typing)
    *   Escape           → close without committing
@@ -64,11 +67,21 @@
     query: string;
     onselect: (item: PickerItem, opts: { trailingSpace: boolean }) => void;
     onclose: () => void;
+    /**
+     * Called when the user picks a category from the menu (empty-query mode)
+     * or hits Tab on a prefix-matched category. The parent should replace the
+     * current `/query` in the textarea with `/category:` so the user can keep
+     * typing to narrow down. This keeps the textarea as the single source of
+     * truth — the picker never holds hidden state.
+     */
+    onpickcategory: (category: Exclude<Category, "all">) => void;
   }
 
-  let { query, onselect, onclose }: Props = $props();
+  let { query, onselect, onclose, onpickcategory }: Props = $props();
 
   type Category = "all" | "worker" | "bridge" | "context" | "skill";
+
+  const CATEGORY_ORDER: Exclude<Category, "all">[] = ["worker", "bridge", "context", "skill"];
 
   interface SkillRow {
     slug: string;
@@ -82,20 +95,54 @@
   let skillsLoading = $state(true);
   let selectedIndex = $state(0);
 
-  // Parse category prefix from query. Accepts full names and single-letter shortcuts.
+  // Parse category prefix from query. Accepts:
+  //   - Full form with colon: `worker:foo`, `bridge:`, `skill:foo bar`
+  //   - Single-letter shortcut with colon: `w:foo`, `b:`
+  //   - Prefix without colon: `w`, `wo`, `work`, `worker` → category "worker", empty term
+  //     (ambiguous prefixes like `c` resolve to `context`; all four category names
+  //     start with different letters so there's no real ambiguity)
+  //   - Empty query: category "all" with empty term → triggers category-menu mode
+  //   - Anything else: category "all" with the whole query as the search term
   let parsed = $derived.by(() => {
-    const raw = query ?? "";
-    const m = raw.match(/^(worker|bridge|context|skill|w|b|c|s):(.*)$/i);
-    if (!m) return { category: "all" as Category, term: raw.trim().toLowerCase() };
-    const full = m[1].toLowerCase();
-    const cat: Category =
-      full === "w" ? "worker"
-      : full === "b" ? "bridge"
-      : full === "c" ? "context"
-      : full === "s" ? "skill"
-      : (full as Category);
-    return { category: cat, term: m[2].trim().toLowerCase() };
+    const raw = (query ?? "").trim();
+
+    // Full form: `category:term`
+    const withColon = raw.match(/^(worker|bridge|context|skill|w|b|c|s):(.*)$/i);
+    if (withColon) {
+      const full = withColon[1].toLowerCase();
+      const cat: Category =
+        full === "w" ? "worker"
+        : full === "b" ? "bridge"
+        : full === "c" ? "context"
+        : full === "s" ? "skill"
+        : (full as Category);
+      return { category: cat, term: withColon[2].trim().toLowerCase(), prefixMatch: false };
+    }
+
+    // Prefix match: `wo` → worker, `cont` → context, etc.
+    // Only applies when the whole query is a prefix of exactly one category name.
+    // A single-letter shortcut like `w` is also treated as a prefix (category only,
+    // no search term) since `w:` would be the equivalent form.
+    const lower = raw.toLowerCase();
+    if (lower.length > 0) {
+      const matches = CATEGORY_ORDER.filter((c) => c.startsWith(lower));
+      if (matches.length === 1) {
+        return { category: matches[0] as Category, term: "", prefixMatch: true };
+      }
+    }
+
+    // Fall back to all-category fuzzy search.
+    return { category: "all" as Category, term: lower, prefixMatch: false };
   });
+
+  // Two modes:
+  //   - "categories": empty query → show a vertical list of the four categories
+  //                    that the user can navigate with arrow keys and pick with
+  //                    Enter/Tab/Space. Picking sends `onpickcategory`.
+  //   - "items":      everything else → flat list of matching items, same as before.
+  let mode = $derived<"categories" | "items">(
+    (query ?? "").trim() === "" ? "categories" : "items",
+  );
 
   // Build per-category item lists. Read store getters so Svelte 5 tracks them.
   let workerItems = $derived.by<PickerItem[]>(() => {
@@ -242,16 +289,24 @@
     return groups.flat();
   });
 
-  // Reset selection whenever the filtered list changes shape.
+  // Reset selection whenever the filtered list or mode changes shape.
   $effect(() => {
     filtered;
+    mode;
     selectedIndex = 0;
   });
 
+  /** How many selectable rows does the current mode have? */
+  function currentListLength(): number {
+    return mode === "categories" ? CATEGORY_ORDER.length : filtered.length;
+  }
+
   export function handleKeydown(e: KeyboardEvent): boolean {
+    const listLength = currentListLength();
+
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      selectedIndex = Math.min(selectedIndex + 1, Math.max(0, filtered.length - 1));
+      selectedIndex = Math.min(selectedIndex + 1, Math.max(0, listLength - 1));
       scrollSelectedIntoView();
       return true;
     }
@@ -261,6 +316,27 @@
       scrollSelectedIntoView();
       return true;
     }
+
+    if (mode === "categories") {
+      // In the category menu, Enter/Tab/Space all pick the highlighted category.
+      // The parent replaces the `/` in the textarea with `/category:` and the
+      // picker transitions naturally into items mode on the next render.
+      if (e.key === "Enter" || e.key === "Tab" || e.key === " " || e.code === "Space") {
+        e.preventDefault();
+        const cat = CATEGORY_ORDER[selectedIndex];
+        if (cat) onpickcategory(cat);
+        return true;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        onclose();
+        return true;
+      }
+      return false;
+    }
+
+    // Items mode — same behavior as before.
     if (e.key === "Enter" || e.key === "Tab") {
       if (filtered.length > 0) {
         e.preventDefault();
@@ -307,19 +383,35 @@
     return `s:${item.program}:${item.slug}`;
   }
 
-  function iconFor(kind: PickerItem["kind"]): string {
+  function iconFor(kind: PickerItem["kind"] | Exclude<Category, "all">): string {
     if (kind === "worker") return "\u{1F5A5}"; // 🖥
     if (kind === "bridge") return "\u{1F50C}"; // 🔌
     if (kind === "context") return "\u{1F4C4}"; // 📄
     return "\u{1F9E0}"; // 🧠 skill
   }
 
-  function labelFor(kind: PickerItem["kind"]): string {
+  function labelFor(kind: PickerItem["kind"] | Exclude<Category, "all">): string {
     if (kind === "worker") return "worker";
     if (kind === "bridge") return "bridge";
     if (kind === "context") return "context";
     return "skill";
   }
+
+  /** One-line hint shown next to each category in the empty-query menu. */
+  function categoryDescription(cat: Exclude<Category, "all">): string {
+    if (cat === "worker") return "Route the job to a specific machine";
+    if (cat === "bridge") return "Target a specific DCC bridge on a worker";
+    if (cat === "context") return "Reference a scene / project context item";
+    return "Attach a specific skill to the prompt";
+  }
+
+  /** Count how many items exist in each category so the menu can show "3 online", etc. */
+  let categoryCounts = $derived.by(() => ({
+    worker: workerItems.length,
+    bridge: bridgeItems.length,
+    context: contextItems.length,
+    skill: skillItems.length,
+  }));
 
   function primaryText(item: PickerItem): string {
     if (item.kind === "worker") return item.name;
@@ -389,10 +481,29 @@
     {/if}
   </div>
   <div class="picker-body">
-    {#if filtered.length === 0}
+    {#if mode === "categories"}
+      {#each CATEGORY_ORDER as cat, i (cat)}
+        <button
+          type="button"
+          class="ref-item category-item"
+          class:selected={i === selectedIndex}
+          onclick={() => onpickcategory(cat)}
+          onmouseenter={() => (selectedIndex = i)}
+        >
+          <span class="ref-icon">{iconFor(cat)}</span>
+          <span class="ref-main">
+            <span class="ref-primary">/{cat}:</span>
+            <span class="ref-secondary">{categoryDescription(cat)}</span>
+          </span>
+          <span class="ref-kind">{categoryCounts[cat]}</span>
+        </button>
+      {/each}
+    {:else if filtered.length === 0}
       <div class="picker-empty">
         {#if skillsLoading && parsed.category !== "worker" && parsed.category !== "bridge" && parsed.category !== "context"}
           Loading...
+        {:else if parsed.prefixMatch}
+          No {parsed.category}s yet. Keep typing to fuzzy-search everything, or hit Tab to insert <code>/{parsed.category}:</code>.
         {:else if query.trim()}
           No matches for "/{query}"
         {:else}
@@ -421,10 +532,16 @@
     {/if}
   </div>
   <div class="picker-footer">
-    <span class="hint">↑↓ navigate</span>
-    <span class="hint">Space autocompletes</span>
-    <span class="hint">Enter commits</span>
-    <span class="hint">Esc closes</span>
+    {#if mode === "categories"}
+      <span class="hint">↑↓ pick a category</span>
+      <span class="hint">Enter / Tab / Space selects</span>
+      <span class="hint">Esc closes</span>
+    {:else}
+      <span class="hint">↑↓ navigate</span>
+      <span class="hint">Space autocompletes</span>
+      <span class="hint">Enter commits</span>
+      <span class="hint">Esc closes</span>
+    {/if}
   </div>
 </div>
 
@@ -522,6 +639,12 @@
   .ref-item:hover,
   .ref-item.selected {
     background: var(--bg-hover);
+  }
+
+  /* Category menu rows are a touch taller so the menu feels like "picking a
+     thing to do" rather than "picking a row from a list". */
+  .category-item {
+    padding: 10px 12px;
   }
 
   .ref-icon {
