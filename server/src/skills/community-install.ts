@@ -43,8 +43,8 @@ function parseAuthorBlob(raw: unknown): { meta: SkillAuthorMeta | null; login: s
   if (typeof obj.login === "string") meta.login = obj.login;
   if (typeof obj.githubId === "number") meta.githubId = obj.githubId;
   if (typeof obj.accountAgeDays === "number") meta.accountAgeDays = obj.accountAgeDays;
-  if (typeof obj.publicCommits === "number") meta.publicCommits = obj.publicCommits;
   if (typeof obj.publicRepos === "number") meta.publicRepos = obj.publicRepos;
+  if (typeof obj.followers === "number") meta.followers = obj.followers;
   if (typeof obj.verified === "boolean") meta.verified = obj.verified;
   return {
     meta: Object.keys(meta).length > 0 ? meta : null,
