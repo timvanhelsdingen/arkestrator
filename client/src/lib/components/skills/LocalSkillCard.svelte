@@ -66,7 +66,18 @@
   {/if}
 
   <div class="card-meta">
-    {#if skill.source}
+    {#if skill.source === "community" && skill.communityUrl}
+      <a
+        class="meta-item community-link"
+        href={skill.communityUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={skill.authorLogin ? `Installed from community — by ${skill.authorLogin}` : "Installed from community"}
+        onclick={(e) => e.stopPropagation()}
+      >
+        from community{skill.authorLogin ? ` · ${skill.authorLogin}` : ""} ↗
+      </a>
+    {:else if skill.source}
       <span class="meta-item" title="Source">{skill.source}</span>
     {/if}
     {#if effectiveness}
@@ -217,6 +228,16 @@
   }
   .meta-item.muted {
     opacity: 0.6;
+  }
+  .community-link {
+    color: var(--accent);
+    text-decoration: none;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .community-link:hover {
+    text-decoration: underline;
   }
   .success-badge {
     font-size: calc(var(--card-scale, 1) * 10px);

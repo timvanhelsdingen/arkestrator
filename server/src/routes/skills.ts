@@ -191,11 +191,20 @@ export function createSkillsRoutes(
 
   /** Enrich a skill with computed `repoModified` flag for repo-sourced skills. */
   function enrichSkill(s: any) {
+    let out = s;
     if (s.source === "repo" && s.repoContentHash) {
       const currentHash = Bun.hash(s.content).toString(16);
-      return { ...s, repoModified: currentHash !== s.repoContentHash };
+      out = { ...out, repoModified: currentHash !== s.repoContentHash };
     }
-    return s;
+    // Attach a clickable marketplace URL for skills installed from the
+    // community. The baseUrl honors the `community.baseUrl` admin setting
+    // (and the ARKESTRATOR_COMMUNITY_BASE_URL env var) so self-hosted
+    // marketplaces link back to themselves instead of arkestrator.com.
+    if (s.source === "community" && s.communityId) {
+      const baseUrl = resolveCommunityBaseUrl(settingsRepo);
+      out = { ...out, communityUrl: `${baseUrl}/skills/${encodeURIComponent(s.communityId)}` };
+    }
+    return out;
   }
 
   // GET / — list skills (from index, includes all sources)
