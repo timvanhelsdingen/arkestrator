@@ -4233,12 +4233,113 @@ export function createSettingsGeneralRoutes(deps: SettingsRouteDeps) {
       if (raw && typeof raw === "string" && raw.trim()) return raw.trim();
       return process.env.ARKESTRATOR_COMMUNITY_BASE_URL?.trim() || "https://arkestrator.com";
     })();
+    // Prompt-injection defense settings (Layer 4 of the security plan).
+    // adminHardDisabled is the master kill switch — when true, the per-user
+    // toggle in the client is forced off and locked. extraCaution controls
+    // how aggressive the untrusted-content framing is when surfacing
+    // community skill bodies to agents.
+    const adminHardDisabled = String(settingsRepo.get("community.adminHardDisabled") ?? "").toLowerCase() === "true";
+    const allowOnClient = String(settingsRepo.get("community.allowOnClient") ?? "").toLowerCase() === "true";
+    const extraCautionRaw = settingsRepo.get("community.extraCaution");
+    const extraCaution = extraCautionRaw == null ? true : String(extraCautionRaw).toLowerCase() === "true";
     const users = usersRepo.listWithCommunitySession();
     return c.json({
       agentAutoInstallEnabled,
       baseUrl,
+      adminHardDisabled,
+      allowOnClient,
+      extraCaution,
       users,
     });
+  });
+
+  // Non-admin endpoint the client polls to know what it's allowed to do.
+  // Returns the resolved policy (admin overrides applied) so the client UI
+  // can disable / lock the community section accordingly. Never exposes
+  // tokens, never reveals other users' state.
+  router.get("/community/policy", async (c) => {
+    const user = getAuthenticatedUser(c, usersRepo);
+    if (!user) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+    const adminHardDisabled = String(settingsRepo.get("community.adminHardDisabled") ?? "").toLowerCase() === "true";
+    const allowOnClientRaw = settingsRepo.get("community.allowOnClient");
+    const allowOnClient = !adminHardDisabled && allowOnClientRaw != null && String(allowOnClientRaw).toLowerCase() === "true";
+    const extraCautionRaw = settingsRepo.get("community.extraCaution");
+    const extraCaution = extraCautionRaw == null ? true : String(extraCautionRaw).toLowerCase() === "true";
+    return c.json({
+      adminHardDisabled,
+      allowOnClient,
+      extraCaution,
+    });
+  });
+
+  // Per-server "Allow community skills" toggle. Any authenticated user can
+  // flip this UNLESS admin has hard-disabled the feature, in which case the
+  // request is rejected.
+  router.put("/community/allow-on-client", async (c) => {
+    const user = getAuthenticatedUser(c, usersRepo);
+    if (!user) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+    const adminHardDisabled = String(settingsRepo.get("community.adminHardDisabled") ?? "").toLowerCase() === "true";
+    if (adminHardDisabled) {
+      return errorResponse(c, 403, "Community skills are hard-disabled by the administrator on this server.", "LOCKED");
+    }
+    let body: any;
+    try { body = await c.req.json(); } catch { return errorResponse(c, 400, "Invalid JSON body", "INVALID_JSON"); }
+    if (typeof body?.enabled !== "boolean") {
+      return errorResponse(c, 400, "enabled must be a boolean", "INVALID_INPUT");
+    }
+    settingsRepo.set("community.allowOnClient", body.enabled ? "true" : "false");
+    auditRepo.log({
+      userId: user.id,
+      username: user.username,
+      action: body.enabled ? "community_allow_on_client_enabled" : "community_allow_on_client_disabled",
+      resource: "settings",
+      ipAddress: getClientIp(c),
+    });
+    return c.json({ ok: true, allowOnClient: body.enabled });
+  });
+
+  // Admin-only: hard-disable community skills entirely. Locks the user
+  // toggle in the client and forces every code path that touches community
+  // content to no-op. Use this to enforce org policy on a shared server.
+  router.put("/community/admin-hard-disabled", async (c) => {
+    const user = requireAdmin(c, usersRepo);
+    if (!user) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+    let body: any;
+    try { body = await c.req.json(); } catch { return errorResponse(c, 400, "Invalid JSON body", "INVALID_JSON"); }
+    if (typeof body?.disabled !== "boolean") {
+      return errorResponse(c, 400, "disabled must be a boolean", "INVALID_INPUT");
+    }
+    settingsRepo.set("community.adminHardDisabled", body.disabled ? "true" : "false");
+    auditRepo.log({
+      userId: user.id,
+      username: user.username,
+      action: body.disabled ? "community_admin_hard_disabled" : "community_admin_hard_enabled",
+      resource: "settings",
+      ipAddress: getClientIp(c),
+    });
+    return c.json({ ok: true, adminHardDisabled: body.disabled });
+  });
+
+  // Extra-caution mode toggle. Any authenticated user can flip it; defaults
+  // to ON. Controls the aggressiveness of the untrusted-content framing
+  // when community skill bodies are surfaced to agents.
+  router.put("/community/extra-caution", async (c) => {
+    const user = getAuthenticatedUser(c, usersRepo);
+    if (!user) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+    let body: any;
+    try { body = await c.req.json(); } catch { return errorResponse(c, 400, "Invalid JSON body", "INVALID_JSON"); }
+    if (typeof body?.enabled !== "boolean") {
+      return errorResponse(c, 400, "enabled must be a boolean", "INVALID_INPUT");
+    }
+    settingsRepo.set("community.extraCaution", body.enabled ? "true" : "false");
+    auditRepo.log({
+      userId: user.id,
+      username: user.username,
+      action: body.enabled ? "community_extra_caution_enabled" : "community_extra_caution_disabled",
+      resource: "settings",
+      ipAddress: getClientIp(c),
+    });
+    return c.json({ ok: true, extraCaution: body.enabled });
   });
 
   router.put("/community/agent-auto-install", async (c) => {
@@ -4294,6 +4395,94 @@ export function createSettingsGeneralRoutes(deps: SettingsRouteDeps) {
       ipAddress: getClientIp(c),
     });
     return c.json({ ok: true, baseUrl: baseUrl ?? null });
+  });
+
+  // Admin: stats + visibility into installed community skills.
+  // Powers the admin panel's "Community" section so admins can see at a
+  // glance how many community skills are installed, how many are flagged
+  // by the scanner, who submitted them, and which patterns triggered the
+  // flag. Use this to triage potential prompt-injection attempts before
+  // they cause harm.
+  router.get("/community/stats", async (c) => {
+    const user = requireAdmin(c, usersRepo);
+    if (!user) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+    if (!skillsRepo) return c.json({ total: 0, flagged: 0, byTier: {}, skills: [] });
+    const all = skillsRepo.listBySource("community");
+    const flagged = all.filter((s) => s.flagged);
+    const byTier: Record<string, number> = {};
+    for (const s of all) {
+      const t = s.trustTier ?? "unknown";
+      byTier[t] = (byTier[t] ?? 0) + 1;
+    }
+    return c.json({
+      total: all.length,
+      flagged: flagged.length,
+      byTier,
+      // Surface flagged skills first so the admin sees them immediately.
+      // Cap at 100 so a runaway DB doesn't blow up the response.
+      skills: [...flagged, ...all.filter((s) => !s.flagged)]
+        .slice(0, 100)
+        .map((s) => ({
+          slug: s.slug,
+          program: s.program,
+          title: s.title,
+          trustTier: s.trustTier,
+          flagged: s.flagged,
+          flaggedReasons: s.flaggedReasons,
+          authorLogin: s.authorLogin,
+          authorVerified: s.authorVerified,
+          createdAt: s.createdAt,
+        })),
+    });
+  });
+
+  // Admin: bulk-delete every community skill the local scanner has flagged.
+  // Useful as a "clean house" button after a wave of bad submissions.
+  // NOTE: this route MUST be declared before /community/skills/:slug below,
+  // otherwise the literal "flagged" segment would match the :slug param.
+  router.delete("/community/skills/flagged", async (c) => {
+    const user = requireAdmin(c, usersRepo);
+    if (!user) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+    if (!skillsRepo) return errorResponse(c, 503, "Skills system not initialized", "UNAVAILABLE");
+    const flagged = skillsRepo.listBySource("community").filter((s) => s.flagged);
+    let removed = 0;
+    for (const s of flagged) {
+      if (skillsRepo.deleteAny(s.slug, s.program)) removed++;
+    }
+    auditRepo.log({
+      userId: user.id,
+      username: user.username,
+      action: "community_flagged_skills_bulk_deleted",
+      resource: `count:${removed}`,
+      ipAddress: getClientIp(c),
+    });
+    return c.json({ ok: true, removed });
+  });
+
+  // Admin: hard-delete a single community skill (e.g. one that turned out
+  // to be malicious or got flagged after install). Only operates on
+  // community skills — never touches builtin / repo / user skills.
+  router.delete("/community/skills/:slug", async (c) => {
+    const user = requireAdmin(c, usersRepo);
+    if (!user) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+    if (!skillsRepo) return errorResponse(c, 503, "Skills system not initialized", "UNAVAILABLE");
+    const slug = c.req.param("slug");
+    if (!slug) return errorResponse(c, 400, "slug required", "INVALID_INPUT");
+    const program = c.req.query("program") ?? "global";
+    const existing = skillsRepo.getAny(slug, program);
+    if (!existing) return errorResponse(c, 404, "Skill not found", "NOT_FOUND");
+    if (existing.source !== "community") {
+      return errorResponse(c, 400, "Refusing to delete non-community skill via this endpoint", "INVALID_INPUT");
+    }
+    const removed = skillsRepo.deleteAny(slug, program);
+    auditRepo.log({
+      userId: user.id,
+      username: user.username,
+      action: "community_skill_deleted_by_admin",
+      resource: `skill:${slug}`,
+      ipAddress: getClientIp(c),
+    });
+    return c.json({ ok: removed });
   });
 
   router.delete("/community/sessions/:userId", async (c) => {

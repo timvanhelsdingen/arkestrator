@@ -507,6 +507,26 @@ const COLUMN_ADDITIONS = [
   // (mcp_preset_id), never both. See skill-validator.ts for enforcement.
   `ALTER TABLE skills ADD COLUMN mcp_preset_id TEXT`,
   `CREATE INDEX IF NOT EXISTS idx_skills_mcp_preset ON skills(mcp_preset_id) WHERE mcp_preset_id IS NOT NULL`,
+  // Community skill prompt-injection defense (v0.1.108+).
+  // - trust_tier: from arkestrator.com publisher-side trust scoring
+  //   ('verified' | 'community' | 'pending_review' | 'quarantined').
+  //   Local install refuses to persist 'pending_review' / 'quarantined'.
+  //   For non-community sources this is null and treated as fully trusted.
+  // - flagged: 1 if either the publisher-side or local heuristic scanner
+  //   matched a suspicious pattern. Flagged skills get extra prompt-injection
+  //   framing when their content surfaces in agent prompts.
+  // - flagged_reasons: JSON array of pattern names that triggered the flag,
+  //   surfaced in the client UI so users can see *why* a skill is flagged.
+  // - author_login / author_verified / author_meta: snapshot of the GitHub
+  //   identity that submitted the skill, used to inform user trust decisions
+  //   in the client. author_meta is a JSON blob (account age, commits, etc.).
+  `ALTER TABLE skills ADD COLUMN trust_tier TEXT`,
+  `ALTER TABLE skills ADD COLUMN flagged INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE skills ADD COLUMN flagged_reasons TEXT NOT NULL DEFAULT '[]'`,
+  `ALTER TABLE skills ADD COLUMN author_login TEXT`,
+  `ALTER TABLE skills ADD COLUMN author_verified INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE skills ADD COLUMN author_meta TEXT`,
+  `CREATE INDEX IF NOT EXISTS idx_skills_flagged ON skills(flagged) WHERE flagged = 1`,
 ];
 
 // Reset any jobs stuck in 'running' state (server crashed while they were active)
@@ -673,23 +693,41 @@ function rebuildSkillsTableIfNeeded(db: Database) {
   db.exec("PRAGMA foreign_keys = OFF");
   db.exec("BEGIN TRANSACTION");
   try {
+    // CRITICAL: this skills_new schema must include EVERY column that
+    // COLUMN_ADDITIONS adds, otherwise the commonCols intersection will
+    // silently drop them during the rebuild and prepared statements that
+    // reference them will fail later this same boot. When you add a new
+    // skills column to COLUMN_ADDITIONS, mirror it here.
     db.exec(`CREATE TABLE skills_new (
-      id          TEXT PRIMARY KEY,
-      name        TEXT NOT NULL,
-      slug        TEXT NOT NULL,
-      program     TEXT NOT NULL DEFAULT 'global',
-      category    TEXT NOT NULL CHECK(category IN ('coordinator','bridge','training','playbook','verification','project','project-reference','housekeeping','custom')),
-      title       TEXT NOT NULL,
-      description TEXT NOT NULL DEFAULT '',
-      keywords    TEXT NOT NULL DEFAULT '[]',
-      content     TEXT NOT NULL,
-      source      TEXT NOT NULL DEFAULT 'user',
-      source_path TEXT,
-      priority    INTEGER NOT NULL DEFAULT 50,
-      auto_fetch  INTEGER NOT NULL DEFAULT 0,
-      enabled     INTEGER NOT NULL DEFAULT 1,
-      created_at  TEXT NOT NULL,
-      updated_at  TEXT NOT NULL,
+      id                TEXT PRIMARY KEY,
+      name              TEXT NOT NULL,
+      slug              TEXT NOT NULL,
+      program           TEXT NOT NULL DEFAULT 'global',
+      mcp_preset_id     TEXT,
+      category          TEXT NOT NULL CHECK(category IN ('coordinator','bridge','training','playbook','verification','project','project-reference','housekeeping','custom')),
+      title             TEXT NOT NULL,
+      description       TEXT NOT NULL DEFAULT '',
+      keywords          TEXT NOT NULL DEFAULT '[]',
+      content           TEXT NOT NULL,
+      playbooks         TEXT NOT NULL DEFAULT '[]',
+      related_skills    TEXT NOT NULL DEFAULT '[]',
+      source            TEXT NOT NULL DEFAULT 'user',
+      source_path       TEXT,
+      priority          INTEGER NOT NULL DEFAULT 50,
+      auto_fetch        INTEGER NOT NULL DEFAULT 0,
+      enabled           INTEGER NOT NULL DEFAULT 1,
+      locked            INTEGER NOT NULL DEFAULT 0,
+      version           INTEGER NOT NULL DEFAULT 1,
+      app_version       TEXT,
+      repo_content_hash TEXT,
+      trust_tier        TEXT,
+      flagged           INTEGER NOT NULL DEFAULT 0,
+      flagged_reasons   TEXT NOT NULL DEFAULT '[]',
+      author_login      TEXT,
+      author_verified   INTEGER NOT NULL DEFAULT 0,
+      author_meta       TEXT,
+      created_at        TEXT NOT NULL,
+      updated_at        TEXT NOT NULL,
       UNIQUE(slug, program)
     )`);
     const oldCols = db.prepare(`PRAGMA table_info(skills)`).all() as { name: string }[];
@@ -700,6 +738,8 @@ function rebuildSkillsTableIfNeeded(db: Database) {
     db.exec(`INSERT INTO skills_new (${selectCols}) SELECT ${selectCols} FROM skills`);
     db.exec(`DROP TABLE skills`);
     db.exec(`ALTER TABLE skills_new RENAME TO skills`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_skills_mcp_preset ON skills(mcp_preset_id) WHERE mcp_preset_id IS NOT NULL`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_skills_flagged ON skills(flagged) WHERE flagged = 1`);
     db.exec("COMMIT");
     logger.info("migrations", "Skills table migration complete.");
   } catch (err) {

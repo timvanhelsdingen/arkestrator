@@ -15,6 +15,70 @@
   let loadingUser = $state(false);
   let localHasSession = $state(false);
 
+  // ── Prompt-injection defense policy (Layer 4) ──────────────────────
+  // Resolved policy from the local server. Reflects:
+  //   - admin hard-disable (locks the UI when on)
+  //   - per-server "Allow community skills" toggle (defaults OFF)
+  //   - extra-caution mode (defaults ON)
+  // The local server is the source of truth — the toggle UI here is just
+  // a control surface. Why server-side: the client is open source, so any
+  // defense that runs only here is trivially bypassable.
+  let policyLoading = $state(false);
+  let policySaving = $state(false);
+  let adminHardDisabled = $state(false);
+  let allowOnClient = $state(false);
+  let extraCaution = $state(true);
+
+  async function loadCommunityPolicy() {
+    policyLoading = true;
+    try {
+      const p = await api.settings.getCommunityPolicy();
+      adminHardDisabled = p.adminHardDisabled;
+      allowOnClient = p.allowOnClient;
+      extraCaution = p.extraCaution;
+    } catch {
+      // If the server doesn't have the policy endpoint yet, fall back to
+      // the conservative defaults: locked off, extra caution on.
+      adminHardDisabled = false;
+      allowOnClient = false;
+      extraCaution = true;
+    } finally {
+      policyLoading = false;
+    }
+  }
+
+  async function setAllowOnClient(enabled: boolean) {
+    if (adminHardDisabled) return;
+    policySaving = true;
+    try {
+      const r = await api.settings.setCommunityAllowOnClient(enabled);
+      allowOnClient = r.allowOnClient;
+      toast.success(enabled ? "Community skills enabled on this server" : "Community skills disabled on this server");
+    } catch (err: any) {
+      toast.error(err?.message ?? "Failed to update community policy");
+      // Re-read to recover from any divergent state.
+      await loadCommunityPolicy();
+    } finally {
+      policySaving = false;
+    }
+  }
+
+  async function setExtraCaution(enabled: boolean) {
+    policySaving = true;
+    try {
+      const r = await api.settings.setCommunityExtraCaution(enabled);
+      extraCaution = r.extraCaution;
+      toast.success(enabled ? "Extra caution mode enabled" : "Extra caution mode disabled");
+    } catch (err: any) {
+      toast.error(err?.message ?? "Failed to update extra caution");
+      await loadCommunityPolicy();
+    } finally {
+      policySaving = false;
+    }
+  }
+
+  $effect(() => { loadCommunityPolicy(); });
+
   // Push the community session token to the local Arkestrator server so that
   // agent MCP tools (search_community_skills, install_community_skill) can
   // forward it as a Bearer token when calling arkestrator.com. Silent on failure
@@ -115,14 +179,77 @@
   }
 </script>
 
+<section class="warning-banner">
+  <div class="warning-row">
+    <span class="warning-icon">⚠️</span>
+    <div>
+      <strong>Community skills are submitted by third parties</strong>
+      <p class="desc">
+        They have not been audited by Arkestrator. Skill content is text that gets injected into
+        AI agent prompts, so a malicious skill can attempt prompt injection — instructing your
+        agent to ignore safety guidance, run destructive commands, or exfiltrate credentials.
+        Arkestrator applies multiple layers of defense (publisher-side scanning, local content
+        scanning, untrusted-content framing in agent prompts), but defenses are not perfect.
+        <strong>Use community skills with caution</strong>, especially from authors you don't
+        recognize. If a job behaves unexpectedly after a community skill is involved, disable
+        the skill and report it on arkestrator.com.
+      </p>
+    </div>
+  </div>
+</section>
+
 <section>
   <h3>Community Skills</h3>
   <div class="form-group">
+    {#if adminHardDisabled}
+      <div class="locked-row">
+        <span class="locked-icon">🔒</span>
+        <div>
+          <strong>Disabled by administrator</strong>
+          <p class="desc">
+            Community skills have been hard-disabled on this server by an administrator.
+            Contact your admin to change this policy.
+          </p>
+        </div>
+      </div>
+    {:else}
+      <label class="toggle-label">
+        <input
+          type="checkbox"
+          checked={allowOnClient}
+          disabled={policySaving || policyLoading}
+          onchange={(e) => setAllowOnClient((e.target as HTMLInputElement).checked)}
+        />
+        <span>Allow community skills on this server</span>
+      </label>
+      <p class="desc">
+        When off, agents cannot search or install skills from arkestrator.com and existing
+        community skills are not surfaced via <code>get_skill</code>. Defaults to off — opt in
+        only after reading the warning above.
+      </p>
+
+      <label class="toggle-label">
+        <input
+          type="checkbox"
+          checked={extraCaution}
+          disabled={policySaving || policyLoading || !allowOnClient}
+          onchange={(e) => setExtraCaution((e.target as HTMLInputElement).checked)}
+        />
+        <span>Extra caution mode (recommended)</span>
+      </label>
+      <p class="desc">
+        Wraps community skill content with stronger prompt-injection-defense framing when it
+        reaches an agent. Slightly increases token usage but is the safer default.
+      </p>
+    {/if}
+
+    <hr class="separator" />
+
     <label class="toggle-label">
       <input type="checkbox" bind:checked={settings.enabled} />
-      <span>Enable Community Skills</span>
+      <span>Enable Community Skills (client UI)</span>
     </label>
-    <p class="desc">Browse and install skills from the Arkestrator community at arkestrator.com.</p>
+    <p class="desc">Show the Community tab in the Arkestrator client UI for browsing and installing skills manually.</p>
 
     <label>
       Community API URL
@@ -335,5 +462,57 @@
   }
   .status-warn {
     color: var(--text-muted);
+  }
+  .warning-banner {
+    background: color-mix(in srgb, var(--status-failed, #f87171) 12%, var(--bg-surface));
+    border-color: color-mix(in srgb, var(--status-failed, #f87171) 40%, var(--border));
+  }
+  .warning-row {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+  }
+  .warning-icon {
+    font-size: 20px;
+    flex-shrink: 0;
+    line-height: 1;
+  }
+  .warning-row strong {
+    display: block;
+    color: var(--text-primary);
+    font-size: var(--font-size-sm);
+    margin-bottom: 4px;
+  }
+  .locked-row {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 10px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-elevated);
+    border: 1px dashed var(--border);
+  }
+  .locked-icon {
+    font-size: 16px;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+  .locked-row strong {
+    display: block;
+    color: var(--text-primary);
+    font-size: var(--font-size-sm);
+    margin-bottom: 2px;
+  }
+  .separator {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 8px 0 4px;
+  }
+  code {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    background: var(--bg-elevated);
+    padding: 1px 4px;
+    border-radius: 3px;
   }
 </style>

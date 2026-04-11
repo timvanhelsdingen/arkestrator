@@ -1902,6 +1902,14 @@ export async function spawnAgent(
     // priority DESC so coordinators (90) come before bridges (70).
     const autoFetchCandidates = allEnabled.filter((s) => {
       if (!s.autoFetch) return false;
+      // SECURITY (Layer 1): community-sourced skills are never auto-injected
+      // into the system prompt regardless of their autoFetch flag. They are
+      // untrusted third-party content and must only reach an agent's context
+      // via an explicit search_skills/get_skill call (where Layer 2 framing
+      // applies). The threat is that a malicious community submitter could
+      // mark a skill autoFetch and have its prompt-injection payload land in
+      // every coordinator boot for every job on this server.
+      if (s.source === "community") return false;
       if (verificationDisabled && isVerificationSkill(s)) return false;
       // MCP-scoped skills: only include when the job has that bridge enabled.
       if (s.mcpPresetId) return enabledMcpPresetIds.includes(s.mcpPresetId);
@@ -2040,6 +2048,13 @@ export async function spawnAgent(
     const requestedSlugs = job.requestedSkills ?? [];
     if (requestedSlugs.length > 0) {
       const { SkillIndex: SkillIndexCls } = await import("../skills/skill-index.js");
+      // Layer 2 framing import — only used when a requested skill is
+      // community-sourced. The user explicitly opted in by typing
+      // `/skill:slug`, but the content is still third-party so we still
+      // wrap it.
+      const { frameUntrustedSkillContent } = await import("../skills/skill-validator.js");
+      const { resolveCommunityPolicy } = await import("../skills/community-install.js");
+      const communityExtraCaution = resolveCommunityPolicy(deps.settingsRepo).extraCaution;
       const requestedLines: string[] = ["## Requested Skills"];
       const MAX_REQUESTED_TOTAL = 15_000;
       let requestedInjected = 0;
@@ -2057,8 +2072,25 @@ export async function spawnAgent(
         if (skill.content) {
           const budget = Math.min(4000, MAX_REQUESTED_TOTAL - requestedInjected);
           const capped = SkillIndexCls.truncateMarkdown(skill.content, budget);
-          requestedLines.push(capped);
-          requestedInjected += capped.length;
+          // Wrap community skill bodies in untrusted-content framing.
+          const rendered = skill.source === "community"
+            ? frameUntrustedSkillContent(
+                {
+                  slug: skill.slug,
+                  title: skill.title,
+                  source: skill.source,
+                  trustTier: skill.trustTier,
+                  flagged: skill.flagged,
+                  flaggedReasons: skill.flaggedReasons,
+                  authorLogin: skill.authorLogin,
+                  authorVerified: skill.authorVerified,
+                },
+                capped,
+                communityExtraCaution,
+              )
+            : capped;
+          requestedLines.push(rendered);
+          requestedInjected += rendered.length;
         }
         requestedLines.push("");
 

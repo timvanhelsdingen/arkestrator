@@ -1809,7 +1809,38 @@ export function createMcpServer(deps: McpDeps): McpServer {
         }
       }
       const rateReminder = `\n\n---\n_After using this skill, call \`rate_skill("${slug}", "useful"|"not_useful"|"partial")\` to help improve future recommendations._`;
-      return { content: [{ type: "text" as const, text: `# ${skill.title}\n\n${content}${rateReminder}` }] };
+
+      // Layer 2: untrusted-content framing for community-sourced skills.
+      // The skill body is concatenated directly into the agent's tool result
+      // and effectively becomes part of its context. Without framing, a
+      // malicious community submitter could embed prompt-injection payloads
+      // (jailbreaks, "ignore previous instructions", calls to destructive
+      // tools) and have them executed as if they came from the user. The
+      // framing tells the model the content is third-party advisory and
+      // surfaces the trust tier, flagged status, and author so it can weigh
+      // credibility.
+      let renderedBody = content;
+      if (skill.source === "community") {
+        const { frameUntrustedSkillContent } = await import("../skills/skill-validator.js");
+        const { resolveCommunityPolicy } = await import("../skills/community-install.js");
+        const extraCaution = resolveCommunityPolicy(deps.settingsRepo).extraCaution;
+        renderedBody = frameUntrustedSkillContent(
+          {
+            slug: skill.slug,
+            title: skill.title,
+            source: skill.source,
+            trustTier: skill.trustTier,
+            flagged: skill.flagged,
+            flaggedReasons: skill.flaggedReasons,
+            authorLogin: skill.authorLogin,
+            authorVerified: skill.authorVerified,
+          },
+          content,
+          extraCaution,
+        );
+      }
+
+      return { content: [{ type: "text" as const, text: `# ${skill.title}\n\n${renderedBody}${rateReminder}` }] };
     },
   );
 
