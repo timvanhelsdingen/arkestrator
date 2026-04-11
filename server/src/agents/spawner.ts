@@ -1346,6 +1346,35 @@ export async function executeLocalAgenticToolCall(
     // Mutate the in-memory job object so subsequent tool calls in this
     // loop see the new program without re-fetching.
     (job as any).bridgeProgram = program;
+    // Purge usage rows for coordinator/bridge skills injected for the OLD
+    // program. Those skills never had a chance to help this job (the agent
+    // retargeted before using them), so letting the agent rate them negative
+    // or letting the rate_job fallback stamp them with the job outcome just
+    // pollutes their effectiveness stats. Delete the rows here so:
+    //   - rate_skill rejects subsequent ratings against them (the usage-row
+    //     guard in the MCP tool fires)
+    //   - rate_job's fallback UPDATE misses them (no row to stamp)
+    // We only purge skills that are scoped to the previous program; global
+    // coordinators (no program / program=global) and skills matching the new
+    // program are kept so verification/global helpers still get credit.
+    let purgedStaleCoordinatorRows = 0;
+    if (deps.skillsRepo && deps.skillEffectivenessRepo && previous && previous !== "global") {
+      try {
+        const stale = deps.skillsRepo
+          .listAll({ enabled: true })
+          .filter((s: any) => {
+            if (!s.autoFetch) return false;
+            const sp = (s.program || "").trim().toLowerCase();
+            return sp === previous;
+          });
+        for (const s of stale) {
+          const n = deps.skillEffectivenessRepo.deleteForSkillAndJob((s as any).id, job.id);
+          purgedStaleCoordinatorRows += n;
+        }
+      } catch {
+        // best effort
+      }
+    }
     let reloaded = 0;
     const injected: string[] = [];
     const blocks: string[] = [];

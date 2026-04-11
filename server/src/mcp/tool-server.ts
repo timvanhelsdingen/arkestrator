@@ -2066,6 +2066,28 @@ export function createMcpServer(deps: McpDeps): McpServer {
         deps.skillEffectivenessRepo.deleteForSkillAndJob(skill.id, deps.callerJobId);
         return { content: [{ type: "text" as const, text: `Skipped: ${slug} — verification was disabled for this job, so this skill's effectiveness isn't tracked here.` }] };
       }
+      // Reject ratings for skills that were never actually injected or loaded
+      // during this job. Auto-fetch (`recordUsageOnce` in spawner.ts) and
+      // `get_skill` (`recordUsageOnce` in the tool handler) both leave a usage
+      // row before the agent has any chance to rate. If no row exists, the
+      // agent is rating a skill it hallucinated or guessed from context
+      // metadata (e.g. rating `houdini-coordinator` negative on a blender
+      // job because `editorContext.metadata.bridge_type == "houdini"`),
+      // which silently poisons that skill's effectiveness stats.
+      if (!deps.skillEffectivenessRepo.hasUsageForJob(skill.id, deps.callerJobId)) {
+        return {
+          content: [{
+            type: "text" as const,
+            text:
+              `Rejected: skill "${slug}" was not used in this job. ` +
+              `Only rate skills that were auto-injected into your prompt ("## Coordinator Knowledge" section) ` +
+              `or that you explicitly loaded via get_skill during this job. ` +
+              `If you thought this skill was relevant but didn't use it, load it first with get_skill("${slug}") ` +
+              `and then rate it, or just skip rating it.`,
+          }],
+          isError: true,
+        };
+      }
       const outcomeMap: Record<string, string> = { useful: "positive", not_useful: "negative", partial: "average" };
       // Strict mapping — Zod already enforced the enum at the tool boundary,
       // but fall through to an error rather than a silent `"average"` default

@@ -929,17 +929,30 @@ export function createJobRoutes(
 
     // Infer bridge program only from explicit request metadata.
     // Priority: explicit bridgeProgram field (for offline/headless UI selections)
-    // → target_bridges array (canonical explicit selection) → legacy bridge_type field.
-    // Do not infer from ambient live bridges; auto submissions should stay unbound
-    // until the agent explicitly uses a bridge during execution.
+    // → target_bridges array (canonical explicit selection)
+    // → `/bridge:worker/program` directive in the prompt (the client inserts
+    //   this when the user picks a bridge from the ReferencePicker; it's the
+    //   user's explicit intent and outranks the ambient editor session)
+    // → legacy bridge_type field (the active DCC editor the user is in; used
+    //   only when nothing more specific was declared).
+    //
+    // Without the `/bridge:` parse, a user in a Houdini editor submitting a
+    // Blender task would have bridgeProgram set to "houdini" from the
+    // ambient metadata and wrong coordinator/bridge skills auto-injected,
+    // which polluted effectiveness stats for those skills.
     const metadata = parsed.data.editorContext?.metadata as Record<string, any> | undefined;
     let inferredBridgeProgram: string | undefined;
     if (typeof parsed.data.bridgeProgram === "string" && parsed.data.bridgeProgram.trim()) {
       inferredBridgeProgram = parsed.data.bridgeProgram.trim();
     } else if (metadata?.target_bridges && Array.isArray(metadata.target_bridges) && metadata.target_bridges.length === 1) {
       inferredBridgeProgram = metadata.target_bridges[0];
-    } else if (typeof metadata?.bridge_type === "string") {
-      inferredBridgeProgram = metadata.bridge_type;
+    } else {
+      const directive = /\/bridge:[\w.-]+\/([\w.-]+)/i.exec(parsed.data.prompt ?? "");
+      if (directive && directive[1]) {
+        inferredBridgeProgram = directive[1];
+      } else if (typeof metadata?.bridge_type === "string") {
+        inferredBridgeProgram = metadata.bridge_type;
+      }
     }
 
     let job;

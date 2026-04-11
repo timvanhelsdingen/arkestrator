@@ -2,7 +2,14 @@
   import { loadSettings, saveSettings, communityApi, type CommunityUser } from "../../api/community";
   import { api } from "../../api/rest";
   import { toast } from "../../stores/toast.svelte";
+  import { connection } from "../../stores/connection.svelte";
   import { open } from "@tauri-apps/plugin-shell";
+
+  // `allowOnClient` is server-wide state (one flag in server_settings). Any
+  // user flipping it changes policy for every user on the server, so the
+  // PUT /community/allow-on-client endpoint is admin-only. Non-admins see
+  // the toggle as a read-only indicator of the server-side state instead.
+  const isAdmin = $derived(connection.userRole === "admin");
 
   let settings = $state(loadSettings());
   let saving = $state(false);
@@ -217,7 +224,7 @@
         <input
           type="checkbox"
           checked={allowOnClient}
-          disabled={policySaving || policyLoading}
+          disabled={policySaving || policyLoading || !isAdmin}
           onchange={(e) => setAllowOnClient((e.target as HTMLInputElement).checked)}
         />
         <span>Allow community skills on this server</span>
@@ -226,6 +233,9 @@
         When off, agents cannot search or install skills from arkestrator.com and existing
         community skills are not surfaced via <code>get_skill</code>. Defaults to off — opt in
         only after reading the warning above.
+        {#if !isAdmin}
+          <br /><em>Admin only — contact an administrator to change this.</em>
+        {/if}
       </p>
 
       <label class="toggle-label">
