@@ -18,6 +18,14 @@ export interface SkillEntry {
   locked?: boolean;
   appVersion?: string | null;
   createdAt?: string;
+  /** Upstream marketplace skill id (present when source === "community"). */
+  communityId?: string | null;
+  /** Publisher login captured at install time. */
+  authorLogin?: string | null;
+  /** Marketplace trust tier at install time (verified, community, etc.). */
+  trustTier?: string | null;
+  /** Server-rendered link back to the marketplace page for this skill. */
+  communityUrl?: string | null;
 }
 
 export interface SkillEffectiveness {

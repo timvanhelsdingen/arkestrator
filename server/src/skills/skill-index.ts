@@ -208,6 +208,12 @@ export interface SkillSummary {
   locked: boolean;
   appVersion: string | null;
   createdAt: string;
+  /** Upstream arkestrator.com skill id, when `source === "community"`. */
+  communityId?: string | null;
+  /** Publisher login captured at install time, when the skill came from community. */
+  authorLogin?: string | null;
+  /** Marketplace trust tier captured at install time (verified, community, etc.). */
+  trustTier?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -668,6 +674,9 @@ export class SkillIndex {
         locked: s.locked,
         appVersion: s.appVersion,
         createdAt: s.createdAt,
+        communityId: s.communityId ?? null,
+        authorLogin: s.authorLogin ?? null,
+        trustTier: s.trustTier ?? null,
       }));
   }
 

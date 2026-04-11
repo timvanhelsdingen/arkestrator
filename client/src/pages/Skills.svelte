@@ -1273,6 +1273,17 @@
             {#if skillViewData.sourcePath}
               <div><strong>Source Path:</strong> <span class="mono mini">{skillViewData.sourcePath}</span></div>
             {/if}
+            {#if skillViewData.source === "community" && skillViewData.communityUrl}
+              <div>
+                <strong>Community:</strong>
+                <a href={skillViewData.communityUrl} target="_blank" rel="noopener noreferrer" class="community-link-detail">
+                  View on marketplace ↗
+                </a>
+                {#if skillViewData.authorLogin}
+                  <span class="mini"> by {skillViewData.authorLogin}</span>
+                {/if}
+              </div>
+            {/if}
             <div><strong>Priority:</strong> {skillViewData.priority ?? "-"}</div>
             <div><strong>Enabled:</strong> {skillViewData.enabled ? "Yes" : "No"}</div>
             <div><strong>Auto-fetch:</strong> {skillViewData.autoFetch ? "Yes" : "No"}</div>
@@ -1523,6 +1534,8 @@
   .skill-view-header h4 { font-size: 0.95em; margin: 0; }
   .skill-detail-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 2px 12px; font-size: 0.8em; margin-bottom: 8px; }
   .skill-detail-grid strong { color: var(--text-secondary); font-size: 11px; }
+  .community-link-detail { color: var(--accent); text-decoration: none; }
+  .community-link-detail:hover { text-decoration: underline; }
   .skill-detail-desc { font-size: 0.8em; color: var(--text-secondary); margin-bottom: 8px; padding: 4px 6px; background: var(--bg-deep, rgba(0,0,0,0.15)); border-radius: 4px; }
   .skill-detail-section { margin-bottom: 8px; font-size: 0.8em; }
   .skill-detail-section strong { display: block; margin-bottom: 2px; color: var(--text-secondary); font-size: 11px; }
