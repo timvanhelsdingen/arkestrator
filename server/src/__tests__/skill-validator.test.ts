@@ -112,6 +112,7 @@ describe("skill-validator", () => {
       authorLogin: null,
       authorVerified: false,
       authorMeta: null,
+      communityId: null,
       createdAt: "2024-01-01",
       updatedAt: "2024-01-01",
       ...overrides,

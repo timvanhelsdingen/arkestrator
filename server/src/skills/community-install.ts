@@ -467,6 +467,7 @@ export async function installCommunitySkill(
     authorLogin: fetched.authorLogin,
     authorVerified: fetched.authorVerified,
     authorMeta: fetched.authorMeta,
+    communityId: opts.communityId,
   };
 
   // Reject obviously broken community skills (empty content, invalid regex
@@ -554,6 +555,10 @@ export async function searchCommunitySkills(opts: {
     program: string;
     category: string;
     keywords: string[];
+    /** Average of all 1-5 star user ratings for this skill, or null when never rated. */
+    avg_rating: number | null;
+    /** Total number of distinct users who have rated this skill. */
+    rating_count: number;
   }>;
   unreachable?: boolean;
 }> {
@@ -577,6 +582,8 @@ export async function searchCommunitySkills(opts: {
         program: String(s.program ?? "global"),
         category: String(s.category ?? "custom"),
         keywords: Array.isArray(s.keywords) ? s.keywords : [],
+        avg_rating: typeof s.avg_rating === "number" ? s.avg_rating : null,
+        rating_count: typeof s.rating_count === "number" ? s.rating_count : 0,
       })),
     };
   } catch (err: any) {

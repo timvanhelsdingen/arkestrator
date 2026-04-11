@@ -641,6 +641,86 @@ export function createSkillsRoutes(
     );
   });
 
+  // GET /community/:communityId/rating — fetch the current user's 1-5 star rating
+  // on arkestrator.com for a community skill, so the client UI can pre-populate
+  // the star widget. Requires a user principal with an active community session;
+  // API-key callers are rejected because community ratings are per-user.
+  router.get("/community/:communityId/rating", async (c) => {
+    const auth = await requireAuth(c);
+    if (!auth) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+
+    const { resolveCommunityPolicy, resolveCommunityBaseUrl } = await import("../skills/community-install.js");
+    const policy = resolveCommunityPolicy(settingsRepo);
+    if (!policy.allowCommunity) {
+      return errorResponse(c, 403, "Community skills are disabled on this server.", "COMMUNITY_DISABLED");
+    }
+
+    const communityId = c.req.param("communityId");
+    if (!communityId) return errorResponse(c, 400, "communityId is required", "BAD_REQUEST");
+
+    const sessionToken = usersRepo.getCommunitySessionToken(auth.userId);
+    if (!sessionToken) {
+      return errorResponse(c, 401, "Not connected to arkestrator.com — open Settings → Community and sign in with GitHub.", "UNAUTHORIZED");
+    }
+
+    const baseUrl = resolveCommunityBaseUrl(settingsRepo);
+    const { fetchCommunityUserRating } = await import("../skills/community-rating.js");
+    const result = await fetchCommunityUserRating({ communityId, baseUrl, sessionToken });
+    if (!result.ok) {
+      const status = result.error === "unreachable" ? 502 : (result as any).status ?? 500;
+      return errorResponse(c, status, result.message, "UPSTREAM_ERROR");
+    }
+    return c.json({ your_rating: result.your_rating });
+  });
+
+  // POST /community/:communityId/rate — submit a manual 1-5 star rating from
+  // the client UI. Upstream endpoint is upsert-per-user so re-rating replaces
+  // the caller's previous score. Returns the updated aggregate so the UI can
+  // optimistically update without a second round-trip.
+  router.post("/community/:communityId/rate", async (c) => {
+    const auth = await requireAuth(c);
+    if (!auth) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+
+    const { resolveCommunityPolicy, resolveCommunityBaseUrl } = await import("../skills/community-install.js");
+    const policy = resolveCommunityPolicy(settingsRepo);
+    if (!policy.allowCommunity) {
+      return errorResponse(c, 403, "Community skills are disabled on this server.", "COMMUNITY_DISABLED");
+    }
+
+    const communityId = c.req.param("communityId");
+    if (!communityId) return errorResponse(c, 400, "communityId is required", "BAD_REQUEST");
+
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return errorResponse(c, 400, "Invalid JSON body", "BAD_REQUEST");
+    }
+    const parsed = z.object({ score: z.number().int().min(1).max(5) }).safeParse(body);
+    if (!parsed.success) {
+      return errorResponse(c, 400, parsed.error.message, "VALIDATION_ERROR");
+    }
+
+    const sessionToken = usersRepo.getCommunitySessionToken(auth.userId);
+    if (!sessionToken) {
+      return errorResponse(c, 401, "Not connected to arkestrator.com — open Settings → Community and sign in with GitHub.", "UNAUTHORIZED");
+    }
+
+    const baseUrl = resolveCommunityBaseUrl(settingsRepo);
+    const { pushCommunityRating } = await import("../skills/community-rating.js");
+    const result = await pushCommunityRating({ communityId, baseUrl, sessionToken, score: parsed.data.score });
+    if (!result.ok) {
+      const status = result.error === "unreachable" ? 502 : result.status ?? 500;
+      return errorResponse(c, status, result.message, "UPSTREAM_ERROR");
+    }
+    logger.info("skills", `Manual community rating submitted by user ${auth.userId}: ${parsed.data.score}★ for communityId=${communityId}`);
+    return c.json({
+      avg_rating: result.avg_rating,
+      rating_count: result.rating_count,
+      your_rating: result.your_rating,
+    });
+  });
+
   // POST /pull/:program — manually trigger skill pull from bridge repo for a program
   router.post("/pull/:program", async (c) => {
     const auth = await requireWriteAccess(c);

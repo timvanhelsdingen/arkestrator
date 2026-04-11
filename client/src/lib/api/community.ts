@@ -192,6 +192,10 @@ export interface CommunitySkillSummary {
   is_official?: boolean;
   created_at?: string;
   updated_at?: string;
+  /** Rounded average of 1-5 star user ratings (server rounds to 1 decimal), null if never rated. */
+  avg_rating?: number | null;
+  /** Distinct users who have rated this skill. */
+  rating_count?: number;
 }
 
 export interface CommunitySkillDetail extends CommunitySkillSummary {
@@ -333,6 +337,37 @@ export const communityApi = {
   deletePublished(id: string): Promise<void> {
     return communityRequest(`/api/skills/${encodeURIComponent(id)}`, {
       method: "DELETE",
+    });
+  },
+
+  /**
+   * Fetch the current authenticated user's existing 1-5 star rating for a
+   * skill, so the detail modal can pre-highlight their previous choice.
+   * Returns null when they haven't rated this skill yet. Requires auth.
+   */
+  async getRating(id: string): Promise<number | null> {
+    const res = await communityRequest<{ your_rating: number | null }>(
+      `/api/skills/${encodeURIComponent(id)}/rating`,
+    );
+    return res?.your_rating ?? null;
+  },
+
+  /**
+   * Submit (or replace) the current user's 1-5 star rating for a skill.
+   * The upstream endpoint upserts per-user, so calling this again with a
+   * new score replaces the previous rating rather than appending. Returns
+   * the fresh aggregate + the caller's own score so the UI can update
+   * without a separate re-fetch.
+   */
+  async rateSkill(id: string, score: number): Promise<{
+    avg_rating: number;
+    rating_count: number;
+    your_rating: number;
+  }> {
+    const clamped = Math.max(1, Math.min(5, Math.round(score)));
+    return communityRequest(`/api/skills/${encodeURIComponent(id)}/rate`, {
+      method: "POST",
+      body: JSON.stringify({ score: clamped }),
     });
   },
 

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { communitySkills, type InstalledCommunitySkill } from "../../stores/communitySkills.svelte";
-  import type { CommunitySkillDetail, CommunitySkillSummary } from "../../api/community";
+  import { communityApi, loadSettings, type CommunitySkillDetail, type CommunitySkillSummary } from "../../api/community";
+  import StarRating from "./StarRating.svelte";
 
   let {
     skill,
@@ -32,6 +33,69 @@
 
   // Related skills from the API response (already parsed by the server)
   let relatedSkills = $derived((detail as any)?.relatedSkills ?? []);
+
+  // ── Ratings state ────────────────────────────────────────────────
+  // Aggregate lives on detail (or summary) — we mirror it locally so
+  // optimistic updates after submission don't need a full refetch.
+  let avgRating = $state<number | null>(null);
+  let ratingCount = $state<number>(0);
+  let myRating = $state<number | null>(null);
+  let ratingBusy = $state(false);
+  let ratingError = $state<string | null>(null);
+  let authConnected = $state(false);
+
+  // Check whether the local community auth token is present — if not, the
+  // rate call will fail with a 401 and we want to disable the widget with a
+  // helpful tooltip instead of letting the user click into a dead end.
+  $effect(() => {
+    try {
+      authConnected = !!loadSettings().authToken;
+    } catch {
+      authConnected = false;
+    }
+  });
+
+  // Seed aggregates from whichever source has them. Summary may carry them
+  // from the list; detail overrides when it loads.
+  $effect(() => {
+    const src = (detail ?? skill) as Partial<CommunitySkillSummary>;
+    avgRating = src.avg_rating ?? null;
+    ratingCount = src.rating_count ?? 0;
+  });
+
+  // Fetch the user's existing rating whenever the modal opens against a
+  // new skill id. Silently no-op when not connected — the widget will be
+  // disabled and tooltip-hinted.
+  $effect(() => {
+    const id = skill.id;
+    if (!id || !authConnected) { myRating = null; return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const mine = await communityApi.getRating(id);
+        if (!cancelled) myRating = mine;
+      } catch {
+        if (!cancelled) myRating = null;
+      }
+    })();
+    return () => { cancelled = true; };
+  });
+
+  async function submitRating(score: number) {
+    if (ratingBusy) return;
+    ratingBusy = true;
+    ratingError = null;
+    try {
+      const res = await communityApi.rateSkill(skill.id, score);
+      avgRating = res.avg_rating;
+      ratingCount = res.rating_count;
+      myRating = res.your_rating;
+    } catch (err: any) {
+      ratingError = err?.message ?? "Failed to submit rating";
+    } finally {
+      ratingBusy = false;
+    }
+  }
 
   function handleOverlayClick(e: MouseEvent) {
     if (e.target === e.currentTarget) onclose();
@@ -95,6 +159,32 @@
         </div>
 
         <p class="description">{detail.description || "No description"}</p>
+
+        <div class="rating-section">
+          <div class="rating-aggregate">
+            {#if avgRating != null && ratingCount > 0}
+              <StarRating value={avgRating} readonly size={16} hint={`${avgRating.toFixed(1)} across ${ratingCount} rating${ratingCount === 1 ? "" : "s"}`} />
+              <span class="rating-summary">{avgRating.toFixed(1)} ({ratingCount})</span>
+            {:else}
+              <span class="rating-summary rating-empty">No ratings yet</span>
+            {/if}
+          </div>
+          <div class="rating-your">
+            <span class="rating-label">Your rating:</span>
+            <StarRating
+              value={myRating}
+              size={18}
+              disabled={!authConnected || ratingBusy}
+              hint={authConnected ? (myRating != null ? `You rated this ${myRating}★ — click another star to change it` : "Click a star to rate this skill") : "Connect to arkestrator.com in Community settings to rate skills"}
+              onChange={submitRating}
+            />
+            {#if !authConnected}
+              <span class="rating-hint">Sign in via Settings → Community to rate.</span>
+            {:else if ratingError}
+              <span class="rating-hint rating-err">{ratingError}</span>
+            {/if}
+          </div>
+        </div>
 
         {#if relatedSkills.length > 0}
           <div class="deps-section">
@@ -250,6 +340,48 @@
     color: var(--text-secondary);
     line-height: 1.5;
     margin: 0 0 12px;
+  }
+  .rating-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-base, rgba(255,255,255,0.02));
+  }
+  .rating-aggregate {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .rating-summary {
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+  }
+  .rating-empty {
+    color: var(--text-muted);
+    font-style: italic;
+  }
+  .rating-your {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .rating-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--text-muted);
+  }
+  .rating-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .rating-err {
+    color: var(--status-failed, #f44);
   }
   .deps-section {
     margin-bottom: 12px;
