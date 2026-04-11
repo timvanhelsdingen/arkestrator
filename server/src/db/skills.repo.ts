@@ -28,8 +28,8 @@ export interface SkillAuthorMeta {
   login?: string;
   githubId?: number;
   accountAgeDays?: number;
-  publicCommits?: number;
   publicRepos?: number;
+  followers?: number;
   verified?: boolean;
 }
 
