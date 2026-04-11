@@ -1823,6 +1823,20 @@ export function createJobRoutes(
       return errorResponse(c, 400, "A job cannot depend on itself", "INVALID_INPUT");
     }
 
+    // Reject edges that would close a cycle in the dependency graph. The
+    // creation path at POST /api/jobs applies this same guard; without it
+    // here, a caller could wedge the scheduler by retroactively linking
+    // jobs into a loop.
+    const cycle = depsRepo.wouldCreateCycle(jobId, depId);
+    if (cycle) {
+      return errorResponse(
+        c,
+        400,
+        `Circular dependency would be created: ${cycle.join(" -> ")}`,
+        "INVALID_INPUT",
+      );
+    }
+
     depsRepo.add(jobId, depId);
     return c.json({ ok: true });
   });

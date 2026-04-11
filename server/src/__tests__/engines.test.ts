@@ -10,15 +10,31 @@ import {
 import { existsSync } from "node:fs";
 import { writeInjectedMcpConfig } from "../agents/spawner.js";
 
-function getResolvedPrompt(spec: { args: string[] }): string {
+function getResolvedPrompt(
+  spec: { args: string[]; cwd?: string },
+  jobId?: string,
+): string {
   const lastArg = spec.args[spec.args.length - 1] ?? "";
   if (!lastArg.includes("Read the full user request from this UTF-8 file")) {
     return lastArg;
   }
-  const lines = lastArg.split("\\n");
-  const promptPath = lines[1] ?? "";
-  if (!promptPath || !existsSync(promptPath)) return lastArg;
-  return readFileSync(promptPath, "utf-8");
+  // The pointer arg was built as three lines joined with "\n" and then
+  // encoded on Windows via `encodeCodexPromptArg` which turns real newlines
+  // into the literal two-char sequence `\n`. We cannot naively split on
+  // that sequence to recover the path because a legitimate Windows
+  // directory name can contain `\n` as a substring (e.g. a worktree called
+  // `nifty-allen` yields `...\nifty-allen\...` in the path, which splits
+  // wrong and `readFileSync` ends up reading a directory and throws EISDIR).
+  //
+  // Instead, reconstruct the file path the same way `engines.ts` does:
+  // `join(cwd, ".arkestrator-codex-prompt-<jobId>.txt")`.
+  if (spec.cwd && jobId) {
+    const candidate = join(spec.cwd, `.arkestrator-codex-prompt-${jobId}.txt`);
+    if (existsSync(candidate)) {
+      return readFileSync(candidate, "utf-8");
+    }
+  }
+  return lastArg;
 }
 
 function withMockedGetuid(value: number | undefined, fn: () => void): void {
@@ -107,7 +123,7 @@ describe("buildCommand (codex orchestration)", () => {
     expect(spec.args[0]).toBe("exec");
     expect(spec.args).toContain("--full-auto");
 
-    const prompt = getResolvedPrompt(spec);
+    const prompt = getResolvedPrompt(spec, job.id);
     expect(prompt).toContain("## Execution Instructions");
     expect(prompt).toContain("Project-level instructions.");
     expect(prompt).toContain("Config-level instructions.");
@@ -174,7 +190,7 @@ describe("buildCommand (codex orchestration)", () => {
       undefined,
     );
 
-    const prompt = getResolvedPrompt(spec);
+    const prompt = getResolvedPrompt(spec, job.id);
     expect(prompt).toContain("Global Coordinator");
     expect(prompt).not.toContain("single executable python script");
     expect(spec.args).toContain("--sandbox");
@@ -226,7 +242,7 @@ describe("buildCommand (codex orchestration)", () => {
     };
 
     const spec = buildCommand(config, job, [], workspace, [], [], undefined);
-    const prompt = getResolvedPrompt(spec);
+    const prompt = getResolvedPrompt(spec, job.id);
     expect(prompt).toContain("Job Runtime Override: Verification");
     expect(prompt).toContain("Mode: DISABLED");
     expect(prompt).toContain("Weight: 10/100");
@@ -340,7 +356,7 @@ describe("buildCommand (codex orchestration)", () => {
     };
 
     const spec = buildCommand(config, job, [], workspace, [], [], undefined);
-    const prompt = getResolvedPrompt(spec);
+    const prompt = getResolvedPrompt(spec, job.id);
     expect(prompt).toContain("single executable unity_json script");
     expect(prompt).toContain("Unity Editor");
   });

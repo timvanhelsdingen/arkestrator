@@ -153,6 +153,7 @@ const SkillUpdateSchema = z.object({
   priority: z.number().optional(),
   autoFetch: z.boolean().optional(),
   enabled: z.boolean().optional(),
+  locked: z.boolean().optional(),
   mcpPresetId: z.string().trim().min(1).nullable().optional(),
 });
 
@@ -346,20 +347,32 @@ export function createSkillsRoutes(
     const slug = c.req.param("slug");
     const program = c.req.query("program");
 
-    // Refuse to mutate a locked skill. Locking is the contract that
-    // housekeeping/training agents can't clobber curated content — if that
-    // promise only held at the MCP boundary, operators who only use the
-    // REST API would still get silently overwritten by a rogue client.
-    const existing = skillIndex.get(slug, program || undefined);
-    if (existing?.locked) {
-      return errorResponse(c, 423, `Skill "${slug}" is locked — unlock it before editing`, "LOCKED");
-    }
-
     let body: unknown;
     try {
       body = await c.req.json();
     } catch {
       return errorResponse(c, 400, "Invalid JSON body", "BAD_REQUEST");
+    }
+
+    // Refuse to mutate a locked skill. Locking is the contract that
+    // housekeeping/training agents can't clobber curated content — if that
+    // promise only held at the MCP boundary, operators who only use the
+    // REST API would still get silently overwritten by a rogue client.
+    //
+    // Exception: a standalone `{ locked: false }` payload is the ONLY edit
+    // we accept on a locked skill — that's how the user unlocks it. Any
+    // other field (even bundled alongside `locked: false`) must come in a
+    // separate PUT after the unlock, so the contract remains explicit.
+    const existing = skillIndex.get(slug, program || undefined);
+    if (existing?.locked) {
+      const bodyKeys = body && typeof body === "object" ? Object.keys(body as Record<string, unknown>) : [];
+      const isUnlockOnly =
+        bodyKeys.length === 1 &&
+        bodyKeys[0] === "locked" &&
+        (body as { locked?: unknown }).locked === false;
+      if (!isUnlockOnly) {
+        return errorResponse(c, 423, `Skill "${slug}" is locked — unlock it before editing`, "LOCKED");
+      }
     }
 
     const parsed = SkillUpdateSchema.safeParse(body);
