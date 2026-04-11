@@ -97,6 +97,6 @@ All messages use `makeMessage(type, payloadSchema)` → `{ type: literal, id: uu
 
 ## WS-Only vs REST-Only Operations
 - **WS + REST**: job list, job cancel, job reprioritize, job interventions, agent config CRUD
-- **WS only**: job_submit (bridge), job_log, job_started, job_complete, job_updated, bridge_status, worker_status, bridge_context_item_add, bridge_context_clear, bridge_editor_context, bridge_context_sync, client_context_item_remove, client_context_items_clear
+- **WS only**: job_submit (bridge), job_log, job_started, job_complete, job_updated, bridge_status, worker_status, bridge_context_item_add, bridge_context_clear, bridge_editor_context, bridge_context_sync, client_context_item_remove, client_context_items_clear, **bridge_command_cancel** (server→bridge, best-effort abort for in-flight `bridge_command` matched by `correlationId`; sent on timeout, explicit cancel, or task-job cancel/timeout)
 - **REST only**: policies CRUD, project CRUD (beyond list), job delete, job resume, job requeue, users, API keys, audit log
 - **No WS messages for**: pause/resume, delete, policy management, user/auth

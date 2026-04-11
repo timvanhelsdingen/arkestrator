@@ -50,13 +50,38 @@ export class ProcessTracker {
     logger.debug("process-tracker", `Unregistered process for job ${jobId}`);
   }
 
+  /** Grace period after SIGTERM before escalating to SIGKILL. */
+  private static readonly SIGKILL_GRACE_MS = 10_000;
+
+  /**
+   * Terminate a running process. Sends SIGTERM immediately, then schedules
+   * a SIGKILL after SIGKILL_GRACE_MS if the process hasn't exited. Awaits
+   * nothing — returns as soon as SIGTERM is sent.
+   */
   kill(jobId: string): boolean {
     const tracked = this.processes.get(jobId);
     if (!tracked) return false;
 
-    logger.info("process-tracker", `Killing process for job ${jobId}`);
-    tracked.process.kill();
+    logger.info("process-tracker", `Killing process for job ${jobId} (SIGTERM)`);
+    const proc = tracked.process;
+    try { proc.kill(); } catch (err: any) {
+      logger.warn("process-tracker", `SIGTERM failed for job ${jobId}: ${err?.message ?? err}`);
+    }
     this.processes.delete(jobId);
+
+    // Escalation timer: SIGKILL if still alive after grace period.
+    const escalate = setTimeout(() => {
+      try {
+        // Bun's Subprocess exposes killed/exitCode.
+        const anyProc = proc as unknown as { killed?: boolean; exitCode?: number | null };
+        if (anyProc.killed || (anyProc.exitCode != null)) return;
+        logger.warn("process-tracker", `Process for job ${jobId} ignored SIGTERM after ${ProcessTracker.SIGKILL_GRACE_MS / 1000}s — sending SIGKILL`);
+        // Bun's subprocess.kill accepts a signal number; 9 = SIGKILL.
+        try { (proc as unknown as { kill: (signal?: number) => void }).kill(9); } catch {}
+      } catch {}
+    }, ProcessTracker.SIGKILL_GRACE_MS);
+    // Don't let the timer keep the process alive at shutdown.
+    (escalate as unknown as { unref?: () => void }).unref?.();
     return true;
   }
 

@@ -558,11 +558,29 @@ export class JobsRepo {
     return result.changes > 0;
   }
 
+  /**
+   * Truncate logs to a safe maximum size so a single runaway job can't blow
+   * past SQLite row limits or make the row unreadable in the UI. Keeps the
+   * head and tail with a marker in between.
+   */
+  private static readonly MAX_LOG_BYTES = 2 * 1024 * 1024; // 2 MB
+  private truncateLogs(logs: string): string {
+    if (!logs) return logs;
+    // Use byte length via Buffer.byteLength equivalent — approx with UTF-8 char count
+    const byteLen = Buffer.byteLength(logs, "utf8");
+    if (byteLen <= JobsRepo.MAX_LOG_BYTES) return logs;
+    const keep = Math.floor(JobsRepo.MAX_LOG_BYTES / 2) - 128;
+    const head = logs.slice(0, keep);
+    const tail = logs.slice(-keep);
+    const droppedBytes = byteLen - Buffer.byteLength(head + tail, "utf8");
+    return `${head}\n\n... [truncated ${droppedBytes} bytes from middle] ...\n\n${tail}`;
+  }
+
   complete(jobId: string, fileChanges: FileChange[], logs: string) {
     const now = new Date().toISOString();
     this.updateCompletedStmt.run(
       JSON.stringify(fileChanges),
-      logs,
+      this.truncateLogs(logs),
       now,
       jobId,
     );
@@ -574,10 +592,11 @@ export class JobsRepo {
     logs: string,
   ) {
     const now = new Date().toISOString();
+    const truncated = this.truncateLogs(logs);
     this.updateCompletedWithCommandsStmt.run(
       JSON.stringify(commands),
-      logs, // for the CASE WHEN check
-      logs, // for the ELSE branch
+      truncated, // for the CASE WHEN check
+      truncated, // for the ELSE branch
       now,
       jobId,
     );
@@ -585,10 +604,11 @@ export class JobsRepo {
 
   fail(jobId: string, error: string, logs: string) {
     const now = new Date().toISOString();
+    const truncated = this.truncateLogs(logs);
     this.updateFailedStmt.run(
       error,
-      logs, // for the CASE WHEN check
-      logs, // for the ELSE branch
+      truncated, // for the CASE WHEN check
+      truncated, // for the ELSE branch
       now,
       jobId,
     );
@@ -856,5 +876,36 @@ export class JobsRepo {
        WHERE status = 'queued' AND expires_at IS NOT NULL AND expires_at <= ?`,
     ).run(now, now);
     return result.changes;
+  }
+
+  /**
+   * Cascade-fail any queued/paused jobs whose dependencies are in a terminal
+   * non-completed state (failed/cancelled). Without this, dependents sit in
+   * the queue forever because the NOT EXISTS subquery in pickNext only clears
+   * them when the dependency is `completed`. Returns the number of jobs failed.
+   *
+   * Call periodically from the worker loop.
+   */
+  cascadeFailOrphanedDependents(): Array<{ jobId: string; reason: string }> {
+    const rows = this.db.prepare(
+      `SELECT j.id as job_id, dep.id as dep_id, dep.status as dep_status
+       FROM jobs j
+       JOIN job_dependencies d ON d.job_id = j.id
+       JOIN jobs dep ON dep.id = d.depends_on_job_id
+       WHERE j.status IN ('queued', 'paused')
+         AND dep.status IN ('failed', 'cancelled')
+         AND j.deleted_at IS NULL`,
+    ).all() as Array<{ job_id: string; dep_id: string; dep_status: string }>;
+
+    const failed: Array<{ jobId: string; reason: string }> = [];
+    const seen = new Set<string>();
+    for (const row of rows) {
+      if (seen.has(row.job_id)) continue;
+      seen.add(row.job_id);
+      const reason = `Dependency ${row.dep_id} ${row.dep_status}`;
+      this.fail(row.job_id, reason, "");
+      failed.push({ jobId: row.job_id, reason });
+    }
+    return failed;
   }
 }

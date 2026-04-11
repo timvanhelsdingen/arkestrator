@@ -309,13 +309,27 @@ export class WorkerLoop {
   private tick() {
     let nextPollMs = this.currentPollMs;
     try {
-      // Periodically expire stale worker-targeted jobs
+      // Periodically expire stale worker-targeted jobs and cascade-fail
+      // orphaned dependents (jobs whose deps are permanently failed/cancelled).
       const now = Date.now();
       if (now - this.lastExpiryCheck >= this.EXPIRY_CHECK_INTERVAL) {
         this.lastExpiryCheck = now;
         const expired = this.deps.jobsRepo.expireStaleTargetedJobs();
         if (expired > 0) {
           logger.info("worker", `Expired ${expired} stale worker-targeted job(s) past TTL`);
+        }
+        const cascaded = this.deps.jobsRepo.cascadeFailOrphanedDependents();
+        if (cascaded.length > 0) {
+          logger.info(
+            "worker",
+            `Cascade-failed ${cascaded.length} dependent job(s) whose dependencies are permanently failed`,
+          );
+          for (const item of cascaded) this.broadcastJobUpdated(item.jobId);
+        }
+        // Also sweep virtual bridges for heartbeat expiry
+        const vbExpired = this.deps.hub.expireStaleVirtualBridges();
+        if (vbExpired > 0) {
+          this.deps.hub.broadcastBridgeStatus();
         }
       }
 

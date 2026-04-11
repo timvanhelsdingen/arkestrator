@@ -87,6 +87,15 @@ const WS_RATE_WINDOW_MS = 10_000;
 const WS_RATE_MAX = 200;
 const wsRates = new Map<string, { count: number; resetAt: number }>();
 
+/**
+ * Hard cap on individual WS message size for *control* messages. File
+ * transfers go through HTTP, so legitimate JSON payloads are small.
+ * Messages above this size are rejected before JSON.parse to prevent
+ * a malicious or broken bridge from stalling the event loop with a
+ * multi-MB parse.
+ */
+const WS_MAX_MESSAGE_BYTES = 16 * 1024 * 1024; // 16 MB, well under Bun's maxPayloadLength
+
 function checkWsRateLimit(connectionId: string): boolean {
   const now = Date.now();
   const entry = wsRates.get(connectionId);
@@ -170,6 +179,17 @@ export function handleMessage(
     return;
   }
 
+  // Pre-parse size gate: reject oversized control messages BEFORE JSON.parse so
+  // a single broken/malicious bridge can't stall the event loop.
+  if (raw.length > WS_MAX_MESSAGE_BYTES) {
+    logger.warn(
+      "ws-handler",
+      `Rejecting oversized WS message from ${ws.data.type}/${ws.data.id}: ${raw.length} bytes (limit ${WS_MAX_MESSAGE_BYTES})`,
+    );
+    errorReply(ws, "PAYLOAD_TOO_LARGE", `Message exceeds ${WS_MAX_MESSAGE_BYTES} bytes`);
+    return;
+  }
+
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -247,6 +267,10 @@ export function handleMessage(
         break;
       case "bridge_command_result":
         handleBridgeCommandResult(ws, msg, deps);
+        break;
+      case "bridge_command_cancel":
+        // Server-originated message — ignore echoes from bridges. Bridges that
+        // receive a cancel should abort locally, not forward it back.
         break;
       case "bridge_file_read_response":
         handleBridgeFileReadResponse(ws, msg, deps);

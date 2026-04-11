@@ -139,7 +139,11 @@ export function createApp(deps: AppDeps) {
   });
 
   // API routes
-  app.route("/", createHealthRoutes());
+  app.route("/", createHealthRoutes({
+    hub: deps.hub,
+    jobsRepo: deps.jobsRepo,
+    processTracker: deps.processTracker,
+  }));
   app.route("/api/auth", createAuthRoutes(deps.usersRepo, deps.auditRepo, deps.apiKeysRepo, deps.settingsRepo));
   app.route("/api/users", createUserRoutes(deps.usersRepo, deps.auditRepo, deps.jobsRepo, deps.usageRepo));
   app.route(

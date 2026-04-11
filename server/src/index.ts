@@ -608,17 +608,33 @@ async function main() {
   const resourceLeaseManager = new WorkerResourceLeaseManager();
   const localLlmGate = new LocalLlmGate();
 
-  // 5b. Recover orphaned "running" jobs from a previous server instance
+  // 5b. Recover orphaned "running" jobs from a previous server instance.
   // When the server restarts (e.g. --watch), jobs that were mid-flight lose
-  // their process tracking. Mark them as failed so the user can requeue manually.
+  // their process tracking. If the job has a persisted Claude CLI session ID,
+  // requeue it so it can resume from where it left off instead of throwing
+  // away the work. Otherwise mark as failed so the user can requeue manually.
   {
     const { jobs: orphaned } = jobsRepo.list(["running"]);
+    let requeued = 0;
+    let failed = 0;
     for (const job of orphaned) {
+      if (job.sessionId) {
+        const ok = jobsRepo.requeue(job.id);
+        if (ok) {
+          logger.info("server", `Orphaned job ${job.id} has sessionId — requeued for resume`);
+          requeued++;
+          continue;
+        }
+      }
       logger.warn("server", `Recovering orphaned running job ${job.id} (${job.name ?? "unnamed"}) → failed`);
       jobsRepo.fail(job.id, "Server restarted while job was running. Requeue to retry.", job.logs ?? "");
+      failed++;
     }
     if (orphaned.length > 0) {
-      logger.info("server", `Recovered ${orphaned.length} orphaned job(s) (marked as failed)`);
+      logger.info(
+        "server",
+        `Recovered ${orphaned.length} orphaned job(s): ${requeued} requeued, ${failed} failed`,
+      );
     }
   }
 
@@ -874,6 +890,19 @@ async function main() {
         const programVersion = url.searchParams.get("programVersion") ?? undefined;
         const bridgeVersion = url.searchParams.get("bridgeVersion") ?? undefined;
         const projectPath = url.searchParams.get("projectPath") ?? undefined;
+        // Metadata length caps — reject absurdly-long values before they hit
+        // the workers table / identity indexes. These are control strings,
+        // not content.
+        const METADATA_MAX = 256;
+        if (
+          (program && program.length > 64)
+          || (programVersion && programVersion.length > METADATA_MAX)
+          || (bridgeVersion && bridgeVersion.length > METADATA_MAX)
+          || (projectPath && projectPath.length > 1024)
+        ) {
+          logger.warn("security", `WS upgrade denied: bridge metadata too long (program=${program?.length}, projectPath=${projectPath?.length})`);
+          return new Response("Bridge metadata too long", { status: 400 });
+        }
         const osUser = url.searchParams.get("osUser") ?? undefined;
         const machineId = url.searchParams.get("machineId") ?? undefined;
         const workerModeParam = url.searchParams.get("workerMode");
@@ -900,6 +929,19 @@ async function main() {
           if (!workerDecision.allowed) {
             logger.warn("security", `WS bridge denied for worker "${workerName}": ${workerDecision.reason}`);
             return new Response(workerDecision.reason, { status: 403 });
+          }
+          // Circuit breaker: reject repeat offenders that keep reconnecting
+          // faster than the threshold. The hub records reconnect counts per
+          // identity; checkFlapAllowed returns false while in cool-off.
+          if (program) {
+            const workerKey = String(workerName ?? "").trim().toLowerCase();
+            const projectKey = projectPath ?? "<none>";
+            const identityKey = `${program.toLowerCase()}/${workerKey}/${projectKey}`;
+            const flap = hub.checkFlapAllowed(identityKey);
+            if (!flap.allowed) {
+              logger.warn("security", flap.reason ?? "Bridge blocked by circuit breaker");
+              return new Response(flap.reason ?? "Too many reconnects", { status: 503 });
+            }
           }
         }
 
@@ -1244,6 +1286,12 @@ function shutdown(
   syncManager.stop();
   transferManager.stop();
   comfyUiHealth.stop();
+  // Reject any pending bridge commands cleanly so REST callers get a prompt
+  // error instead of hanging for the full timeout while the process exits.
+  try {
+    const hubForShutdown = (worker as unknown as { deps?: { hub?: { clearAllPendingCommands?: (reason?: string) => void } } }).deps?.hub;
+    hubForShutdown?.clearAllPendingCommands?.("Server shutting down");
+  } catch {}
   clearInterval(sessionCleanupInterval);
   clearInterval(wsHeartbeatInterval);
   clearInterval(coordinatorTrainingInterval);

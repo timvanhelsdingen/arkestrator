@@ -246,6 +246,23 @@ export const BridgeCommandMessage = makeMessage(
 );
 export type BridgeCommandMessage = z.infer<typeof BridgeCommandMessage>;
 
+/**
+ * Server → Bridge: cancel an in-flight bridge_command.
+ * Sent when a pending command times out or is cancelled on the server side
+ * so the bridge can abort execution instead of running to completion and
+ * producing an orphaned result.
+ */
+export const BridgeCommandCancelMessage = makeMessage(
+  "bridge_command_cancel",
+  z.object({
+    /** Correlation ID of the command to cancel. */
+    correlationId: z.string(),
+    /** Human-readable reason (timeout, user cancel, etc.). */
+    reason: z.string().optional(),
+  }),
+);
+export type BridgeCommandCancelMessage = z.infer<typeof BridgeCommandCancelMessage>;
+
 export const BridgeCommandResultMessage = makeMessage(
   "bridge_command_result",
   z.object({
@@ -809,6 +826,7 @@ export const Message = z.discriminatedUnion("type", [
   ProjectListResponseMessage,
   BridgeCommandSendMessage,
   BridgeCommandMessage,
+  BridgeCommandCancelMessage,
   BridgeCommandResultMessage,
   WorkerHeadlessCommandMessage,
   WorkerHeadlessResultMessage,
