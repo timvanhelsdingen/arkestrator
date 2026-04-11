@@ -502,6 +502,11 @@ const COLUMN_ADDITIONS = [
   `ALTER TABLE skill_versions ADD COLUMN auto_fetch INTEGER`,
   `ALTER TABLE skill_versions ADD COLUMN playbooks TEXT`,
   `ALTER TABLE skill_versions ADD COLUMN related_skills TEXT`,
+  // MCP preset scoping for tool-usage skills. When set, `program` must be
+  // 'global' — a skill is either domain-scoped (program) or tool-scoped
+  // (mcp_preset_id), never both. See skill-validator.ts for enforcement.
+  `ALTER TABLE skills ADD COLUMN mcp_preset_id TEXT`,
+  `CREATE INDEX IF NOT EXISTS idx_skills_mcp_preset ON skills(mcp_preset_id) WHERE mcp_preset_id IS NOT NULL`,
 ];
 
 // Reset any jobs stuck in 'running' state (server crashed while they were active)

@@ -58,6 +58,21 @@ export function validateSkill(
     issues.push({ field: "slug", severity: "error", message: "Skill slug is empty" });
   }
 
+  // Exactly-one rule: a skill is either domain-scoped (`program`) OR
+  // tool-usage-scoped (`mcpPresetId`), never both. Hybrid tags like
+  // "How to use Context7 for Houdini docs" tagged with program=houdini
+  // AND mcpPresetId=context7 fragment the ranker and pollute community
+  // search results — reject and tell the agent to split the skill.
+  const mcpId = typeof skill.mcpPresetId === "string" ? skill.mcpPresetId.trim() : "";
+  const programField = typeof skill.program === "string" ? skill.program.trim().toLowerCase() : "";
+  if (mcpId && programField && programField !== "global") {
+    issues.push({
+      field: "mcpPresetId",
+      severity: "error",
+      message: `A skill cannot have both 'program' (${programField}) and 'mcpPresetId' (${mcpId}) set. Tool-usage skills must use mcpPresetId with program='global'; domain skills must use program without mcpPresetId. If the knowledge spans both, split it into two skills.`,
+    });
+  }
+
   // Check category
   if (!String(skill.category ?? "").trim()) {
     issues.push({ field: "category", severity: "warning", message: "Skill category is empty" });

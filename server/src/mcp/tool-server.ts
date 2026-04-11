@@ -2200,11 +2200,14 @@ export function createMcpServer(deps: McpDeps): McpServer {
     "create_skill",
     "Create a new skill from something you learned during this task. " +
       "Use this whenever you discover a non-trivial technique, workaround, or pattern that would save time on future similar tasks. " +
-      "Examples: a tricky API usage pattern, a multi-step workflow, a version-specific workaround, a naming convention.",
+      "Classification rule: if the knowledge is about how a DCC program works (Houdini, Blender, etc.) set `program` and leave `mcpPresetId` empty. " +
+      "If the knowledge is about how to use a specific MCP server effectively (query syntax, rate limits, state quirks), set `mcpPresetId` and leave `program` empty (or set it to 'global'). " +
+      "Never set both — a hybrid skill like 'how to use Context7 for Houdini docs' must be split into two skills or dropped.",
     {
-      slug: z.string().describe("URL-friendly identifier (e.g. 'blender-procedural-rock', 'houdini-vdb-from-particles')"),
+      slug: z.string().describe("URL-friendly identifier (e.g. 'blender-procedural-rock', 'houdini-vdb-from-particles'). MCP-scoped skills should use a preset-prefixed slug like 'context7-query-tips'."),
       title: z.string().describe("Human-readable title (e.g. 'Procedural Rock Material in Blender')"),
-      program: z.string().describe("Target program (e.g. 'blender', 'houdini', 'comfyui', 'global')"),
+      program: z.string().describe("Target program (e.g. 'blender', 'houdini', 'comfyui', 'global'). Use 'global' when the skill is MCP-scoped via mcpPresetId."),
+      mcpPresetId: z.string().optional().describe("MCP preset ID for tool-usage skills (e.g. 'context7', 'filesystem'). When set, this skill teaches the agent how to use that specific MCP server. Program must be 'global' when mcpPresetId is set."),
       content: z.string().describe("The skill content — step-by-step instructions, code snippets, key parameters, gotchas"),
       keywords: z.preprocess(
         (v) => (typeof v === "string" ? v.split(",").map((s: string) => s.trim()).filter(Boolean) : v),
@@ -2220,7 +2223,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
         z.array(z.string()).optional(),
       ).describe("Paths to playbook/training artifact files"),
     },
-    async ({ slug, title, program, content, keywords, category, relatedSkills, playbooks }) => {
+    async ({ slug, title, program, mcpPresetId, content, keywords, category, relatedSkills, playbooks }) => {
       if (!deps.skillsRepo && !deps.skillStore) {
         return { content: [{ type: "text" as const, text: "Skills system not available" }], isError: true };
       }
@@ -2256,14 +2259,20 @@ export function createMcpServer(deps: McpDeps): McpServer {
           }
         }
 
+        // Exactly-one rule: if mcpPresetId is set, coerce program to 'global'
+        // so the validator's cross-check and the DB unique constraint both
+        // agree. If program was something else, the validator below will
+        // flag it, but we also normalize here for clarity.
+        const normalizedProgram = mcpPresetId ? "global" : program;
         const input = {
           name: slug,
           slug,
-          program,
+          program: normalizedProgram,
+          mcpPresetId: mcpPresetId ?? null,
           category: category || "custom",
           title,
           description: title,
-          keywords: keywords || [program, slug],
+          keywords: keywords || [mcpPresetId ?? normalizedProgram, slug],
           content,
           relatedSkills: validatedRelated,
           playbooks: playbooks || [],
@@ -2287,7 +2296,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
           deps.skillsRepo!.upsertBySlugAndProgram(input);
           deps.skillIndex?.refresh();
         }
-        const msg = `Skill created: ${slug} [${program}] — "${title}"`;
+        const scopeLabel = mcpPresetId ? `mcp:${mcpPresetId}` : normalizedProgram;
+        const msg = `Skill created: ${slug} [${scopeLabel}] — "${title}"`;
         return { content: [{ type: "text" as const, text: warnings.length > 0 ? `${msg}\nWarnings: ${warnings.join("; ")}` : msg }] };
       } catch (err: any) {
         return { content: [{ type: "text" as const, text: `Failed to create skill: ${err.message}` }], isError: true };

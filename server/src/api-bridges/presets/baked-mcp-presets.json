@@ -1,0 +1,87 @@
+[
+  {
+    "presetId": "filesystem",
+    "displayName": "Filesystem",
+    "description": "Scoped filesystem access for asset libraries, reference folders, and shared drives outside the project.",
+    "category": "filesystem",
+    "mcpConfig": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "CHANGE_ME_TO_ALLOWED_PATH"]
+    },
+    "setupNote": "Replace CHANGE_ME_TO_ALLOWED_PATH with one or more absolute paths the agent may read/write. Add extra path arguments (one per line) for multiple roots. Requires Node.js on the host.",
+    "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem"
+  },
+  {
+    "presetId": "github",
+    "displayName": "GitHub (Official)",
+    "description": "Issues, pull requests, releases, code search via GitHub's official MCP server. Runs via Docker.",
+    "category": "dev",
+    "mcpConfig": {
+      "transport": "stdio",
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "-e",
+        "GITHUB_PERSONAL_ACCESS_TOKEN",
+        "ghcr.io/github/github-mcp-server"
+      ],
+      "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "" }
+    },
+    "setupNote": "Requires Docker on the host. Create a fine-grained personal access token at https://github.com/settings/tokens and paste it into the GITHUB_PERSONAL_ACCESS_TOKEN env value above.",
+    "homepage": "https://github.com/github/github-mcp-server"
+  },
+  {
+    "presetId": "context7",
+    "displayName": "Context7 (Library Docs)",
+    "description": "Up-to-date API docs for thousands of libraries — great for Godot/Blender/Houdini Python APIs that drift between versions.",
+    "category": "docs",
+    "mcpConfig": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp"]
+    },
+    "homepage": "https://github.com/upstash/context7"
+  },
+  {
+    "presetId": "fetch",
+    "displayName": "Fetch (Web Pages)",
+    "description": "Fetch and convert web pages to markdown. Useful for tutorials, docs, and forum answers.",
+    "category": "research",
+    "mcpConfig": {
+      "transport": "stdio",
+      "command": "uvx",
+      "args": ["mcp-server-fetch"]
+    },
+    "setupNote": "Requires uv installed on the host (https://docs.astral.sh/uv/). uvx will auto-install the Python package on first run.",
+    "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/fetch"
+  },
+  {
+    "presetId": "memory",
+    "displayName": "Memory (Knowledge Graph)",
+    "description": "Persistent cross-session memory as a local knowledge graph.",
+    "category": "memory",
+    "mcpConfig": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory"]
+    },
+    "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/memory"
+  },
+  {
+    "presetId": "brave-search",
+    "displayName": "Brave Search (Official)",
+    "description": "Web, local, image, video and news search via the official Brave Search MCP server.",
+    "category": "research",
+    "mcpConfig": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@brave/brave-search-mcp-server"],
+      "env": { "BRAVE_API_KEY": "" }
+    },
+    "setupNote": "Set BRAVE_API_KEY. Get a free key at https://brave.com/search/api/.",
+    "homepage": "https://github.com/brave/brave-search-mcp-server"
+  }
+]

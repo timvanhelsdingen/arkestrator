@@ -532,6 +532,7 @@ export const api = {
   apiBridges: {
     list: () => request("/api/api-bridges"),
     presets: () => request("/api/api-bridges/presets"),
+    mcpPresets: () => request("/api/api-bridges/mcp-presets"),
     get: (id: string) => request(`/api/api-bridges/${id}`),
     create: (data: Record<string, unknown>) =>
       request("/api/api-bridges", { method: "POST", body: JSON.stringify(data) }),

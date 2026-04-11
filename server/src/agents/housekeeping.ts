@@ -262,6 +262,17 @@ ${jobSummary}
    - Category should be "training" for learned patterns, "verification" for quality checks
    - **Do this incrementally** — create each skill as you discover the pattern, don't batch them at the end
 
+### Skill Classification Rule (Domain vs. MCP Tool-Usage)
+
+Every skill is either **domain-scoped** or **MCP tool-usage-scoped** — never both. Decide before calling \`create_skill\`:
+
+- **Domain skills** → set \`program\` to the DCC program (\`blender\`, \`houdini\`, \`godot\`, \`comfyui\`, or \`global\`). Leave \`mcpPresetId\` empty. Use this for knowledge about how the program itself works: shader nodes, node trees, VEX, scripting APIs, export settings, version-specific quirks. This kind of knowledge is transport-agnostic — it applies whether the agent reaches the program via its native bridge OR via some third-party MCP server.
+- **MCP tool-usage skills** → set \`mcpPresetId\` to the MCP preset slug (e.g. \`context7\`, \`filesystem\`, \`brave-search\`) and leave \`program\` empty (or set it to \`global\`). Use this for knowledge about how to use that specific MCP server effectively: query syntax, path scoping, rate limits, caching behavior, state quirks between calls.
+
+**Hybrid rule**: if a candidate skill feels like both ("How to use Context7 to look up Houdini VEX docs"), **split it into two** — one domain skill (\`program: houdini\`) about the Houdini topic, and one tool-usage skill (\`mcpPresetId: context7\`) about the Context7 query pattern. Never set both fields. The validator will reject hybrids.
+
+Slug convention for MCP skills: prefix with the preset slug to avoid collisions with program-scoped skills (e.g. \`context7-query-tips\`, not bare \`query-tips\`).
+
 4. **Write a Report**: After your analysis, write a brief summary of:
    - Key findings
    - Skills created/updated/disabled

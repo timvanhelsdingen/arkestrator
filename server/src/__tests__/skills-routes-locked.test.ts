@@ -31,7 +31,7 @@ async function setup() {
   const apiKeysRepo = new ApiKeysRepo(db);
   const settingsRepo = new SettingsRepo(db);
 
-  const skillIndex = new SkillIndex(() => skillsRepo.list({ includeDisabled: true }), settingsRepo);
+  const skillIndex = new SkillIndex(() => skillsRepo.list(), settingsRepo);
   skillIndex.refresh();
 
   const { rawKey } = await apiKeysRepo.create("test-admin", "admin");

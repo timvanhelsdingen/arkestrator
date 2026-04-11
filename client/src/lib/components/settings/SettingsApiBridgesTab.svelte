@@ -40,8 +40,19 @@
     hasHandler?: boolean;
   }
 
+  interface McpPresetInfo {
+    presetId: string;
+    displayName: string;
+    description?: string;
+    category?: string;
+    mcpConfig: McpConfig;
+    setupNote?: string;
+    homepage?: string;
+  }
+
   let bridges = $state<ApiBridge[]>([]);
   let presets = $state<PresetInfo[]>([]);
+  let mcpPresets = $state<McpPresetInfo[]>([]);
   let loaded = $state(false);
   let loading = $state(false);
   let error = $state("");
@@ -67,6 +78,9 @@
   let formMcpEnv = $state("");
   let formMcpUrl = $state("");
   let formMcpHeaders = $state("");
+  // Active MCP preset metadata (used to show setup note + homepage link in the form)
+  let formMcpSetupNote = $state("");
+  let formMcpHomepage = $state("");
 
   // Test state
   let testingId = $state<string | null>(null);
@@ -91,6 +105,34 @@
   // Presets are REST-only, so hide in MCP mode
   let filteredPresets = $derived(mode === "mcp" ? [] : presets);
 
+  // MCP presets are MCP-only, so hide in REST mode
+  let filteredMcpPresets = $derived(mode === "rest" ? [] : mcpPresets);
+
+  /** True when a configured bridge already matches an MCP preset's command/args or slug. */
+  function isMcpPresetInstalled(preset: McpPresetInfo): ApiBridge | undefined {
+    return bridges.find((b) => {
+      if (!b.mcpConfig) return false;
+      if (b.name === preset.presetId) return true;
+      if (b.mcpConfig.transport !== preset.mcpConfig.transport) return false;
+      if (preset.mcpConfig.transport === "stdio") {
+        return (
+          b.mcpConfig.command === preset.mcpConfig.command &&
+          JSON.stringify(b.mcpConfig.args ?? []) === JSON.stringify(preset.mcpConfig.args ?? [])
+        );
+      }
+      return b.mcpConfig.url === preset.mcpConfig.url;
+    });
+  }
+
+  /** Suggest a unique slug for an MCP preset if one with that name already exists. */
+  function uniqueMcpSlug(base: string): string {
+    const taken = new Set(bridges.map((b) => b.name));
+    if (!taken.has(base)) return base;
+    let i = 2;
+    while (taken.has(`${base}-${i}`)) i++;
+    return `${base}-${i}`;
+  }
+
   $effect(() => {
     if (connection.isAuthenticated && !loaded) {
       loaded = true;
@@ -102,12 +144,14 @@
     loading = true;
     error = "";
     try {
-      const [bridgeResult, presetResult] = await Promise.all([
+      const [bridgeResult, presetResult, mcpPresetResult] = await Promise.all([
         api.apiBridges.list(),
         api.apiBridges.presets(),
+        api.apiBridges.mcpPresets(),
       ]);
       bridges = bridgeResult as ApiBridge[];
       presets = presetResult as PresetInfo[];
+      mcpPresets = mcpPresetResult as McpPresetInfo[];
     } catch (err: any) {
       error = err.message ?? String(err);
     } finally {
@@ -144,6 +188,36 @@
     formMcpEnv = "";
     formMcpUrl = "";
     formMcpHeaders = "";
+    formMcpSetupNote = "";
+    formMcpHomepage = "";
+    showForm = true;
+  }
+
+  function openInstallMcpPreset(preset: McpPresetInfo) {
+    editingId = null;
+    formType = "custom";
+    formPresetId = "";
+    formName = uniqueMcpSlug(preset.presetId);
+    formDisplayName = preset.displayName;
+    formBaseUrl = "";
+    formApiKey = "";
+    formAuthType = "none";
+    formError = "";
+    formBridgeMode = "mcp";
+
+    const cfg = preset.mcpConfig;
+    formMcpTransport = cfg.transport;
+    formMcpCommand = cfg.command ?? "";
+    formMcpArgs = (cfg.args ?? []).join("\n");
+    formMcpEnv = cfg.env
+      ? Object.entries(cfg.env).map(([k, v]) => `${k}=${v}`).join("\n")
+      : "";
+    formMcpUrl = cfg.url ?? "";
+    formMcpHeaders = cfg.headers
+      ? Object.entries(cfg.headers).map(([k, v]) => `${k}: ${v}`).join("\n")
+      : "";
+    formMcpSetupNote = preset.setupNote ?? "";
+    formMcpHomepage = preset.homepage ?? "";
     showForm = true;
   }
 
@@ -164,6 +238,8 @@
     formMcpEnv = "";
     formMcpUrl = "";
     formMcpHeaders = "";
+    formMcpSetupNote = "";
+    formMcpHomepage = "";
     showForm = true;
   }
 
@@ -211,6 +287,8 @@
       formMcpUrl = "";
       formMcpHeaders = "";
     }
+    formMcpSetupNote = "";
+    formMcpHomepage = "";
 
     showForm = true;
   }
@@ -546,8 +624,56 @@
   {/if}
 
   <!-- Preset cards -->
-  {#if filteredPresets.length > 0 || customBridges.length > 0}
+  {#if filteredPresets.length > 0 || filteredMcpPresets.length > 0 || customBridges.length > 0}
     <div class="bridge-grid">
+      {#each filteredMcpPresets as preset (preset.presetId)}
+        {@const installed = isMcpPresetInstalled(preset)}
+        <div class="bridge-card" class:installed={!!installed} class:disabled={!!installed && !installed.enabled}>
+          <div class="bridge-card-header">
+            <div class="bridge-card-title">
+              <Badge text="MCP" variant="info" />
+              <span class="bridge-name">{preset.displayName}</span>
+              {#if installed}
+                <span class="bridge-state" class:enabled={installed.enabled}>
+                  {installed.enabled ? "enabled" : "disabled"}
+                </span>
+              {/if}
+            </div>
+          </div>
+
+          {#if preset.description}
+            <span class="bridge-desc">{preset.description}</span>
+          {/if}
+
+          <span class="bridge-url">
+            {#if preset.mcpConfig.transport === "stdio"}
+              {preset.mcpConfig.command} {(preset.mcpConfig.args ?? []).join(" ")}
+            {:else}
+              {preset.mcpConfig.url ?? ""}
+            {/if}
+          </span>
+
+          {#if preset.setupNote && !installed}
+            <span class="bridge-warning">Requires setup — see install dialog</span>
+          {/if}
+
+          <div class="bridge-card-actions">
+            {#if installed}
+              <button class="btn-sm" onclick={() => testBridge(installed)} disabled={testingId === installed.id}>
+                {testingId === installed.id ? "..." : "Test"}
+              </button>
+              <button class="btn-sm" onclick={() => openEditForm(installed)}>Edit</button>
+              <button class="btn-sm" onclick={() => toggleEnabled(installed)}>
+                {installed.enabled ? "Disable" : "Enable"}
+              </button>
+              <button class="btn-sm danger" onclick={() => deleteBridge(installed)}>Delete</button>
+            {:else}
+              <button class="btn install" onclick={() => openInstallMcpPreset(preset)}>Install</button>
+            {/if}
+          </div>
+        </div>
+      {/each}
+
       {#each filteredPresets as preset (preset.presetId)}
         {@const bridge = bridgeByPreset[preset.presetId]}
         {@const isInstalled = !!bridge}
@@ -692,6 +818,15 @@
       </label>
 
       {#if formBridgeMode === "mcp" && formType === "custom"}
+        {#if formMcpSetupNote}
+          <div class="preset-note">
+            <strong>Setup:</strong> {formMcpSetupNote}
+            {#if formMcpHomepage}
+              <br /><a href={formMcpHomepage} target="_blank" rel="noreferrer">Documentation &rarr;</a>
+            {/if}
+          </div>
+        {/if}
+
         <!-- MCP-specific fields -->
         <label>
           Transport
@@ -1192,6 +1327,23 @@ cd ComfyUI</pre>
     font-size: 11px;
     color: var(--text-muted);
     margin-top: 2px;
+  }
+
+  .preset-note {
+    font-size: var(--font-size-sm);
+    line-height: 1.5;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--accent) 10%, var(--bg-base));
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+    color: var(--text-secondary);
+  }
+  .preset-note a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .preset-note a:hover {
+    text-decoration: underline;
   }
 
   /* ─── ComfyUI Modal ─── */

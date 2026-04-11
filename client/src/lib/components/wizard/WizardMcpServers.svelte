@@ -5,7 +5,9 @@
     transport: "stdio" | "sse";
     command?: string;
     args?: string[];
+    env?: Record<string, string>;
     url?: string;
+    headers?: Record<string, string>;
   }
 
   interface McpBridge {
@@ -16,19 +18,34 @@
     enabled: boolean;
   }
 
+  interface McpPresetInfo {
+    presetId: string;
+    displayName: string;
+    description?: string;
+    category?: string;
+    mcpConfig: McpConfig;
+    setupNote?: string;
+    homepage?: string;
+  }
+
   interface McpState {
     name: string;
     displayName: string;
     transport: "stdio" | "sse";
     command: string;
     args: string;
+    env: string;
     url: string;
     saving: boolean;
     saved: boolean;
     error: string;
+    setupNote: string;
+    homepage: string;
   }
 
   let existing = $state<McpBridge[]>([]);
+  let presets = $state<McpPresetInfo[]>([]);
+  let selectedPresetId = $state("");
   let showForm = $state(false);
   let loading = $state(true);
   let loadError = $state("");
@@ -39,16 +56,23 @@
     transport: "stdio",
     command: "",
     args: "",
+    env: "",
     url: "",
     saving: false,
     saved: false,
     error: "",
+    setupNote: "",
+    homepage: "",
   });
 
   async function loadExisting() {
     try {
-      const bridges = (await api.apiBridges.list()) as McpBridge[];
+      const [bridges, presetList] = await Promise.all([
+        api.apiBridges.list() as Promise<McpBridge[]>,
+        api.apiBridges.mcpPresets().catch(() => []) as Promise<McpPresetInfo[]>,
+      ]);
       existing = bridges.filter((b) => b.mcpConfig);
+      presets = presetList;
     } catch {
       // Not authenticated yet in wizard flow
     } finally {
@@ -65,11 +89,48 @@
       transport: "stdio",
       command: "",
       args: "",
+      env: "",
       url: "",
       saving: false,
       saved: false,
       error: "",
+      setupNote: "",
+      homepage: "",
     };
+    selectedPresetId = "";
+  }
+
+  function uniqueSlug(base: string): string {
+    const taken = new Set(existing.map((b) => b.name));
+    if (!taken.has(base)) return base;
+    let i = 2;
+    while (taken.has(`${base}-${i}`)) i++;
+    return `${base}-${i}`;
+  }
+
+  function applyPreset(presetId: string) {
+    selectedPresetId = presetId;
+    if (!presetId) return;
+    const preset = presets.find((p) => p.presetId === presetId);
+    if (!preset) return;
+    const cfg = preset.mcpConfig;
+    form = {
+      name: uniqueSlug(preset.presetId),
+      displayName: preset.displayName,
+      transport: cfg.transport,
+      command: cfg.command ?? "",
+      args: (cfg.args ?? []).join("\n"),
+      env: cfg.env
+        ? Object.entries(cfg.env).map(([k, v]) => `${k}=${v}`).join("\n")
+        : "",
+      url: cfg.url ?? "",
+      saving: false,
+      saved: false,
+      error: "",
+      setupNote: preset.setupNote ?? "",
+      homepage: preset.homepage ?? "",
+    };
+    showForm = true;
   }
 
   async function saveServer() {
@@ -85,6 +146,12 @@
         mcpConfig.command = form.command;
         const args = form.args.split("\n").map((a) => a.trim()).filter(Boolean);
         if (args.length) mcpConfig.args = args;
+        const env: Record<string, string> = {};
+        for (const line of form.env.split("\n").map((l) => l.trim()).filter(Boolean)) {
+          const idx = line.indexOf("=");
+          if (idx > 0) env[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
+        }
+        if (Object.keys(env).length) mcpConfig.env = env;
       } else {
         mcpConfig.url = form.url;
       }
@@ -136,8 +203,34 @@
     </div>
   {/if}
 
+  {#if presets.length > 0 && !showForm}
+    <div class="preset-picker">
+      <label class="field">
+        <span>Install from preset</span>
+        <select
+          value={selectedPresetId}
+          onchange={(e) => applyPreset((e.currentTarget as HTMLSelectElement).value)}
+        >
+          <option value="">Choose a preset...</option>
+          {#each presets as preset (preset.presetId)}
+            <option value={preset.presetId}>{preset.displayName}</option>
+          {/each}
+        </select>
+        <span class="field-hint">Pre-fills the form with a curated MCP server config. You can still edit it.</span>
+      </label>
+    </div>
+  {/if}
+
   {#if showForm}
     <div class="form-card">
+      {#if form.setupNote}
+        <div class="preset-note">
+          <strong>Setup:</strong> {form.setupNote}
+          {#if form.homepage}
+            <br /><a href={form.homepage} target="_blank" rel="noreferrer">Documentation &rarr;</a>
+          {/if}
+        </div>
+      {/if}
       <label class="field">
         <span>Name (slug)</span>
         <input bind:value={form.name} placeholder="my-mcp-server" />
@@ -162,6 +255,10 @@
         <label class="field">
           <span>Arguments (one per line)</span>
           <textarea bind:value={form.args} rows="3" placeholder={"-y\n@modelcontextprotocol/server-filesystem\n/tmp"}></textarea>
+        </label>
+        <label class="field">
+          <span>Environment Variables (KEY=VALUE, one per line)</span>
+          <textarea bind:value={form.env} rows="2" placeholder="API_KEY=sk-xxx"></textarea>
         </label>
       {:else}
         <label class="field">
@@ -349,5 +446,25 @@
   .btn-cancel:hover {
     background: var(--bg-hover);
     color: var(--text-primary);
+  }
+
+  .preset-picker {
+    margin-bottom: 10px;
+  }
+  .preset-note {
+    font-size: 12px;
+    line-height: 1.5;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--accent) 10%, var(--bg-base));
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+    color: var(--text-secondary);
+  }
+  .preset-note a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .preset-note a:hover {
+    text-decoration: underline;
   }
 </style>
