@@ -3,6 +3,59 @@
   import { auth } from "../lib/stores/auth.svelte";
   import { toast } from "../lib/stores/toast.svelte";
 
+  // ── Scanner rule-name normalization ───────────────────────────────
+  // The marketplace (arkestrator.com) and the local desktop scanner use
+  // different rule identifiers for the same underlying pattern. A single
+  // flagged community skill can carry BOTH names in `flaggedReasons`
+  // (e.g. `["ignore_previous", "ignore_previous_instructions"]`) because
+  // `community-install.ts` merges publisher + local scan results. Mapping
+  // them to a shared human label avoids the table looking like two
+  // different problems when it's the same one.
+  const RULE_LABELS: Record<string, string> = {
+    // block family
+    ignore_previous: "Ignore previous instructions",
+    ignore_previous_instructions: "Ignore previous instructions",
+    disregard_system: "Disregard system prompt",
+    disregard_system_prompt: "Disregard system prompt",
+    you_are_now: "Role reassignment",
+    pretend_authority: "Role reassignment",
+    roleplay_authority: "Role reassignment",
+    forget_instructions: "Forget instructions",
+    override_safety: "Override safety",
+    pipe_to_shell_curl: "Shell pipe-to-exec",
+    pipe_to_shell_wget: "Shell pipe-to-exec",
+    powershell_invoke_expression: "Shell pipe-to-exec",
+    powershell_iex_newobject: "Shell pipe-to-exec",
+    eval_atob: "Shell pipe-to-exec",
+    shell_pipe_to_exec: "Shell pipe-to-exec",
+    credential_exfil: "Credential exfiltration",
+    credential_exfiltration: "Credential exfiltration",
+    hidden_unicode: "Hidden unicode",
+    large_base64: "Long base64 blob",
+    long_base64_blob: "Long base64 blob",
+    delim_pipe_system: "Model delimiter token",
+    delim_inst: "Model delimiter token",
+    model_system_token: "Model delimiter token",
+    // flag family
+    dangerous_tool_call: "Dangerous tool imperative",
+    dangerous_tool_imperative: "Dangerous tool imperative",
+    insecure_executable_url: "HTTP script download",
+    http_script_download: "HTTP script download",
+    link_host_mismatch: "Link host mismatch",
+    always_run_skill: "Preamble smuggling",
+    confusable_title_slug: "Confusable characters",
+    cyrillic_confusable_in_ascii: "Confusable characters",
+  };
+  function humanizeReasons(reasons: string[]): string[] {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const r of reasons ?? []) {
+      const label = RULE_LABELS[r] ?? r;
+      if (!seen.has(label)) { seen.add(label); out.push(label); }
+    }
+    return out;
+  }
+
   type Tab = "settings" | "backup" | "danger";
   let activeTab = $state<Tab>("settings");
 
@@ -709,8 +762,9 @@
                           </td>
                           <td>
                             {#if s.flagged}
-                              <span class="status-flagged" title={s.flaggedReasons.join(", ")}>
-                                ⚠ {s.flaggedReasons.slice(0, 2).join(", ")}{s.flaggedReasons.length > 2 ? "…" : ""}
+                              {@const humanized = humanizeReasons(s.flaggedReasons)}
+                              <span class="status-flagged" title={humanized.join(", ") + " (raw: " + s.flaggedReasons.join(", ") + ")"}>
+                                ⚠ {humanized.slice(0, 2).join(", ")}{humanized.length > 2 ? "…" : ""}
                               </span>
                             {:else}
                               <span class="status-clean">clean</span>

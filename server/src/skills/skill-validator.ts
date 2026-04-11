@@ -182,6 +182,12 @@ interface ScanRule {
   reason: string;
   /** Regex applied to the full content. */
   test: RegExp;
+  /**
+   * Optional predicate run after `test` matches. Return false to reject the
+   * match (e.g. for rules whose regex finds structure but whose decision
+   * depends on comparing capture groups). Used by `link_host_mismatch`.
+   */
+  postMatch?: (match: RegExpExecArray) => boolean;
 }
 
 /**
@@ -223,8 +229,13 @@ const INJECTION_SCAN_RULES: ScanRule[] = [
   {
     pattern: "roleplay_authority",
     severity: "block",
-    reason: "Pretend-to-be-authority pattern (admin/root/developer/anthropic).",
-    test: /\bpretend\s+(?:you\s+are|to\s+be)\s+(?:an?\s+)?(?:admin|administrator|root|developer|system|anthropic|openai|operator|moderator)\b/i,
+    reason: "Pretend-to-be-authority / role reassignment pattern (admin/root/developer/anthropic/pirate/etc.).",
+    // Covers "pretend you are X", "pretend to be X", "you are now X", "act as X",
+    // "from now on you are X". The target role list is deliberately broad — we
+    // block both authority-impersonation ("admin", "root") and generic role
+    // reassignment ("a pirate", "a helpful assistant") because the "you are now"
+    // framing is a prompt-injection tell regardless of the target.
+    test: /\b(?:pretend\s+(?:you\s+are|to\s+be)|you\s+are\s+now|act\s+as|from\s+now\s+on[, ]+you\s+are)\s+(?:an?\s+|the\s+)?[A-Za-z][A-Za-z -]{1,40}/i,
   },
   {
     pattern: "override_safety",
@@ -236,7 +247,9 @@ const INJECTION_SCAN_RULES: ScanRule[] = [
     pattern: "shell_pipe_to_exec",
     severity: "block",
     reason: "Shell pipe-to-exec pattern (curl|sh, wget|bash, iex, Invoke-Expression).",
-    test: /(?:\bcurl\s+\S+.*\|\s*(?:sudo\s+)?(?:sh|bash|zsh|fish|dash)\b|\bwget\s+\S+.*\|\s*(?:sudo\s+)?(?:sh|bash|zsh|fish|dash)\b|\b(?:Invoke-Expression|IEX)\s*\(|\beval\s*\(\s*atob\s*\(|\beval\s*\(\s*(?:Buffer\.from\s*\([^)]*['"]base64)|\bbase64\s+-d\s*\|\s*(?:sh|bash))/i,
+    // Includes bare `Invoke-Expression $var` / `IEX $var` without parens —
+    // PowerShell allows either form, so we match both.
+    test: /(?:\bcurl\s+\S+.*\|\s*(?:sudo\s+)?(?:sh|bash|zsh|fish|dash)\b|\bwget\s+\S+.*\|\s*(?:sudo\s+)?(?:sh|bash|zsh|fish|dash)\b|\b(?:Invoke-Expression|IEX)\b(?:\s*\(|\s+[$"'])|\beval\s*\(\s*atob\s*\(|\beval\s*\(\s*(?:Buffer\.from\s*\([^)]*['"]base64)|\bbase64\s+-d\s*\|\s*(?:sh|bash))/i,
   },
   {
     pattern: "credential_exfiltration",
@@ -278,8 +291,28 @@ const INJECTION_SCAN_RULES: ScanRule[] = [
   {
     pattern: "always_run_skill",
     severity: "flag",
-    reason: "Tries to make another skill mandatory ('always run X', 'must include skill Y').",
-    test: /\b(?:always|must|every\s+time)\s+(?:run|use|invoke|call|fetch|include|load)\s+(?:the\s+)?skill\b/i,
+    reason: "Imperative to always run/invoke some other action or skill before the main task.",
+    // Catches both "always run the skill foo" and "always run safety-bypass
+    // before main task". The `before` / `first` / `prior to` context is the
+    // giveaway — the author is trying to smuggle in a mandatory preamble.
+    test: /\b(?:always|must|every\s+time|you\s+should\s+always)\s+(?:run|use|invoke|call|fetch|include|load|execute)\s+(?:the\s+)?(?:skill\b|[\w-]+\s+(?:before|first|prior\s+to|ahead\s+of)\b)/i,
+  },
+  {
+    pattern: "link_host_mismatch",
+    severity: "flag",
+    reason: "Markdown link where the label looks like a different host than the target URL (phishing pattern).",
+    // Matches `[something.tld](http(s)://other.tld/...)` where the label's
+    // host-shaped token and the URL host don't agree on at least the last
+    // two DNS labels. Regex can't do the comparison alone, so we match the
+    // structural shape and let the logic below do the host compare.
+    test: /\[([a-z0-9][a-z0-9.-]*\.[a-z]{2,})\]\(https?:\/\/([a-z0-9][a-z0-9.-]*\.[a-z]{2,})[/)]/i,
+    postMatch: (m) => {
+      // Only flag when the label and URL disagree on the eTLD+1.
+      const label = (m[1] ?? "").toLowerCase();
+      const host = (m[2] ?? "").toLowerCase();
+      const tail = (s: string) => s.split(".").slice(-2).join(".");
+      return tail(label) !== tail(host);
+    },
   },
   {
     pattern: "cyrillic_confusable_in_ascii",
@@ -383,6 +416,7 @@ export function scanSkillContentForInjection(content: string): InjectionScanResu
   for (const rule of INJECTION_SCAN_RULES) {
     const match = rule.test.exec(text);
     if (!match) continue;
+    if (rule.postMatch && !rule.postMatch(match)) continue;
     const snippet = match[0].slice(0, 120);
     matches.push({
       pattern: rule.pattern,
