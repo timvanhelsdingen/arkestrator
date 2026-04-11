@@ -1211,7 +1211,7 @@
                 onchange={(e) => { addSkillRelated(e.currentTarget.value); e.currentTarget.value = ""; }}
               >
                 <option value="">+ Add related skill…</option>
-                {#each skills.filter(s => s.slug !== skillViewData?.slug && !skillEditRelatedSkills.includes(s.slug)) as s}
+                {#each serverSkills.filter((s: SkillEntry) => s.slug !== skillViewData?.slug && !skillEditRelatedSkills.includes(s.slug)) as s}
                   <option value={s.slug}>{s.slug}{s.program ? " (" + s.program + ")" : ""}</option>
                 {/each}
               </select>
