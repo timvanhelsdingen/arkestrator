@@ -382,6 +382,83 @@ describe("Job dependencies", () => {
     const blockingAfter = ctx.depsRepo.getBlockingDeps(child.id);
     expect(blockingAfter).toHaveLength(0);
   });
+
+  test("wouldCreateCycle detects direct self-dependency", () => {
+    const j = createTestJob(ctx.jobsRepo, agentConfigId);
+    const cycle = ctx.depsRepo.wouldCreateCycle(j.id, j.id);
+    expect(cycle).not.toBeNull();
+  });
+
+  test("wouldCreateCycle detects transitive cycles", () => {
+    const a = createTestJob(ctx.jobsRepo, agentConfigId);
+    const b = createTestJob(ctx.jobsRepo, agentConfigId);
+    const c = createTestJob(ctx.jobsRepo, agentConfigId);
+    // Build chain: a depends on b, b depends on c
+    ctx.depsRepo.add(a.id, b.id);
+    ctx.depsRepo.add(b.id, c.id);
+    // Adding c -> a would close the cycle a -> b -> c -> a
+    const cycle = ctx.depsRepo.wouldCreateCycle(c.id, a.id);
+    expect(cycle).not.toBeNull();
+  });
+
+  test("wouldCreateCycle returns null for safe edges", () => {
+    const a = createTestJob(ctx.jobsRepo, agentConfigId);
+    const b = createTestJob(ctx.jobsRepo, agentConfigId);
+    const cycle = ctx.depsRepo.wouldCreateCycle(a.id, b.id);
+    expect(cycle).toBeNull();
+  });
+
+  test("getTransitiveDependents walks the graph", () => {
+    const root = createTestJob(ctx.jobsRepo, agentConfigId);
+    const mid = createTestJob(ctx.jobsRepo, agentConfigId);
+    const leaf = createTestJob(ctx.jobsRepo, agentConfigId);
+    ctx.depsRepo.add(mid.id, root.id);
+    ctx.depsRepo.add(leaf.id, mid.id);
+    const all = ctx.depsRepo.getTransitiveDependents(root.id);
+    expect(all).toContain(mid.id);
+    expect(all).toContain(leaf.id);
+  });
+
+  test("cascadeFailOrphanedDependents fails jobs whose deps permanently failed", () => {
+    const parent = createTestJob(ctx.jobsRepo, agentConfigId);
+    const child = createTestJob(ctx.jobsRepo, agentConfigId);
+    ctx.depsRepo.add(child.id, parent.id);
+
+    // Parent permanently fails
+    ctx.jobsRepo.claim(parent.id);
+    ctx.jobsRepo.fail(parent.id, "boom", "");
+
+    const cascaded = ctx.jobsRepo.cascadeFailOrphanedDependents();
+    expect(cascaded.length).toBe(1);
+    expect(cascaded[0].jobId).toBe(child.id);
+    const after = ctx.jobsRepo.getById(child.id);
+    expect(after!.status).toBe("failed");
+  });
+});
+
+describe("Log truncation", () => {
+  test("truncates logs that exceed the size cap", () => {
+    const job = createTestJob(ctx.jobsRepo, agentConfigId);
+    // 4 MB payload — well over the 2 MB cap
+    const huge = "x".repeat(4 * 1024 * 1024);
+    ctx.jobsRepo.claim(job.id);
+    ctx.jobsRepo.complete(job.id, [], huge);
+    const after = ctx.jobsRepo.getById(job.id);
+    expect(after!.logs).toBeTruthy();
+    // Must be smaller than the original
+    expect(after!.logs!.length).toBeLessThan(huge.length);
+    // Must contain the truncation marker
+    expect(after!.logs!).toContain("truncated");
+  });
+
+  test("keeps small logs intact", () => {
+    const job = createTestJob(ctx.jobsRepo, agentConfigId);
+    const small = "short log";
+    ctx.jobsRepo.claim(job.id);
+    ctx.jobsRepo.complete(job.id, [], small);
+    const after = ctx.jobsRepo.getById(job.id);
+    expect(after!.logs).toBe(small);
+  });
 });
 
 describe("Reprioritize", () => {

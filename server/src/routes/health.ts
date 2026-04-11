@@ -1,4 +1,7 @@
 import { Hono } from "hono";
+import type { WebSocketHub } from "../ws/hub.js";
+import type { JobsRepo } from "../db/jobs.repo.js";
+import type { ProcessTracker } from "../agents/process-tracker.js";
 
 export { SERVER_VERSION } from "../utils/version.js";
 import { SERVER_VERSION } from "../utils/version.js";
@@ -19,7 +22,11 @@ export const PROTOCOL_VERSION = 1;
  */
 export const CAPABILITIES: string[] = ["binary_files"];
 
-export function createHealthRoutes() {
+export function createHealthRoutes(deps?: {
+  hub?: WebSocketHub;
+  jobsRepo?: JobsRepo;
+  processTracker?: ProcessTracker;
+}) {
   const router = new Hono();
 
   router.get("/health", (c) => {
@@ -29,6 +36,32 @@ export function createHealthRoutes() {
       version: SERVER_VERSION,
       protocolVersion: PROTOCOL_VERSION,
       capabilities: CAPABILITIES,
+    });
+  });
+
+  /**
+   * Operational metrics endpoint. Exposes hub + queue counters so operators
+   * can monitor bridges_connected, backpressure events, pending commands,
+   * running jobs, etc. from any HTTP client. Not authenticated — intended
+   * for localhost / reverse-proxy scraping. If you put the server on the
+   * open internet, gate this behind your proxy.
+   */
+  router.get("/api/metrics", (c) => {
+    const hub = deps?.hub;
+    const jobsRepo = deps?.jobsRepo;
+    const processTracker = deps?.processTracker;
+    const hubMetrics = hub?.getMetrics();
+    const queuedJobs = jobsRepo ? jobsRepo.list(["queued"]).jobs.length : 0;
+    const runningJobs = jobsRepo ? jobsRepo.list(["running"]).jobs.length : 0;
+    return c.json({
+      uptime: Math.floor((Date.now() - startTime) / 1000),
+      version: SERVER_VERSION,
+      hub: hubMetrics ?? null,
+      queue: {
+        queued: queuedJobs,
+        running: runningJobs,
+        processes: processTracker?.count ?? 0,
+      },
     });
   });
 

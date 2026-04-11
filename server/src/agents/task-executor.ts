@@ -17,6 +17,7 @@ import { resolveBridgeTargets } from "./resource-control.js";
 import { newId } from "../utils/id.js";
 import { normalizeQuotes } from "../utils/worker-identity.js";
 import { logger } from "../utils/logger.js";
+import { isTransientError, computeRetryDelay, DEFAULT_MAX_RETRIES } from "../queue/retry-policy.js";
 
 export interface TaskExecutorDeps {
   hub: WebSocketHub;
@@ -31,6 +32,10 @@ interface PendingTask {
   correlationId: string;
   timer: ReturnType<typeof setTimeout>;
   lease?: WorkerResourceLease;
+  /** Bridge connection ID the command was sent to, for cancel-on-timeout. */
+  targetBridgeId?: string;
+  /** Program name for the command (used by broadcast cancel). */
+  targetProgram?: string;
 }
 
 export class TaskExecutor {
@@ -117,10 +122,34 @@ export class TaskExecutor {
       const errorMsg = result.errors?.join("; ") || result.stderr || "Task execution failed";
       this.deps.jobsRepo.fail(pending.jobId, errorMsg, logs);
       logger.warn("task-executor", `Task job ${pending.jobId} failed: ${errorMsg}`);
+      // Attempt retry if the failure looks transient (network blip, bridge overloaded, etc.)
+      this.maybeRetry(pending.jobId, errorMsg);
     }
 
     this.broadcastJobUpdated(pending.jobId);
     return true;
+  }
+
+  /**
+   * Task jobs used to never retry. For transient failures (bridge disconnected
+   * mid-command, overloaded, connection refused) we now requeue with backoff
+   * using the same policy as agent jobs. Permanent failures are left as-is.
+   */
+  private maybeRetry(jobId: string, errorMsg: string) {
+    if (!isTransientError(errorMsg)) return;
+    const job = this.deps.jobsRepo.getById(jobId);
+    if (!job) return;
+    const retryCount = job.retryCount ?? 0;
+    const maxRetries = job.maxRetries ?? DEFAULT_MAX_RETRIES;
+    if (maxRetries <= 0 || retryCount >= maxRetries) return;
+    const delay = computeRetryDelay(retryCount);
+    const requeued = this.deps.jobsRepo.requeueForRetry(jobId, delay);
+    if (requeued) {
+      logger.info(
+        "task-executor",
+        `Task job ${jobId} requeued for retry ${retryCount + 1}/${maxRetries} in ${Math.round(delay / 1000)}s (${errorMsg})`,
+      );
+    }
   }
 
   /**
@@ -137,12 +166,16 @@ export class TaskExecutor {
   }
 
   /**
-   * Cancel a pending task job. Cleans up timers and leases.
+   * Cancel a pending task job. Cleans up timers and leases, and sends a
+   * bridge_command_cancel to the target bridge so it can abort in-flight work.
    */
   cancel(jobId: string): boolean {
     // Find by jobId (not correlationId)
     for (const [corrId, pending] of this.pending) {
       if (pending.jobId === jobId) {
+        if (pending.targetBridgeId) {
+          this.deps.hub.sendBridgeCommandCancel(corrId, pending.targetBridgeId, "Task cancelled");
+        }
         this.clearPending(corrId);
         return true;
       }
@@ -197,7 +230,10 @@ export class TaskExecutor {
     // Track the job's used bridge
     this.deps.jobsRepo.addUsedBridge(job.id, spec.targetProgram);
 
-    this.registerPending(job.id, correlationId, spec.timeoutMs ?? 600_000);
+    this.registerPending(job.id, correlationId, spec.timeoutMs ?? 600_000, {
+      targetBridgeId: targetWs.data.id,
+      targetProgram: spec.targetProgram,
+    });
     logger.info("task-executor", `Dispatched bridge_command task ${job.id} to ${spec.targetProgram}`);
     return { ok: true };
   }
@@ -312,9 +348,20 @@ export class TaskExecutor {
 
   // ---------- Helpers ----------
 
-  private registerPending(jobId: string, correlationId: string, timeoutMs: number) {
+  private registerPending(
+    jobId: string,
+    correlationId: string,
+    timeoutMs: number,
+    opts?: { targetBridgeId?: string; targetProgram?: string },
+  ) {
     const timer = setTimeout(() => this.handleTimeout(correlationId), timeoutMs + 5_000);
-    this.pending.set(correlationId, { jobId, correlationId, timer });
+    this.pending.set(correlationId, {
+      jobId,
+      correlationId,
+      timer,
+      targetBridgeId: opts?.targetBridgeId,
+      targetProgram: opts?.targetProgram,
+    });
   }
 
   private clearPending(correlationId: string) {
@@ -330,10 +377,18 @@ export class TaskExecutor {
     const pending = this.pending.get(correlationId);
     if (!pending) return;
 
+    // Best-effort cancel: tell the bridge/worker to abort the in-flight command
+    // so it doesn't run to completion and produce an orphaned result.
+    if (pending.targetBridgeId) {
+      this.deps.hub.sendBridgeCommandCancel(correlationId, pending.targetBridgeId, "Task execution timed out");
+    }
+
     this.clearPending(correlationId);
-    this.deps.jobsRepo.fail(pending.jobId, "Task execution timed out", "");
+    const errMsg = "Task execution timed out";
+    this.deps.jobsRepo.fail(pending.jobId, errMsg, "");
     this.broadcastJobUpdated(pending.jobId);
     logger.warn("task-executor", `Task job ${pending.jobId} timed out`);
+    this.maybeRetry(pending.jobId, errMsg);
   }
 
   private failJob(jobId: string, error: string) {

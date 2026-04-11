@@ -96,14 +96,66 @@ export interface AgentBridgeView {
   usageHint?: string;
 }
 
+/** Pending bridge command registered via registerPendingCommand. */
+interface PendingCommandEntry {
+  resolve: (result: any) => void;
+  reject: (err: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+  settled: boolean;
+  /** Connection ID of the bridge the command was sent to, for cancel on timeout. */
+  targetBridgeId?: string;
+}
+
+/** Circuit breaker state for bridges that reconnect too frequently. */
+interface FlapState {
+  count: number;
+  windowStart: number;
+  blockedUntil: number;
+}
+
+/** Metrics counters for observability. Opaque integers reset by reader. */
+export interface HubMetrics {
+  broadcastsSent: number;
+  broadcastsDropped: number;
+  backpressureEvents: number;
+  pendingCommandsTimedOut: number;
+  pendingCommandsCancelled: number;
+  bridgesFlapBlocked: number;
+  virtualBridgesExpired: number;
+  messagesRejectedOversize: number;
+  staleConnectionsRemoved: number;
+}
+
 export class WebSocketHub {
   private connections = new Map<string, ServerWebSocket<WsData>>();
-  private pendingCommands = new Map<string, { resolve: (result: any) => void; timer: ReturnType<typeof setTimeout>; settled: boolean }>();
+  private pendingCommands = new Map<string, PendingCommandEntry>();
   private bridgeContexts = new Map<string, BridgeContextState>();
   /** Job log subscriptions: jobId → Set of connection IDs actively viewing that job */
   private logSubscriptions = new Map<string, Set<string>>();
   // Tracks last replacement time per "program/workerName/projectPath" key for rapid-reconnect detection
   private lastReplacementTime = new Map<string, number>();
+  /** Circuit breaker: reconnect frequency per identity key. */
+  private flapStates = new Map<string, FlapState>();
+  /** Virtual bridges' last heartbeat timestamps (ms). Expired on sweep. */
+  private virtualBridgeHeartbeats = new Map<string, number>();
+  /** Aggregated metrics counters. */
+  private metrics: HubMetrics = {
+    broadcastsSent: 0,
+    broadcastsDropped: 0,
+    backpressureEvents: 0,
+    pendingCommandsTimedOut: 0,
+    pendingCommandsCancelled: 0,
+    bridgesFlapBlocked: 0,
+    virtualBridgesExpired: 0,
+    messagesRejectedOversize: 0,
+    staleConnectionsRemoved: 0,
+  };
+  /** Max reconnects allowed per identity in FLAP_WINDOW_MS before blocking. */
+  private static readonly FLAP_MAX_RECONNECTS = 5;
+  private static readonly FLAP_WINDOW_MS = 60_000;
+  private static readonly FLAP_BLOCK_MS = 5 * 60_000;
+  /** Virtual bridge TTL — expire heartbeats older than this. */
+  private static readonly VIRTUAL_BRIDGE_TTL_MS = 5 * 60_000;
   /** Per-worker headless capabilities reported by desktop clients. Keyed by normalized workerKey. */
   private workerHeadlessCapabilities = new Map<string, WorkerHeadlessCapability[]>();
   /** Virtual bridges: HTTP-based services (e.g. ComfyUI) that appear in bridge status without WebSocket. */
@@ -190,6 +242,42 @@ export class WebSocketHub {
     return `${prog}/${workerKey}/${project ?? "<none>"}`;
   }
 
+  /**
+   * Circuit breaker check: returns false if this identity has reconnected
+   * too frequently and is still in its cool-off window. Call BEFORE accepting
+   * a new connection for an identity. Non-bridge connections are always allowed.
+   */
+  checkFlapAllowed(identityKey: string): { allowed: boolean; reason?: string } {
+    const now = Date.now();
+    const state = this.flapStates.get(identityKey);
+    if (!state) return { allowed: true };
+    if (state.blockedUntil > now) {
+      const secs = Math.ceil((state.blockedUntil - now) / 1000);
+      return { allowed: false, reason: `Bridge ${identityKey} flapping — blocked for ${secs}s` };
+    }
+    return { allowed: true };
+  }
+
+  /** Record a reconnect attempt and trip the circuit if the rate is too high. */
+  private recordReconnect(identityKey: string) {
+    const now = Date.now();
+    let state = this.flapStates.get(identityKey);
+    if (!state || now - state.windowStart > WebSocketHub.FLAP_WINDOW_MS) {
+      state = { count: 1, windowStart: now, blockedUntil: 0 };
+      this.flapStates.set(identityKey, state);
+      return;
+    }
+    state.count++;
+    if (state.count >= WebSocketHub.FLAP_MAX_RECONNECTS) {
+      state.blockedUntil = now + WebSocketHub.FLAP_BLOCK_MS;
+      this.metrics.bridgesFlapBlocked++;
+      logger.error(
+        "ws-hub",
+        `Circuit breaker tripped for ${identityKey}: ${state.count} reconnects in ${Math.round((now - state.windowStart) / 1000)}s — blocked for ${WebSocketHub.FLAP_BLOCK_MS / 1000}s`,
+      );
+    }
+  }
+
   register(ws: ServerWebSocket<WsData>) {
     const workerKey = String(ws.data.machineId ?? ws.data.workerName ?? "").trim().toLowerCase();
     // Kick stale duplicates only when they map to the same session identity:
@@ -217,6 +305,7 @@ export class WebSocketHub {
               `replaced again after only ${(msSinceLastReplace / 1000).toFixed(1)}s. ` +
               `Bridge may be in a reconnect loop.`,
             );
+            this.recordReconnect(identityKey);
           } else {
             logger.info(
               "ws-hub",
@@ -338,41 +427,90 @@ export class WebSocketHub {
     logger.info("ws-hub", `${ws.data.type} disconnected: ${ws.data.id}`);
   }
 
+  /**
+   * Backpressure-safe send. Returns true if bytes were accepted, false if the
+   * socket is closed, errored, or buffered too much (slow client). Bun's
+   * ws.send() returns a negative value when backpressured; we treat that as
+   * a drop signal for broadcasts so one slow client can't OOM the server.
+   *
+   * Threshold: drop if a single send would push > 8 MB of pending writes.
+   */
+  private static readonly BACKPRESSURE_LIMIT_BYTES = 8 * 1024 * 1024;
+  private trySend(ws: ServerWebSocket<WsData>, data: string): boolean {
+    try {
+      // Bun exposes bufferedAmount on ServerWebSocket.
+      const buffered = (ws as unknown as { bufferedAmount?: number }).bufferedAmount ?? 0;
+      if (buffered > WebSocketHub.BACKPRESSURE_LIMIT_BYTES) {
+        this.metrics.backpressureEvents++;
+        logger.warn(
+          "ws-hub",
+          `Backpressure: dropping message for ${ws.data.type}/${ws.data.id} (buffered ${Math.round(buffered / 1024)}KB)`,
+        );
+        return false;
+      }
+      const result = ws.send(data);
+      // Bun returns a negative number on backpressure
+      if (typeof result === "number" && result < 0) {
+        this.metrics.backpressureEvents++;
+        return false;
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   send(id: string, message: object) {
     const ws = this.connections.get(id);
     if (ws) {
-      ws.send(JSON.stringify(message));
+      this.trySend(ws, JSON.stringify(message));
     }
   }
 
   broadcast(message: object) {
     const data = JSON.stringify(message);
+    let sent = 0;
+    let dropped = 0;
     for (const ws of this.connections.values()) {
-      try {
-        ws.send(data);
-      } catch {
-        // Connection may already be closed
-      }
+      if (this.trySend(ws, data)) sent++;
+      else dropped++;
     }
+    this.metrics.broadcastsSent += sent;
+    this.metrics.broadcastsDropped += dropped;
   }
 
   broadcastToType(type: "bridge" | "client", message: object) {
     const data = JSON.stringify(message);
     let sent = 0;
+    let dropped = 0;
     for (const ws of this.connections.values()) {
-      if (ws.data.type === type) {
-        try {
-          ws.send(data);
-          sent++;
-        } catch {
-          // Connection may already be closed
-        }
-      }
+      if (ws.data.type !== type) continue;
+      if (this.trySend(ws, data)) sent++;
+      else dropped++;
     }
+    this.metrics.broadcastsSent += sent;
+    this.metrics.broadcastsDropped += dropped;
     const msgType = (message as { type?: string }).type ?? "unknown";
     if (msgType === "job_updated" || msgType === "job_complete" || msgType === "job_started") {
-      logger.debug("ws-hub", `Broadcast ${msgType} to ${sent} ${type}(s)`);
+      logger.debug("ws-hub", `Broadcast ${msgType} to ${sent} ${type}(s)${dropped ? ` (${dropped} dropped)` : ""}`);
     }
+  }
+
+  /** Snapshot current metrics (does not reset). */
+  getMetrics(): Readonly<HubMetrics> & { connections: number; bridges: number; clients: number; pendingCommands: number } {
+    let bridges = 0;
+    let clients = 0;
+    for (const ws of this.connections.values()) {
+      if (ws.data.type === "bridge") bridges++;
+      else if (ws.data.type === "client") clients++;
+    }
+    return {
+      ...this.metrics,
+      connections: this.connections.size,
+      bridges,
+      clients,
+      pendingCommands: this.pendingCommands.size,
+    };
   }
 
   getConnection(id: string): ServerWebSocket<WsData> | undefined {
@@ -480,12 +618,41 @@ export class WebSocketHub {
   /** Remove a stale connection during pingAll — cleans up all indexes. */
   private removeStale(id: string, ws: ServerWebSocket<WsData>, reason: string) {
     logger.warn("ws-hub", `${reason}: ${ws.data.type} ${id} (${ws.data.program ?? "client"}/${ws.data.workerName ?? "?"}), removing`);
+    this.metrics.staleConnectionsRemoved++;
     try { ws.close(1001, reason); } catch {}
     this.removeConnectionFromIndexes(id, ws);
     this.connections.delete(id);
     if (ws.data.type === "bridge") {
       this.bridgeContexts.delete(id);
     }
+  }
+
+  /**
+   * Expire virtual bridges that haven't heartbeated within VIRTUAL_BRIDGE_TTL_MS.
+   * Returns the number expired. Should be called from pingAll or a periodic sweep.
+   */
+  expireStaleVirtualBridges(): number {
+    const now = Date.now();
+    let expired = 0;
+    for (const [id] of this.virtualBridges) {
+      const last = this.virtualBridgeHeartbeats.get(id) ?? 0;
+      if (last === 0) continue; // never heartbeated — don't auto-expire initial entries
+      if (now - last > WebSocketHub.VIRTUAL_BRIDGE_TTL_MS) {
+        this.virtualBridges.delete(id);
+        this.virtualBridgeHeartbeats.delete(id);
+        expired++;
+        this.metrics.virtualBridgesExpired++;
+        logger.info("ws-hub", `Virtual bridge ${id} expired (no heartbeat for ${Math.round((now - last) / 1000)}s)`);
+      }
+    }
+    return expired;
+  }
+
+  /** Record a heartbeat for a virtual bridge (resets its TTL). */
+  heartbeatVirtualBridge(id: string): boolean {
+    if (!this.virtualBridges.has(id)) return false;
+    this.virtualBridgeHeartbeats.set(id, Date.now());
+    return true;
   }
 
   pingAll() {
@@ -546,9 +713,11 @@ export class WebSocketHub {
       // Update version but preserve original connectedAt
       existing.programVersion = data.programVersion;
       existing.url = data.url;
+      this.virtualBridgeHeartbeats.set(data.id, Date.now());
       return false;
     }
     this.virtualBridges.set(data.id, data);
+    this.virtualBridgeHeartbeats.set(data.id, Date.now());
     logger.info("ws-hub", `Virtual bridge registered: ${data.program} (${data.url})`);
     return true;
   }
@@ -761,20 +930,28 @@ export class WebSocketHub {
   /** Max pending commands to prevent unbounded memory under sustained load. */
   private static readonly MAX_PENDING_COMMANDS = 5000;
 
-  /** Register a pending bridge command from the REST API. Returns a Promise that resolves with the result. */
-  registerPendingCommand(correlationId: string, timeoutMs: number): Promise<any> {
+  /**
+   * Register a pending bridge command from the REST API. Returns a Promise
+   * that resolves with the result. On timeout, sends a `bridge_command_cancel`
+   * to the target bridge so it can abort execution instead of producing an
+   * orphaned result.
+   */
+  registerPendingCommand(correlationId: string, timeoutMs: number, targetBridgeId?: string): Promise<any> {
     if (this.pendingCommands.size >= WebSocketHub.MAX_PENDING_COMMANDS) {
       return Promise.reject(new Error("Too many pending bridge commands — server is overloaded"));
     }
     return new Promise((resolve, reject) => {
-      let settled = false;
       const timer = setTimeout(() => {
-        if (settled) return;
-        settled = true;
+        const entry = this.pendingCommands.get(correlationId);
+        if (!entry || entry.settled) return;
+        entry.settled = true;
         this.pendingCommands.delete(correlationId);
+        this.metrics.pendingCommandsTimedOut++;
+        // Best-effort cancel so the bridge can abort its in-flight work.
+        this.sendBridgeCommandCancel(correlationId, targetBridgeId, "Bridge command timed out");
         reject(new Error("Bridge command timed out"));
       }, timeoutMs);
-      this.pendingCommands.set(correlationId, { resolve, timer, settled: false });
+      this.pendingCommands.set(correlationId, { resolve, reject, timer, settled: false, targetBridgeId });
     });
   }
 
@@ -787,6 +964,57 @@ export class WebSocketHub {
     this.pendingCommands.delete(correlationId);
     pending.resolve(result);
     return true;
+  }
+
+  /**
+   * Send a bridge_command_cancel to the given bridge (or broadcast to the
+   * program if no bridge ID is known). Used on timeout and on explicit cancel.
+   */
+  sendBridgeCommandCancel(correlationId: string, targetBridgeId: string | undefined, reason?: string): void {
+    const msg = {
+      type: "bridge_command_cancel" as const,
+      id: newId(),
+      payload: { correlationId, reason },
+    };
+    const data = JSON.stringify(msg);
+    if (targetBridgeId) {
+      const ws = this.connections.get(targetBridgeId);
+      if (ws && ws.data.type === "bridge") {
+        this.trySend(ws, data);
+      }
+      return;
+    }
+    // Fallback: send to all bridges so the one holding the correlation can abort.
+    for (const ws of this.connections.values()) {
+      if (ws.data.type === "bridge") this.trySend(ws, data);
+    }
+  }
+
+  /**
+   * Explicit cancel of a pending command (not timeout). Sends a cancel to the
+   * bridge and rejects the waiting promise so the caller knows.
+   */
+  cancelPendingCommand(correlationId: string, reason = "Cancelled"): boolean {
+    const entry = this.pendingCommands.get(correlationId);
+    if (!entry || entry.settled) return false;
+    entry.settled = true;
+    clearTimeout(entry.timer);
+    this.pendingCommands.delete(correlationId);
+    this.metrics.pendingCommandsCancelled++;
+    this.sendBridgeCommandCancel(correlationId, entry.targetBridgeId, reason);
+    entry.reject(new Error(reason));
+    return true;
+  }
+
+  /** Clear all pending commands on shutdown — cancels timers and rejects. */
+  clearAllPendingCommands(reason = "Server shutting down"): void {
+    for (const [id, entry] of this.pendingCommands) {
+      if (entry.settled) continue;
+      entry.settled = true;
+      clearTimeout(entry.timer);
+      try { entry.reject(new Error(reason)); } catch {}
+      this.pendingCommands.delete(id);
+    }
   }
 
   private buildEnrichedWorkers(workersRepo: WorkersRepo) {

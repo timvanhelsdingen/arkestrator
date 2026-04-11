@@ -792,6 +792,22 @@ export function createJobRoutes(
       );
     }
 
+    // Global queue-size cap: prevents unbounded queue growth from runaway
+    // clients. Configurable via `job_queue_max` setting; default 5000.
+    const queueCap = settingsRepo.getNumber("job_queue_max") ?? 5000;
+    if (queueCap > 0) {
+      const queuedCount = (jobsRepo.list(["queued"]).jobs).length;
+      if (queuedCount >= queueCap) {
+        logger.warn("jobs", `Queue cap reached: ${queuedCount}/${queueCap}`);
+        return errorResponse(
+          c,
+          503,
+          `Job queue is full (${queuedCount}/${queueCap}). Please retry once running jobs drain.`,
+          "QUEUE_FULL",
+        );
+      }
+    }
+
     let body: any;
     try {
       body = await c.req.json();
@@ -975,9 +991,32 @@ export function createJobRoutes(
       jobsRepo.setExpiry(job.id, expiresAt);
     }
 
-    // Create dependencies
+    // Create dependencies with circular-dependency and missing-dep validation.
+    // We accept the job first (so its ID exists in the graph) and then add edges
+    // one-by-one, rejecting any edge that would close a cycle. If we detect a
+    // cycle we mark the job failed and return a 400 so the caller gets a clear
+    // signal instead of a silently-stuck-forever queued job.
     if (parsed.data.dependsOn && parsed.data.dependsOn.length > 0) {
       for (const depId of parsed.data.dependsOn) {
+        if (!depId || depId === job.id) {
+          jobsRepo.fail(job.id, `Invalid dependency: ${depId}`, "");
+          return errorResponse(c, 400, `Invalid dependency: ${depId}`, "INVALID_INPUT");
+        }
+        const depJob = jobsRepo.getById(depId);
+        if (!depJob) {
+          jobsRepo.fail(job.id, `Dependency job ${depId} not found`, "");
+          return errorResponse(c, 400, `Dependency job ${depId} not found`, "INVALID_INPUT");
+        }
+        const cycle = depsRepo.wouldCreateCycle(job.id, depId);
+        if (cycle) {
+          jobsRepo.fail(job.id, `Circular dependency: ${cycle.join(" -> ")}`, "");
+          return errorResponse(
+            c,
+            400,
+            `Circular dependency would be created: ${cycle.join(" -> ")}`,
+            "INVALID_INPUT",
+          );
+        }
         depsRepo.add(job.id, depId);
       }
     }

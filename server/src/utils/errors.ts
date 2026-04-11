@@ -25,7 +25,8 @@ export type ErrorCode =
   | "UPSTREAM_ERROR"
   | "UNAVAILABLE"
   | "LOCKED"
-  | "COMMUNITY_DISABLED";
+  | "COMMUNITY_DISABLED"
+  | "QUEUE_FULL";
 
 /**
  * Return a structured error response with { error, code }.
