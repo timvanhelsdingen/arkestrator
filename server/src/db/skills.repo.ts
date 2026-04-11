@@ -3,6 +3,37 @@ import { newId } from "../utils/id.js";
 import { SERVER_VERSION } from "../utils/version.js";
 
 /**
+ * Author trust tier from the arkestrator.com publisher-side scoring.
+ *
+ * - `verified`: trusted author (account age, commit history, manual approval).
+ *               Eligible for auto-injection if you ever choose to relax that.
+ * - `community`: normal-looking community submitter. Default for non-flagged
+ *                community skills. Treated as untrusted on the prompt side.
+ * - `pending_review`: flagged for admin review on arkestrator.com. The local
+ *                     install path REFUSES these — they should never reach
+ *                     the local DB. Persisted only as a paranoia rail.
+ * - `quarantined`: removed for safety. Same refusal behavior as pending_review.
+ *
+ * For non-community skills (builtin, repo, user, registry, bridge-repo, etc.)
+ * this field is `null` and the skill is treated as fully trusted.
+ */
+export type SkillTrustTier = "verified" | "community" | "pending_review" | "quarantined";
+
+/**
+ * Snapshot of the GitHub author who submitted a community skill, captured
+ * at install time. Used by the client to surface "submitted by @who, account
+ * age N days, unverified" so users can make informed trust decisions.
+ */
+export interface SkillAuthorMeta {
+  login?: string;
+  githubId?: number;
+  accountAgeDays?: number;
+  publicCommits?: number;
+  publicRepos?: number;
+  verified?: boolean;
+}
+
+/**
  * Skill record as stored in the DB.
  * Keywords are stored as a JSON array string and parsed on read.
  */
@@ -35,6 +66,18 @@ export interface Skill {
   version: number;
   appVersion: string | null;
   repoContentHash: string | null;
+  /** Publisher-side trust tier (community skills only). null for trusted sources. */
+  trustTier: SkillTrustTier | null;
+  /** True if either the publisher-side or local heuristic scanner flagged this skill. */
+  flagged: boolean;
+  /** Pattern names that triggered the flag, surfaced in the UI. */
+  flaggedReasons: string[];
+  /** GitHub login of the submitter (community skills only). */
+  authorLogin: string | null;
+  /** Whether the author has the `verified` badge on arkestrator.com. */
+  authorVerified: boolean;
+  /** Full author metadata snapshot at install time. */
+  authorMeta: SkillAuthorMeta | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -79,6 +122,12 @@ interface SkillRow {
   version: number;
   app_version: string | null;
   repo_content_hash: string | null;
+  trust_tier: string | null;
+  flagged: number;
+  flagged_reasons: string;
+  author_login: string | null;
+  author_verified: number;
+  author_meta: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -105,6 +154,16 @@ export interface CreateSkillInput {
   /** Seed version from SKILL.md frontmatter. Defaults to 1 (DB default). */
   version?: number;
   repoContentHash?: string | null;
+  /** Publisher-side trust tier (community installs only). */
+  trustTier?: SkillTrustTier | null;
+  /** True if the heuristic scanner or publisher flagged this skill. */
+  flagged?: boolean;
+  /** Pattern names that triggered the flag. */
+  flaggedReasons?: string[];
+  /** Snapshot of the GitHub author at install time. */
+  authorLogin?: string | null;
+  authorVerified?: boolean;
+  authorMeta?: SkillAuthorMeta | null;
 }
 
 /** Fields accepted when updating a skill. All optional. */
@@ -131,6 +190,22 @@ function parseJsonArray(raw: string | undefined | null): string[] {
   try { return JSON.parse(raw); } catch { return []; }
 }
 
+function parseAuthorMeta(raw: string | null | undefined): SkillAuthorMeta | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") return parsed as SkillAuthorMeta;
+    return null;
+  } catch { return null; }
+}
+
+function isValidTrustTier(raw: string | null | undefined): SkillTrustTier | null {
+  if (raw === "verified" || raw === "community" || raw === "pending_review" || raw === "quarantined") {
+    return raw;
+  }
+  return null;
+}
+
 function rowToSkill(row: SkillRow): Skill {
   return {
     id: row.id,
@@ -154,6 +229,12 @@ function rowToSkill(row: SkillRow): Skill {
     version: row.version ?? 1,
     appVersion: row.app_version ?? null,
     repoContentHash: row.repo_content_hash ?? null,
+    trustTier: isValidTrustTier(row.trust_tier),
+    flagged: row.flagged === 1,
+    flaggedReasons: parseJsonArray(row.flagged_reasons),
+    authorLogin: row.author_login ?? null,
+    authorVerified: row.author_verified === 1,
+    authorMeta: parseAuthorMeta(row.author_meta),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -196,12 +277,12 @@ export class SkillsRepo {
       "SELECT * FROM skills WHERE slug = ? AND program = ? LIMIT 1",
     );
     this.insertStmt = db.prepare(`
-      INSERT INTO skills (id, name, slug, program, mcp_preset_id, category, title, description, keywords, content, playbooks, related_skills, source, source_path, priority, auto_fetch, enabled, version, app_version, repo_content_hash, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO skills (id, name, slug, program, mcp_preset_id, category, title, description, keywords, content, playbooks, related_skills, source, source_path, priority, auto_fetch, enabled, version, app_version, repo_content_hash, trust_tier, flagged, flagged_reasons, author_login, author_verified, author_meta, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     this.upsertStmt = db.prepare(`
-      INSERT INTO skills (id, name, slug, program, mcp_preset_id, category, title, description, keywords, content, playbooks, related_skills, source, source_path, priority, auto_fetch, enabled, version, app_version, repo_content_hash, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO skills (id, name, slug, program, mcp_preset_id, category, title, description, keywords, content, playbooks, related_skills, source, source_path, priority, auto_fetch, enabled, version, app_version, repo_content_hash, trust_tier, flagged, flagged_reasons, author_login, author_verified, author_meta, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(slug, program) DO UPDATE SET
         name = excluded.name, mcp_preset_id = excluded.mcp_preset_id,
         category = excluded.category, title = excluded.title,
@@ -210,6 +291,12 @@ export class SkillsRepo {
         source = excluded.source, source_path = excluded.source_path, priority = excluded.priority,
         auto_fetch = excluded.auto_fetch, enabled = excluded.enabled, app_version = excluded.app_version,
         repo_content_hash = COALESCE(excluded.repo_content_hash, repo_content_hash),
+        trust_tier = COALESCE(excluded.trust_tier, trust_tier),
+        flagged = excluded.flagged,
+        flagged_reasons = excluded.flagged_reasons,
+        author_login = COALESCE(excluded.author_login, author_login),
+        author_verified = excluded.author_verified,
+        author_meta = COALESCE(excluded.author_meta, author_meta),
         updated_at = excluded.updated_at
     `);
     this.deleteBySlugStmt = db.prepare("DELETE FROM skills WHERE slug = ?");
@@ -260,7 +347,14 @@ export class SkillsRepo {
       JSON.stringify(input.playbooks ?? []), JSON.stringify(input.relatedSkills ?? []),
       src, input.sourcePath ?? null, input.priority ?? 50,
       (input.autoFetch ?? false) ? 1 : 0, (input.enabled ?? true) ? 1 : 0,
-      input.version ?? 1, SERVER_VERSION, input.repoContentHash ?? null, now, now,
+      input.version ?? 1, SERVER_VERSION, input.repoContentHash ?? null,
+      input.trustTier ?? null,
+      (input.flagged ?? false) ? 1 : 0,
+      JSON.stringify(input.flaggedReasons ?? []),
+      input.authorLogin ?? null,
+      (input.authorVerified ?? false) ? 1 : 0,
+      input.authorMeta ? JSON.stringify(input.authorMeta) : null,
+      now, now,
     );
     return this.get(input.slug, program)!;
   }
@@ -415,7 +509,14 @@ export class SkillsRepo {
       JSON.stringify(input.playbooks ?? []), JSON.stringify(input.relatedSkills ?? []),
       input.source ?? "user", input.sourcePath ?? null, input.priority ?? 50,
       (input.autoFetch ?? false) ? 1 : 0, (input.enabled ?? true) ? 1 : 0,
-      input.version ?? 1, SERVER_VERSION, input.repoContentHash ?? null, now, now,
+      input.version ?? 1, SERVER_VERSION, input.repoContentHash ?? null,
+      input.trustTier ?? null,
+      (input.flagged ?? false) ? 1 : 0,
+      JSON.stringify(input.flaggedReasons ?? []),
+      input.authorLogin ?? null,
+      (input.authorVerified ?? false) ? 1 : 0,
+      input.authorMeta ? JSON.stringify(input.authorMeta) : null,
+      now, now,
     );
     return this.get(input.slug, program)!;
   }

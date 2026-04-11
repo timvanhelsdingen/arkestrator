@@ -28,6 +28,107 @@
   let communityBaseUrl = $state("");
   let communityBaseUrlInput = $state("");
   let communityUsers = $state<Array<{ id: string; username: string; hasSession: boolean }>>([]);
+  // Prompt-injection defense overrides (Layer 4). admin hard-disable
+  // forces every other community gate to off, locks the per-user toggle
+  // in the client UI, and refuses every install/search code path. Use
+  // this to enforce org-wide policy on a shared server.
+  let communityAdminHardDisabled = $state(false);
+  let communityAllowOnClient = $state(false);
+  let communityExtraCaution = $state(true);
+  // Stats + visibility (populated by /community/stats)
+  type CommunitySkillRow = {
+    slug: string;
+    program: string;
+    title: string;
+    trustTier: string | null;
+    flagged: boolean;
+    flaggedReasons: string[];
+    authorLogin: string | null;
+    authorVerified: boolean;
+    createdAt: string;
+  };
+  let communityStats = $state<{ total: number; flagged: number; byTier: Record<string, number>; skills: CommunitySkillRow[] }>({
+    total: 0,
+    flagged: 0,
+    byTier: {},
+    skills: [],
+  });
+  let communityStatsLoading = $state(false);
+  let showAllCommunitySkills = $state(false);
+  let bulkDeleteBusy = $state(false);
+
+  async function loadCommunityStats() {
+    if (!auth.isAdmin) return;
+    communityStatsLoading = true;
+    try {
+      communityStats = await api.settings.getCommunityStats();
+    } catch {
+      // Non-critical — feature may not be enabled or there are no skills yet.
+      communityStats = { total: 0, flagged: 0, byTier: {}, skills: [] };
+    } finally {
+      communityStatsLoading = false;
+    }
+  }
+
+  async function deleteCommunitySkill(slug: string, program: string, title: string) {
+    if (!confirm(`Delete community skill "${title}" (${slug})? This cannot be undone — but the user can re-install it from arkestrator.com.`)) return;
+    try {
+      await api.settings.deleteCommunitySkill(slug, program);
+      toast.success(`Deleted ${slug}`);
+      await loadCommunityStats();
+    } catch (err: any) {
+      toast.error(err?.message ?? "Failed to delete skill");
+    }
+  }
+
+  async function bulkDeleteFlaggedCommunitySkills() {
+    if (communityStats.flagged === 0) return;
+    if (!confirm(`Delete all ${communityStats.flagged} flagged community skill(s)? This cannot be undone.`)) return;
+    bulkDeleteBusy = true;
+    try {
+      const r = await api.settings.deleteAllFlaggedCommunitySkills();
+      toast.success(`Deleted ${r.removed} flagged skill(s)`);
+      await loadCommunityStats();
+    } catch (err: any) {
+      toast.error(err?.message ?? "Bulk delete failed");
+    } finally {
+      bulkDeleteBusy = false;
+    }
+  }
+
+  /**
+   * Compute a human-readable "current state" label for the community feature
+   * based on the resolved policy. Surfaced in the admin panel banner so the
+   * admin can tell at a glance what their server is doing.
+   */
+  function communityEffectiveState(): { label: string; tone: "danger" | "warn" | "ok" | "off"; detail: string } {
+    if (communityAdminHardDisabled) {
+      return {
+        label: "HARD-DISABLED",
+        tone: "off",
+        detail: "All community-skill code paths are no-ops. The per-user toggle in clients is locked off.",
+      };
+    }
+    if (!communityAllowOnClient) {
+      return {
+        label: "DISABLED",
+        tone: "off",
+        detail: "Users on this server cannot search or install community skills, but they could enable it themselves in their Community tab.",
+      };
+    }
+    if (!communityExtraCaution) {
+      return {
+        label: "ENABLED — relaxed framing",
+        tone: "warn",
+        detail: "Community skills are usable. Untrusted-content framing is in lighter mode. Recommended to turn extra caution back on.",
+      };
+    }
+    return {
+      label: "ENABLED — extra caution on",
+      tone: "ok",
+      detail: "Community skills are usable. All defenses active: untrusted-content framing, content scanner, publisher trust gating.",
+    };
+  }
 
   async function loadCommunityAdmin() {
     if (!auth.isAdmin) return;
@@ -37,11 +138,59 @@
       communityAgentAutoInstall = result.agentAutoInstallEnabled;
       communityBaseUrl = result.baseUrl;
       communityBaseUrlInput = result.baseUrl;
+      communityAdminHardDisabled = result.adminHardDisabled;
+      communityAllowOnClient = result.allowOnClient;
+      communityExtraCaution = result.extraCaution;
       communityUsers = result.users;
     } catch (err: any) {
       // Non-critical — feature may not be enabled on this server
     } finally {
       communityLoading = false;
+    }
+    await loadCommunityStats();
+  }
+
+  async function setCommunityAdminHardDisabled(disabled: boolean) {
+    communitySaving = true;
+    try {
+      const r = await api.settings.setCommunityAdminHardDisabled(disabled);
+      communityAdminHardDisabled = r.adminHardDisabled;
+      toast.success(disabled
+        ? "Community skills hard-disabled. The per-user toggle in clients is now locked off."
+        : "Community skills hard-disable cleared. Per-user toggle in clients is unlocked.");
+      // Re-fetch — turning hard-disable on may have implicitly forced
+      // other flags to safe values on the server side.
+      await loadCommunityAdmin();
+    } catch (err: any) {
+      toast.error(err?.message ?? "Failed to update hard-disable");
+    } finally {
+      communitySaving = false;
+    }
+  }
+
+  async function setCommunityAllowOnClientAdmin(enabled: boolean) {
+    communitySaving = true;
+    try {
+      const r = await api.settings.setCommunityAllowOnClient(enabled);
+      communityAllowOnClient = r.allowOnClient;
+      toast.success(enabled ? "Community skills allowed on this server" : "Community skills disallowed on this server");
+    } catch (err: any) {
+      toast.error(err?.message ?? "Failed to update allow-on-client");
+    } finally {
+      communitySaving = false;
+    }
+  }
+
+  async function setCommunityExtraCautionAdmin(enabled: boolean) {
+    communitySaving = true;
+    try {
+      const r = await api.settings.setCommunityExtraCaution(enabled);
+      communityExtraCaution = r.extraCaution;
+      toast.success(enabled ? "Extra caution mode enabled" : "Extra caution mode disabled");
+    } catch (err: any) {
+      toast.error(err?.message ?? "Failed to update extra caution");
+    } finally {
+      communitySaving = false;
     }
   }
 
@@ -390,25 +539,197 @@
           {/if}
 
           {#if auth.isAdmin}
-            <div class="policy-section">
+            <div class="policy-section community-section">
               <h3>Community Skills (arkestrator.com)
                 <span class="beta-badge">BETA</span>
               </h3>
               <p class="hint">
-                Agents can automatically search and install community skills from arkestrator.com
-                during jobs. The feature is free during early access. Per-user GitHub auth still
-                happens in each client's Community tab — this panel is server-wide policy and visibility.
+                Skills submitted by third parties on arkestrator.com. They are an
+                <strong>untrusted prompt-injection vector</strong> — agents inject skill content
+                directly into model context, so a malicious skill can attempt jailbreaks,
+                credential exfiltration, or destructive tool calls. Arkestrator applies multiple
+                defense layers (publisher-side scanning, local heuristic scanner, untrusted-content
+                framing, trust-tier gating). This panel lets you tune the policy and triage
+                anything that slipped through.
               </p>
 
-              <label class="toggle-label">
-                <input
-                  type="checkbox"
-                  checked={communityAgentAutoInstall}
-                  onchange={(e) => setCommunityAgentAutoInstallEnabled((e.target as HTMLInputElement).checked)}
-                  disabled={communityLoading || communitySaving}
-                />
-                <span>Enable agent community auto-install on this server</span>
-              </label>
+              {#if communityLoading}
+                <p class="muted">Loading community policy...</p>
+              {:else}
+                {@const state = communityEffectiveState()}
+                <div class="community-status community-status-{state.tone}">
+                  <div class="community-status-header">
+                    <span class="community-status-dot"></span>
+                    <strong>Current state: {state.label}</strong>
+                  </div>
+                  <p class="hint" style="margin:6px 0 0;">{state.detail}</p>
+                </div>
+
+                <!-- Live counts panel -->
+                <div class="community-counts">
+                  <div class="count-card">
+                    <div class="count-num">{communityStats.total}</div>
+                    <div class="count-label">installed</div>
+                  </div>
+                  <div class="count-card" class:count-card-danger={communityStats.flagged > 0}>
+                    <div class="count-num">{communityStats.flagged}</div>
+                    <div class="count-label">flagged</div>
+                  </div>
+                  {#each Object.entries(communityStats.byTier) as [tier, n]}
+                    <div class="count-card">
+                      <div class="count-num">{n}</div>
+                      <div class="count-label">{tier}</div>
+                    </div>
+                  {/each}
+                  {#if communityStats.flagged > 0}
+                    <button
+                      class="btn-danger"
+                      onclick={bulkDeleteFlaggedCommunitySkills}
+                      disabled={bulkDeleteBusy}
+                    >
+                      {bulkDeleteBusy ? "Deleting..." : `Delete all ${communityStats.flagged} flagged`}
+                    </button>
+                  {/if}
+                </div>
+
+                <!-- Security & Defense subgroup -->
+                <h4 class="community-subhead">Security &amp; Defense</h4>
+                <div class="security-card security-card-danger">
+                  <label class="toggle-label">
+                    <input
+                      type="checkbox"
+                      checked={communityAdminHardDisabled}
+                      onchange={(e) => setCommunityAdminHardDisabled((e.target as HTMLInputElement).checked)}
+                      disabled={communityLoading || communitySaving}
+                    />
+                    <span><strong>Hard-disable community skills</strong>
+                      <span class="recommend-badge">Recommended for shared servers</span>
+                    </span>
+                  </label>
+                  <p class="hint">
+                    Master kill switch. When on: every community code path becomes a no-op
+                    (search, install, get_skill, auto-injection), and the per-user toggle in
+                    every client is locked off. Users cannot override this.
+                  </p>
+                </div>
+
+                <div class="security-card">
+                  <label class="toggle-label">
+                    <input
+                      type="checkbox"
+                      checked={communityAllowOnClient}
+                      onchange={(e) => setCommunityAllowOnClientAdmin((e.target as HTMLInputElement).checked)}
+                      disabled={communityLoading || communitySaving || communityAdminHardDisabled}
+                    />
+                    <span>Allow community skills on this server (default)</span>
+                  </label>
+                  <p class="hint">
+                    Server-side default for the per-user toggle. Users can override this in their
+                    Community tab unless hard-disable above is on. Defaults to off.
+                  </p>
+                </div>
+
+                <div class="security-card">
+                  <label class="toggle-label">
+                    <input
+                      type="checkbox"
+                      checked={communityExtraCaution}
+                      onchange={(e) => setCommunityExtraCautionAdmin((e.target as HTMLInputElement).checked)}
+                      disabled={communityLoading || communitySaving || communityAdminHardDisabled}
+                    />
+                    <span>Extra caution mode <span class="recommend-badge">Recommended</span></span>
+                  </label>
+                  <p class="hint">
+                    Wraps community skill content in stronger prompt-injection-defense framing
+                    when it reaches an agent. Adds ~200 tokens per skill. Defaults to on.
+                  </p>
+                </div>
+
+                <div class="security-card">
+                  <label class="toggle-label">
+                    <input
+                      type="checkbox"
+                      checked={communityAgentAutoInstall}
+                      onchange={(e) => setCommunityAgentAutoInstallEnabled((e.target as HTMLInputElement).checked)}
+                      disabled={communityLoading || communitySaving || communityAdminHardDisabled}
+                    />
+                    <span>Enable agent auto-install (legacy flag)</span>
+                  </label>
+                  <p class="hint">
+                    Lets agents call <code>install_community_skill</code> autonomously during a
+                    job. Off by default — even when on, the install path enforces all the
+                    defenses above.
+                  </p>
+                </div>
+
+                <!-- Installed skills triage subgroup -->
+                {#if communityStats.skills.length > 0}
+                  <h4 class="community-subhead">
+                    Installed Community Skills
+                    {#if communityStats.flagged > 0}
+                      <span class="flagged-count">{communityStats.flagged} flagged</span>
+                    {/if}
+                  </h4>
+                  <p class="hint">
+                    Flagged skills are listed first. Click delete to remove a skill from the
+                    local DB — the user can re-install it if they choose.
+                  </p>
+                  <table class="community-skills-table">
+                    <thead>
+                      <tr>
+                        <th>Title</th>
+                        <th>Slug</th>
+                        <th>Tier</th>
+                        <th>Author</th>
+                        <th>Status</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {#each (showAllCommunitySkills ? communityStats.skills : communityStats.skills.slice(0, 20)) as s}
+                        <tr class:row-flagged={s.flagged}>
+                          <td>{s.title}</td>
+                          <td><code>{s.slug}</code></td>
+                          <td>
+                            {#if s.trustTier === "verified"}
+                              <span class="tier-verified">verified</span>
+                            {:else if s.trustTier === "community"}
+                              <span class="tier-community">community</span>
+                            {:else}
+                              <span class="tier-unknown">{s.trustTier ?? "unknown"}</span>
+                            {/if}
+                          </td>
+                          <td>
+                            {#if s.authorLogin}
+                              @{s.authorLogin}
+                              {#if s.authorVerified}<span class="verified-tick">✓</span>{/if}
+                            {:else}
+                              <span class="muted">unknown</span>
+                            {/if}
+                          </td>
+                          <td>
+                            {#if s.flagged}
+                              <span class="status-flagged" title={s.flaggedReasons.join(", ")}>
+                                ⚠ {s.flaggedReasons.slice(0, 2).join(", ")}{s.flaggedReasons.length > 2 ? "…" : ""}
+                              </span>
+                            {:else}
+                              <span class="status-clean">clean</span>
+                            {/if}
+                          </td>
+                          <td>
+                            <button class="btn-small btn-danger-text" onclick={() => deleteCommunitySkill(s.slug, s.program, s.title)}>Delete</button>
+                          </td>
+                        </tr>
+                      {/each}
+                    </tbody>
+                  </table>
+                  {#if communityStats.skills.length > 20 && !showAllCommunitySkills}
+                    <button class="btn-link" onclick={() => showAllCommunitySkills = true}>
+                      Show all {communityStats.skills.length} skills
+                    </button>
+                  {/if}
+                {/if}
+              {/if}
 
               <div class="setting" style="margin-top:12px;">
                 <label for="communityBaseUrl">Community Base URL</label>
@@ -945,4 +1266,210 @@
     background: var(--bg-hover);
     color: var(--text-primary);
   }
+
+  /* ── Community policy panel ── */
+  .community-section {
+    max-width: 880px;
+  }
+  .community-status {
+    display: block;
+    border-left: 4px solid var(--border);
+    background: var(--bg-elevated);
+    padding: 10px 14px;
+    border-radius: var(--radius-sm);
+    margin: 14px 0 18px;
+  }
+  .community-status-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--text-primary);
+  }
+  .community-status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--text-muted);
+  }
+  .community-status-ok { border-left-color: var(--status-completed, #22c55e); }
+  .community-status-ok .community-status-dot { background: var(--status-completed, #22c55e); }
+  .community-status-warn { border-left-color: var(--status-running, #eab308); }
+  .community-status-warn .community-status-dot { background: var(--status-running, #eab308); }
+  .community-status-danger { border-left-color: var(--status-failed, #ef4444); }
+  .community-status-danger .community-status-dot { background: var(--status-failed, #ef4444); }
+  .community-status-off { border-left-color: var(--text-muted); }
+  .community-status-off .community-status-dot { background: var(--text-muted); }
+
+  .community-counts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 18px;
+  }
+  .count-card {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 8px 14px;
+    min-width: 80px;
+    text-align: center;
+  }
+  .count-card-danger {
+    border-color: var(--status-failed, #ef4444);
+    background: color-mix(in srgb, var(--status-failed, #ef4444) 10%, var(--bg-elevated));
+  }
+  .count-num {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1.1;
+  }
+  .count-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .community-subhead {
+    margin: 22px 0 8px;
+    font-size: var(--font-size-sm);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 4px;
+  }
+  .flagged-count {
+    margin-left: 8px;
+    font-size: 11px;
+    background: var(--status-failed, #ef4444);
+    color: white;
+    padding: 2px 8px;
+    border-radius: 12px;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+
+  .security-card {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 12px 14px;
+    margin-bottom: 10px;
+  }
+  .security-card-danger {
+    border-color: color-mix(in srgb, var(--status-failed, #ef4444) 50%, var(--border));
+    background: color-mix(in srgb, var(--status-failed, #ef4444) 6%, var(--bg-elevated));
+  }
+  .recommend-badge {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 1px 8px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    background: color-mix(in srgb, var(--accent) 20%, var(--bg-elevated));
+    color: var(--accent);
+    border-radius: 10px;
+    vertical-align: middle;
+  }
+
+  .community-skills-table {
+    width: 100%;
+    margin-top: 8px;
+    border-collapse: collapse;
+    font-size: var(--font-size-sm);
+  }
+  .community-skills-table th,
+  .community-skills-table td {
+    text-align: left;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .community-skills-table th {
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+  }
+  .community-skills-table code {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    background: var(--bg-base);
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+  .row-flagged {
+    background: color-mix(in srgb, var(--status-failed, #ef4444) 8%, transparent);
+  }
+  .tier-verified {
+    color: var(--status-completed, #22c55e);
+    font-weight: 600;
+    font-size: var(--font-size-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .tier-community {
+    color: var(--text-secondary);
+    font-size: var(--font-size-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .tier-unknown {
+    color: var(--status-failed, #ef4444);
+    font-weight: 600;
+    font-size: var(--font-size-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .verified-tick {
+    color: var(--status-completed, #22c55e);
+    font-weight: 700;
+    margin-left: 4px;
+  }
+  .status-flagged {
+    color: var(--status-failed, #ef4444);
+    font-weight: 600;
+    font-size: var(--font-size-xs);
+  }
+  .status-clean {
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+  }
+
+  .btn-danger {
+    padding: 6px 14px;
+    background: var(--status-failed, #ef4444);
+    color: white;
+    border: none;
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+    cursor: pointer;
+    margin-left: auto;
+  }
+  .btn-danger:hover { opacity: 0.9; }
+  .btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-danger-text {
+    color: var(--status-failed, #ef4444);
+    background: transparent;
+    border: 1px solid transparent;
+  }
+  .btn-danger-text:hover {
+    text-decoration: underline;
+    background: transparent;
+  }
+  .btn-link {
+    background: none;
+    border: none;
+    color: var(--accent);
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+    padding: 6px 0;
+  }
+  .btn-link:hover { text-decoration: underline; }
 </style>

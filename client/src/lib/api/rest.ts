@@ -640,6 +640,26 @@ export const api = {
       request(`/api/settings/community/sessions/${encodeURIComponent(userId)}`, {
         method: "DELETE",
       }) as Promise<{ ok: boolean }>,
+    // ── Community prompt-injection defense (Layer 4) ───────────────────
+    // Resolved policy for the current user. The client should call this
+    // on mount and whenever the community tab is opened so the UI reflects
+    // any admin-side changes (e.g. admin hard-disabled the feature).
+    getCommunityPolicy: () =>
+      request("/api/settings/community/policy") as Promise<{
+        adminHardDisabled: boolean;
+        allowOnClient: boolean;
+        extraCaution: boolean;
+      }>,
+    setCommunityAllowOnClient: (enabled: boolean) =>
+      request("/api/settings/community/allow-on-client", {
+        method: "PUT",
+        body: JSON.stringify({ enabled }),
+      }) as Promise<{ ok: boolean; allowOnClient: boolean }>,
+    setCommunityExtraCaution: (enabled: boolean) =>
+      request("/api/settings/community/extra-caution", {
+        method: "PUT",
+        body: JSON.stringify({ enabled }),
+      }) as Promise<{ ok: boolean; extraCaution: boolean }>,
     getDefaultProjectDir: () =>
       request("/api/settings/default-project-dir") as Promise<{
         path: string | null;

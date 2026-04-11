@@ -865,6 +865,9 @@ export const api = {
       request("/api/settings/community") as Promise<{
         agentAutoInstallEnabled: boolean;
         baseUrl: string;
+        adminHardDisabled: boolean;
+        allowOnClient: boolean;
+        extraCaution: boolean;
         users: Array<{ id: string; username: string; hasSession: boolean }>;
       }>,
     setCommunityAgentAutoInstall: (enabled: boolean) =>
@@ -877,10 +880,53 @@ export const api = {
         method: "PUT",
         body: JSON.stringify({ baseUrl }),
       }) as Promise<{ ok: boolean; baseUrl: string | null }>,
+    // Admin master kill switch — when on, locks the per-user toggle in the
+    // client and forces every community code path to no-op.
+    setCommunityAdminHardDisabled: (disabled: boolean) =>
+      request("/api/settings/community/admin-hard-disabled", {
+        method: "PUT",
+        body: JSON.stringify({ disabled }),
+      }) as Promise<{ ok: boolean; adminHardDisabled: boolean }>,
+    setCommunityAllowOnClient: (enabled: boolean) =>
+      request("/api/settings/community/allow-on-client", {
+        method: "PUT",
+        body: JSON.stringify({ enabled }),
+      }) as Promise<{ ok: boolean; allowOnClient: boolean }>,
+    setCommunityExtraCaution: (enabled: boolean) =>
+      request("/api/settings/community/extra-caution", {
+        method: "PUT",
+        body: JSON.stringify({ enabled }),
+      }) as Promise<{ ok: boolean; extraCaution: boolean }>,
     clearCommunityUserSession: (userId: string) =>
       request(`/api/settings/community/sessions/${encodeURIComponent(userId)}`, {
         method: "DELETE",
       }) as Promise<{ ok: boolean }>,
+    // Stats + visibility for the admin Community panel.
+    getCommunityStats: () =>
+      request("/api/settings/community/stats") as Promise<{
+        total: number;
+        flagged: number;
+        byTier: Record<string, number>;
+        skills: Array<{
+          slug: string;
+          program: string;
+          title: string;
+          trustTier: string | null;
+          flagged: boolean;
+          flaggedReasons: string[];
+          authorLogin: string | null;
+          authorVerified: boolean;
+          createdAt: string;
+        }>;
+      }>,
+    deleteCommunitySkill: (slug: string, program: string) =>
+      request(`/api/settings/community/skills/${encodeURIComponent(slug)}?program=${encodeURIComponent(program)}`, {
+        method: "DELETE",
+      }) as Promise<{ ok: boolean }>,
+    deleteAllFlaggedCommunitySkills: () =>
+      request("/api/settings/community/skills/flagged", {
+        method: "DELETE",
+      }) as Promise<{ ok: boolean; removed: number }>,
     getTrainingRepositoryPolicy: () =>
       request("/api/settings/training-repository-policy") as Promise<{
         policy: TrainingRepositoryPolicy;
