@@ -1238,15 +1238,10 @@ export async function executeLocalAgenticToolCall(
     const program = parseStringArg(args.program) || undefined;
     const results = deps.skillIndex.search(query, { limit: 8, program });
     if (results.length === 0) return { ok: true, data: "No matching skills found." };
-    // Record lightweight usage for each returned result so the skill shows
-    // up in effectiveness stats and rate_skill has a row to update, even if
-    // the agent acts on description alone without calling get_skill.
-    if (deps.skillEffectivenessRepo) {
-      for (const r of results) {
-        const s = deps.skillIndex.get(r.slug, r.program || undefined);
-        if (s) deps.skillEffectivenessRepo.recordUsageOnce(s.id, job.id);
-      }
-    }
+    // Do NOT record usage for every returned result — the agent may never
+    // open the content, and the rate_job fallback would then stamp an
+    // outcome onto skills that were never actually used. Usage is only
+    // recorded on get_skill below.
     return {
       ok: true,
       data: results.map((r) => ({
@@ -1304,7 +1299,9 @@ export async function executeLocalAgenticToolCall(
     const skill = deps.skillIndex.get(slug);
     if (!skill) return { ok: false, error: `Skill not found: ${slug}` };
     const outcomeMap: Record<string, string> = { useful: "positive", not_useful: "negative", partial: "average" };
-    deps.skillEffectivenessRepo.recordSkillOutcome(skill.id, job.id, outcomeMap[rating] || "average");
+    const outcome = outcomeMap[rating];
+    if (!outcome) return { ok: false, error: `Invalid rating "${rating}" — expected useful | not_useful | partial` };
+    deps.skillEffectivenessRepo.recordSkillOutcome(skill.id, job.id, outcome);
     return { ok: true, data: `Rated: ${slug} → ${rating}` };
   }
 
@@ -1320,7 +1317,19 @@ export async function executeLocalAgenticToolCall(
     deps.jobsRepo.markOutcome(job.id, storedRating, notes.trim(), null);
     if (deps.skillEffectivenessRepo) {
       const skillOutcome = rating === "good" ? "positive" : rating === "poor" ? "negative" : "average";
-      deps.skillEffectivenessRepo.recordOutcome(job.id, skillOutcome);
+      // Mirror the MCP path: on verification-disabled jobs, exclude
+      // verification helper skills from the fallback stamp and delete
+      // any stray pending rows so they can't be counted.
+      const verificationDisabled = job.runtimeOptions?.verificationMode === "disabled";
+      if (verificationDisabled && deps.skillIndex) {
+        const verificationIds = deps.skillIndex
+          .list({ includeDisabled: true })
+          .filter((s) => s.slug === "verification" || s.category === "verification")
+          .map((s) => s.id);
+        deps.skillEffectivenessRepo.recordOutcomeExcluding(job.id, skillOutcome, verificationIds);
+      } else {
+        deps.skillEffectivenessRepo.recordOutcome(job.id, skillOutcome);
+      }
     }
     return { ok: true, data: `Job rated: ${rating}${notes.trim() ? ` — ${notes.trim()}` : ""}` };
   }
@@ -1863,12 +1872,25 @@ export async function spawnAgent(
       s.slug === "verification" || s.category === "verification";
     // Only inject auto-fetch skills that match the job's program or are global.
     // Don't inject houdini skills into blender jobs (they'd just get rated negative).
-    const autoFetchSkills = allEnabled.filter((s) => {
+    // Deduped by slug (a global + program-specific skill with the same slug
+    // collapse into whichever has the higher priority) and sorted by
+    // priority DESC so coordinators (90) come before bridges (70).
+    const autoFetchCandidates = allEnabled.filter((s) => {
       if (!s.autoFetch) return false;
       if (verificationDisabled && isVerificationSkill(s)) return false;
       const sp = s.program.trim().toLowerCase();
       return !sp || sp === "global" || sp === jobProgram;
     });
+    const bySlug = new Map<string, typeof autoFetchCandidates[number]>();
+    for (const s of autoFetchCandidates) {
+      const existing = bySlug.get(s.slug);
+      if (!existing || (s.priority ?? 0) > (existing.priority ?? 0)) {
+        bySlug.set(s.slug, s);
+      }
+    }
+    const autoFetchSkills = [...bySlug.values()].sort(
+      (a, b) => (b.priority ?? 0) - (a.priority ?? 0),
+    );
     const rankedSkillCount = allEnabled.filter((s) => {
       if (s.autoFetch) return false;
       if (verificationDisabled && isVerificationSkill(s)) return false;
@@ -1877,9 +1899,11 @@ export async function spawnAgent(
     }).length;
 
     if (autoFetchSkills.length > 0) {
+      const { SkillIndex: SkillIndexCls } = await import("../skills/skill-index.js");
       const skillLines: string[] = ["## Coordinator Knowledge"];
       const MAX_SKILL_CONTENT_TOTAL = 15_000;
       let totalInjected = 0;
+      const injectedAutoFetch: typeof autoFetchSkills = [];
       for (const skill of autoFetchSkills) {
         if (totalInjected >= MAX_SKILL_CONTENT_TOTAL) break;
         const header = skill.title || skill.name || skill.slug;
@@ -1887,11 +1911,14 @@ export async function spawnAgent(
         skillLines.push(`### ${header}${tag}`);
         if (skill.description) skillLines.push(skill.description);
         if (skill.content) {
-          const capped = skill.content.slice(0, Math.min(4000, MAX_SKILL_CONTENT_TOTAL - totalInjected));
+          const budget = Math.min(4000, MAX_SKILL_CONTENT_TOTAL - totalInjected);
+          // Markdown-aware: never cuts mid code fence, closes open blocks.
+          const capped = SkillIndexCls.truncateMarkdown(skill.content, budget);
           skillLines.push(capped);
           totalInjected += capped.length;
         }
         skillLines.push("");
+        injectedAutoFetch.push(skill);
       }
 
       // Tell the agent about on-demand skills it can pull
@@ -1940,8 +1967,11 @@ export async function spawnAgent(
         );
       }
 
-      // Tell the agent to rate skills and their own job outcome
-      const autoFetchSlugs = autoFetchSkills.map((s) => s.slug);
+      // Tell the agent to rate skills and their own job outcome. Use the
+      // actually-injected list (not the full candidate list) so the prompt
+      // never asks the agent to rate a slug that was filtered out or
+      // truncated past the content budget.
+      const autoFetchSlugs = injectedAutoFetch.map((s) => s.slug);
       skillLines.push("\n## Job & Skill Feedback — MANDATORY before exit");
       skillLines.push(
         "These three calls are REQUIRED, not optional. Jobs that skip them are considered incomplete " +
@@ -1968,11 +1998,11 @@ export async function spawnAgent(
         ? `${orchestratorPromptOverride}\n\n${skillBlock}`
         : skillBlock;
 
-      // Record auto-fetch skill usage for effectiveness tracking.
-      // Agents are instructed to rate these, so recording usage ensures
-      // the effectiveness data is meaningful.
+      // Record auto-fetch skill usage for effectiveness tracking, but only
+      // for the skills whose content actually made it into the prompt (not
+      // the full filter list). Agents are instructed to rate these.
       if (deps.skillEffectivenessRepo) {
-        for (const skill of autoFetchSkills) {
+        for (const skill of injectedAutoFetch) {
           deps.skillEffectivenessRepo.recordUsageOnce(skill.id, job.id);
         }
       }
@@ -1981,6 +2011,7 @@ export async function spawnAgent(
     // Inject explicitly requested skills (user typed /skill:slug in the prompt)
     const requestedSlugs = job.requestedSkills ?? [];
     if (requestedSlugs.length > 0) {
+      const { SkillIndex: SkillIndexCls } = await import("../skills/skill-index.js");
       const requestedLines: string[] = ["## Requested Skills"];
       const MAX_REQUESTED_TOTAL = 15_000;
       let requestedInjected = 0;
@@ -1996,7 +2027,8 @@ export async function spawnAgent(
         requestedLines.push(`### ${header}${tag}`);
         if (skill.description) requestedLines.push(skill.description);
         if (skill.content) {
-          const capped = skill.content.slice(0, Math.min(4000, MAX_REQUESTED_TOTAL - requestedInjected));
+          const budget = Math.min(4000, MAX_REQUESTED_TOTAL - requestedInjected);
+          const capped = SkillIndexCls.truncateMarkdown(skill.content, budget);
           requestedLines.push(capped);
           requestedInjected += capped.length;
         }

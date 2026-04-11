@@ -38,6 +38,12 @@ export interface SkillVersion {
   content: string;
   keywords: string[];
   description: string;
+  title: string | null;
+  category: string | null;
+  priority: number | null;
+  autoFetch: boolean | null;
+  playbooks: string[];
+  relatedSkills: string[];
   appVersion: string | null;
   createdAt: string;
 }
@@ -267,19 +273,50 @@ export class SkillsRepo {
 
     if (sets.length === 0) return existing;
 
-    // Snapshot the current version before updating (for rollback support)
+    // Snapshot the current version before updating (for rollback support).
+    // Snapshot on any meaningful field change — previously only
+    // content/keywords/description were tracked, so rolling back could
+    // silently drop a title rename or a category re-classification.
     const contentChanged = updates.content !== undefined && updates.content !== existing.content;
     const keywordsChanged = updates.keywords !== undefined;
     const descriptionChanged = updates.description !== undefined && updates.description !== existing.description;
-    if (contentChanged || keywordsChanged || descriptionChanged) {
+    const titleChanged = updates.title !== undefined && updates.title !== existing.title;
+    const priorityChanged = updates.priority !== undefined && updates.priority !== existing.priority;
+    const autoFetchChanged = updates.autoFetch !== undefined && updates.autoFetch !== existing.autoFetch;
+    const playbooksChanged = updates.playbooks !== undefined;
+    const relatedSkillsChanged = updates.relatedSkills !== undefined;
+    if (
+      contentChanged ||
+      keywordsChanged ||
+      descriptionChanged ||
+      titleChanged ||
+      priorityChanged ||
+      autoFetchChanged ||
+      playbooksChanged ||
+      relatedSkillsChanged
+    ) {
       try {
         this.db.prepare(
-          `INSERT OR IGNORE INTO skill_versions (id, skill_id, version, content, keywords, description, app_version, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT OR IGNORE INTO skill_versions
+             (id, skill_id, version, content, keywords, description,
+              title, category, priority, auto_fetch, playbooks, related_skills,
+              app_version, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         ).run(
-          newId(), existing.id, existing.version, existing.content,
-          JSON.stringify(existing.keywords), existing.description,
-          existing.appVersion, new Date().toISOString(),
+          newId(),
+          existing.id,
+          existing.version,
+          existing.content,
+          JSON.stringify(existing.keywords),
+          existing.description,
+          existing.title,
+          existing.category,
+          existing.priority,
+          existing.autoFetch ? 1 : 0,
+          JSON.stringify(existing.playbooks ?? []),
+          JSON.stringify(existing.relatedSkills ?? []),
+          existing.appVersion,
+          new Date().toISOString(),
         );
         // Increment version and stamp current app version
         sets.push("version = version + 1");
@@ -297,11 +334,31 @@ export class SkillsRepo {
     return this.get(slug, program ?? existing.program);
   }
 
+  /**
+   * Cascade-delete dependent rows (version history + effectiveness stats)
+   * for a skill id. There are no real FK constraints on these tables so
+   * we have to do this manually, otherwise a deleted skill leaves
+   * orphaned rows that inflate listVersions / getStats queries the next
+   * time a skill with the same id ever gets generated.
+   */
+  private cascadeDeleteSkillChildren(skillId: string): void {
+    try {
+      this.db.prepare("DELETE FROM skill_versions WHERE skill_id = ?").run(skillId);
+    } catch { /* table may not exist on old DBs */ }
+    try {
+      this.db.prepare("DELETE FROM skill_effectiveness WHERE skill_id = ?").run(skillId);
+    } catch { /* table may not exist on old DBs */ }
+  }
+
   /** Delete a skill by slug. */
   delete(slug: string, program?: string): boolean {
+    const existing = this.get(slug, program);
     const result = program
       ? this.deleteBySlugAndProgramStmt.run(slug, program)
       : this.deleteBySlugStmt.run(slug);
+    if (result.changes > 0 && existing) {
+      this.cascadeDeleteSkillChildren(existing.id);
+    }
     return result.changes > 0;
   }
 
@@ -346,18 +403,24 @@ export class SkillsRepo {
   }
 
   /**
-   * Upsert a repo skill. Only updates content if the user hasn't modified it
-   * (detected by comparing current content hash against stored repo_content_hash).
-   * Always updates metadata (title, description, keywords, priority, etc.).
+   * Upsert a repo-sourced skill (bridge-repo, registry, etc.). Only updates
+   * content if the user hasn't modified it (detected by comparing current
+   * content hash against stored repo_content_hash). Always updates metadata
+   * (title, description, keywords, priority, etc.) and preserves the
+   * caller-supplied `source` tag rather than forcing `"repo"` — so bridge
+   * pulls stay tagged `bridge-repo` and aren't reclassified on re-pull.
    */
   upsertRepoSkill(input: CreateSkillInput & { repoContentHash: string }): Skill {
     const program = input.program ?? "global";
     const existing = this.getAny?.(input.slug, program) ?? this.get(input.slug, program);
+    const source = input.source ?? "repo";
 
     if (!existing) {
-      // New skill — create with source="repo"
-      return this.upsertBySlugAndProgram({ ...input, source: "repo" });
+      return this.upsertBySlugAndProgram({ ...input, source });
     }
+
+    // Never clobber locked skills, even metadata-only.
+    if (existing.locked) return existing;
 
     // Existing skill — check if user modified the content
     const contentHash = Bun.hash(existing.content).toString(16);
@@ -369,20 +432,20 @@ export class SkillsRepo {
       this.db.prepare(`
         UPDATE skills SET
           name = ?, category = ?, title = ?, description = ?, keywords = ?,
-          source = 'repo', priority = ?, auto_fetch = ?, enabled = ?,
+          source = ?, priority = ?, auto_fetch = ?, enabled = ?,
           repo_content_hash = ?, app_version = ?, updated_at = ?
         WHERE slug = ? AND program = ?
       `).run(
         input.name ?? input.slug, input.category, input.title,
         input.description ?? "", JSON.stringify(input.keywords ?? []),
-        input.priority ?? 50, (input.autoFetch ?? false) ? 1 : 0,
+        source, input.priority ?? 50, (input.autoFetch ?? false) ? 1 : 0,
         (input.enabled ?? true) ? 1 : 0,
         input.repoContentHash, SERVER_VERSION, new Date().toISOString(),
         input.slug, program,
       );
     } else {
       // Not modified — safe to overwrite everything
-      this.upsertBySlugAndProgram({ ...input, source: "repo" });
+      this.upsertBySlugAndProgram({ ...input, source });
     }
 
     return this.get(input.slug, program)!;
@@ -390,7 +453,12 @@ export class SkillsRepo {
 
   /** Delete any skill regardless of source. */
   deleteAny(slug: string, program: string): boolean {
-    return this.deleteAnyBySlugAndProgramStmt.run(slug, program).changes > 0;
+    const existing = this.getAny(slug, program);
+    const changes = this.deleteAnyBySlugAndProgramStmt.run(slug, program).changes;
+    if (changes > 0 && existing) {
+      this.cascadeDeleteSkillChildren(existing.id);
+    }
+    return changes > 0;
   }
 
   /** List skills by source. */
@@ -400,10 +468,15 @@ export class SkillsRepo {
 
   /** Delete all skills with a given source. */
   deleteBySource(source: string, program?: string): number {
-    if (program) {
-      return this.db.prepare("DELETE FROM skills WHERE source = ? AND program = ?").run(source, program).changes;
-    }
-    return this.db.prepare("DELETE FROM skills WHERE source = ?").run(source).changes;
+    // Look up the affected rows first so we can cascade-clean children.
+    const targets = program
+      ? (this.db.prepare("SELECT id FROM skills WHERE source = ? AND program = ?").all(source, program) as Array<{ id: string }>)
+      : (this.db.prepare("SELECT id FROM skills WHERE source = ?").all(source) as Array<{ id: string }>);
+    const changes = program
+      ? this.db.prepare("DELETE FROM skills WHERE source = ? AND program = ?").run(source, program).changes
+      : this.db.prepare("DELETE FROM skills WHERE source = ?").run(source).changes;
+    for (const row of targets) this.cascadeDeleteSkillChildren(row.id);
+    return changes;
   }
 
   // ── Versioning ──────────────────────────────────────────────────────
@@ -420,6 +493,12 @@ export class SkillsRepo {
         content: string;
         keywords: string;
         description: string;
+        title: string | null;
+        category: string | null;
+        priority: number | null;
+        auto_fetch: number | null;
+        playbooks: string | null;
+        related_skills: string | null;
         app_version: string | null;
         created_at: string;
       }>;
@@ -430,6 +509,12 @@ export class SkillsRepo {
         content: row.content,
         keywords: (() => { try { return JSON.parse(row.keywords); } catch { return []; } })(),
         description: row.description,
+        title: row.title ?? null,
+        category: row.category ?? null,
+        priority: row.priority ?? null,
+        autoFetch: row.auto_fetch == null ? null : row.auto_fetch === 1,
+        playbooks: (() => { try { return row.playbooks ? JSON.parse(row.playbooks) : []; } catch { return []; } })(),
+        relatedSkills: (() => { try { return row.related_skills ? JSON.parse(row.related_skills) : []; } catch { return []; } })(),
         appVersion: row.app_version ?? null,
         createdAt: row.created_at,
       }));
@@ -438,28 +523,84 @@ export class SkillsRepo {
     }
   }
 
-  /** Rollback a skill to a previous version. Returns the restored skill or null. */
+  /**
+   * Rollback a skill to a previous version. Returns the restored skill or null.
+   * Restores every field that the version row captured — including title,
+   * category, priority, autoFetch, playbooks, relatedSkills — so the
+   * rollback is lossless for skills snapshotted after the full-field
+   * schema landed. Skills with only the legacy columns will still restore
+   * content/keywords/description correctly.
+   */
   rollback(skillId: string, version: number): Skill | null {
     try {
       const versionRow = this.db.prepare(
         "SELECT * FROM skill_versions WHERE skill_id = ? AND version = ?",
-      ).get(skillId, version) as { content: string; keywords: string; description: string } | null;
+      ).get(skillId, version) as {
+        content: string;
+        keywords: string;
+        description: string;
+        title: string | null;
+        category: string | null;
+        priority: number | null;
+        auto_fetch: number | null;
+        playbooks: string | null;
+        related_skills: string | null;
+      } | null;
       if (!versionRow) return null;
 
       const now = new Date().toISOString();
-      // Snapshot current state before rollback
+      // Snapshot current state before rollback so the user can undo it.
       const current = this.db.prepare("SELECT * FROM skills WHERE id = ?").get(skillId) as SkillRow | null;
       if (!current) return null;
 
       this.db.prepare(
-        `INSERT OR IGNORE INTO skill_versions (id, skill_id, version, content, keywords, description, app_version, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(newId(), skillId, current.version, current.content, current.keywords, current.description, current.app_version, now);
+        `INSERT OR IGNORE INTO skill_versions
+           (id, skill_id, version, content, keywords, description,
+            title, category, priority, auto_fetch, playbooks, related_skills,
+            app_version, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        newId(),
+        skillId,
+        current.version,
+        current.content,
+        current.keywords,
+        current.description,
+        current.title,
+        current.category,
+        current.priority,
+        current.auto_fetch,
+        current.playbooks,
+        current.related_skills,
+        current.app_version,
+        now,
+      );
 
-      // Restore content from the target version, stamp current app version
-      this.db.prepare(
-        `UPDATE skills SET content = ?, keywords = ?, description = ?, version = version + 1, app_version = ?, updated_at = ? WHERE id = ?`,
-      ).run(versionRow.content, versionRow.keywords, versionRow.description, SERVER_VERSION, now, skillId);
+      // Build the UPDATE dynamically so legacy version rows (without the new
+      // columns) still restore the fields they did capture.
+      const sets: string[] = [
+        "content = ?",
+        "keywords = ?",
+        "description = ?",
+        "version = version + 1",
+        "app_version = ?",
+        "updated_at = ?",
+      ];
+      const params: unknown[] = [
+        versionRow.content,
+        versionRow.keywords,
+        versionRow.description,
+        SERVER_VERSION,
+        now,
+      ];
+      if (versionRow.title != null) { sets.push("title = ?"); params.push(versionRow.title); }
+      if (versionRow.category != null) { sets.push("category = ?"); params.push(versionRow.category); }
+      if (versionRow.priority != null) { sets.push("priority = ?"); params.push(versionRow.priority); }
+      if (versionRow.auto_fetch != null) { sets.push("auto_fetch = ?"); params.push(versionRow.auto_fetch); }
+      if (versionRow.playbooks != null) { sets.push("playbooks = ?"); params.push(versionRow.playbooks); }
+      if (versionRow.related_skills != null) { sets.push("related_skills = ?"); params.push(versionRow.related_skills); }
+      params.push(skillId);
+      this.db.prepare(`UPDATE skills SET ${sets.join(", ")} WHERE id = ?`).run(...(params as import("bun:sqlite").SQLQueryBindings[]));
 
       const restored = this.db.prepare("SELECT * FROM skills WHERE id = ?").get(skillId) as SkillRow | null;
       return restored ? rowToSkill(restored) : null;

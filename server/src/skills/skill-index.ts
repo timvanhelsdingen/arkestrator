@@ -1,15 +1,17 @@
 /**
  * Skill Index — in-memory search index over materialized skills.
  *
- * Provides hybrid lexical + semantic search using TF-IDF primitives
- * copied from training-repository.ts (not imported, since they are
- * internal to that module).
+ * Provides hybrid lexical + semantic search using BM25-flavoured IDF
+ * scoring, field-weighted tokens (title/keywords > content), LSH
+ * semantic vectors, and a graduated-confidence effectiveness component.
  */
 
 import type { Skill } from "../db/skills.repo.js";
+import type { SkillEffectivenessRepo } from "../db/skill-effectiveness.repo.js";
+import type { SettingsRepo } from "../db/settings.repo.js";
 
 // ---------------------------------------------------------------------------
-// Search primitives (copied from training-repository.ts)
+// Search primitives
 // ---------------------------------------------------------------------------
 
 const SEMANTIC_VECTOR_DIM = 48;
@@ -23,13 +25,27 @@ const STOP_WORDS = new Set([
   "project", "projects", "data", "scene",
 ]);
 
+/** Short but informative DCC terms that would otherwise be filtered by the length gate. */
+const SHORT_ALLOWLIST = new Set([
+  "ui", "api", "sdk", "cli", "cpu", "gpu", "ram", "os", "io",
+  "2d", "3d", "4d", "vr", "xr", "ar", "hd", "sd", "fx",
+  "uv", "ik", "fk", "sp", "rg", "rgb", "hdr", "pbr", "sss",
+  "pp", "dof", "aa", "taa", "dx", "gl", "vk",
+]);
+
 function tokenize(text: string): string[] {
-  return text
+  const out: string[] = [];
+  const raw = text
     .toLowerCase()
     .replace(/[^a-z0-9_\-\s/]+/g, " ")
-    .split(/[\s/]+/)
-    .map((token) => token.trim())
-    .filter((token) => token.length >= 3 && !STOP_WORDS.has(token));
+    .split(/[\s/]+/);
+  for (const t of raw) {
+    const token = t.trim();
+    if (!token) continue;
+    if (STOP_WORDS.has(token)) continue;
+    if (token.length >= 3 || SHORT_ALLOWLIST.has(token)) out.push(token);
+  }
+  return out;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -198,16 +214,61 @@ export interface SkillSummary {
 // SkillIndex
 // ---------------------------------------------------------------------------
 
+/** Field weights (multiplier on term frequency per field). */
+const FIELD_WEIGHTS = {
+  title: 3.5,
+  keywords: 3.0,
+  description: 2.0,
+  content: 1.0,
+} as const;
+
+/**
+ * Load the ranker config from server_settings, falling back to defaults.
+ * Used by every caller that invokes search / rankForJob so admin tuning
+ * actually takes effect at the agent level.
+ */
+export function loadSkillRankingConfig(settingsRepo?: SettingsRepo | null): SkillRankingConfig {
+  const config: SkillRankingConfig = { ...DEFAULT_SKILL_RANKING_CONFIG };
+  if (!settingsRepo) return config;
+  for (const [field, dbKey] of Object.entries(SKILL_RANKING_SETTINGS_KEYS) as Array<[keyof SkillRankingConfig, string]>) {
+    const stored = settingsRepo.getNumber(dbKey);
+    if (stored != null && Number.isFinite(stored)) {
+      config[field] = stored;
+    }
+  }
+  return config;
+}
+
 export class SkillIndex {
   private skills: Skill[] = [];
-  /** Inverted index: token -> set of skill indices in this.skills. */
-  private invertedIndex: Map<string, Set<number>> = new Map();
+  /** Inverted index: token -> Map<skill index, weighted term frequency>. */
+  private invertedIndex: Map<string, Map<number, number>> = new Map();
+  /** Document frequency per token (number of skills containing it). */
+  private docFreq: Map<string, number> = new Map();
   /** Pre-computed semantic vectors for each skill (same order as this.skills). */
   private vectors: number[][] = [];
+  /** Sum of weighted token counts per skill (for BM25-ish length norm). */
+  private docLengths: number[] = [];
+  /** Average weighted doc length (for BM25). */
+  private avgDocLength = 1;
   private lastRefresh = 0;
   private TTL = 60_000; // 60 seconds
 
-  constructor(private materializerFn: () => Skill[]) {}
+  constructor(
+    private materializerFn: () => Skill[],
+    private settingsRepo?: SettingsRepo | null,
+    private effectivenessRepo?: SkillEffectivenessRepo | null,
+  ) {}
+
+  /** Late-bind the effectiveness repo (construction order dependency). */
+  setEffectivenessRepo(repo: SkillEffectivenessRepo | null | undefined): void {
+    this.effectivenessRepo = repo;
+  }
+
+  /** Late-bind the settings repo. */
+  setSettingsRepo(repo: SettingsRepo | null | undefined): void {
+    this.settingsRepo = repo;
+  }
 
   /** Ensure index is fresh (re-materialized if stale). */
   private ensureFresh(): void {
@@ -220,82 +281,188 @@ export class SkillIndex {
   refresh(): void {
     this.skills = this.materializerFn();
     this.invertedIndex = new Map();
+    this.docFreq = new Map();
     this.vectors = [];
+    this.docLengths = [];
+
+    let totalLen = 0;
 
     for (let i = 0; i < this.skills.length; i++) {
       const skill = this.skills[i];
 
-      // Build searchable text from keywords, title, and description
-      const searchText = [
+      // Field-weighted token counts. Each field multiplies its tokens' TF so
+      // a hit in the title outweighs the same token buried in body content.
+      const termCounts = new Map<string, number>();
+      const addTokens = (text: string, weight: number) => {
+        const toks = tokenize(text);
+        for (const t of toks) {
+          termCounts.set(t, (termCounts.get(t) ?? 0) + weight);
+        }
+      };
+      addTokens(skill.title, FIELD_WEIGHTS.title);
+      addTokens(skill.description, FIELD_WEIGHTS.description);
+      for (const kw of skill.keywords) addTokens(kw, FIELD_WEIGHTS.keywords);
+      addTokens(skill.category, FIELD_WEIGHTS.description);
+      addTokens(skill.program, FIELD_WEIGHTS.description);
+      addTokens(skill.content, FIELD_WEIGHTS.content);
+
+      // Populate inverted index + document-frequency counts.
+      let docLen = 0;
+      for (const [token, tf] of termCounts) {
+        let postings = this.invertedIndex.get(token);
+        if (!postings) {
+          postings = new Map();
+          this.invertedIndex.set(token, postings);
+        }
+        postings.set(i, tf);
+        this.docFreq.set(token, (this.docFreq.get(token) ?? 0) + 1);
+        docLen += tf;
+      }
+      this.docLengths.push(docLen);
+      totalLen += docLen;
+
+      // Semantic vector from title + description + keywords + content — not
+      // content-only (previously the short skills had near-zero vectors).
+      const semText = [
         skill.title,
         skill.description,
-        ...skill.keywords,
-        skill.category,
-        skill.program,
+        skill.keywords.join(" "),
+        skill.content,
       ].join(" ");
-
-      const tokens = tokenize(searchText);
-      for (const token of tokens) {
-        let set = this.invertedIndex.get(token);
-        if (!set) {
-          set = new Set();
-          this.invertedIndex.set(token, set);
-        }
-        set.add(i);
-      }
-
-      // Build semantic vector from full content
-      this.vectors.push(buildSemanticVector(skill.content));
+      this.vectors.push(buildSemanticVector(semText));
     }
 
+    this.avgDocLength = this.skills.length > 0 ? totalLen / this.skills.length : 1;
+    if (!(this.avgDocLength > 0)) this.avgDocLength = 1;
     this.lastRefresh = Date.now();
   }
 
+  /** Number of skills in the index (for IDF). */
+  get size(): number {
+    this.ensureFresh();
+    return this.skills.length;
+  }
+
+  /** BM25-flavoured IDF: log((N - df + 0.5) / (df + 0.5) + 1). */
+  private idf(token: string): number {
+    const n = this.skills.length;
+    const df = this.docFreq.get(token) ?? 0;
+    if (df === 0) return 0;
+    return Math.log((n - df + 0.5) / (df + 0.5) + 1);
+  }
+
   /**
-   * Hybrid lexical + semantic search over all indexed skills.
-   * Returns top results sorted by relevance.
+   * Compute a field-weighted, IDF-scaled lexical relevance score for a single
+   * document against a query token list. Mirrors BM25 with k1 = 1.2, b = 0.6.
+   * Output is normalised to ~[0, 1] by dividing by the query's max possible
+   * contribution so the result composes cleanly with semantic/effectiveness.
+   */
+  private lexicalScore(docIndex: number, queryTokens: string[]): number {
+    if (queryTokens.length === 0) return 0;
+    const k1 = 1.2;
+    const b = 0.6;
+    const docLen = this.docLengths[docIndex] ?? 1;
+    const lenNorm = docLen / (this.avgDocLength || 1);
+
+    let score = 0;
+    let maxPossible = 0;
+    for (const token of queryTokens) {
+      const idf = this.idf(token);
+      maxPossible += idf;
+      if (idf <= 0) continue;
+      const postings = this.invertedIndex.get(token);
+      if (!postings) continue;
+      const tf = postings.get(docIndex);
+      if (!tf) continue;
+      const tfScaled = (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * lenNorm));
+      score += idf * tfScaled;
+    }
+    if (maxPossible <= 0) return 0;
+    // Normalise against best-case contribution (BM25's TF saturates at k1+1).
+    return clamp(score / (maxPossible * (k1 + 1)), 0, 1);
+  }
+
+  /**
+   * Combined relevance score for a single skill against a query, already
+   * length-normalised and effectiveness-aware. Returns the individual
+   * components so callers can log/debug without re-computing.
+   */
+  private scoreSkill(
+    docIndex: number,
+    queryTokens: string[],
+    queryVector: number[],
+    effectivenessMap: Map<string, SkillEffectivenessInfo>,
+    rc: SkillRankingConfig,
+  ): { score: number; lexical: number; semantic: number; effectiveness: number } {
+    const skill = this.skills[docIndex];
+    const lexical = this.lexicalScore(docIndex, queryTokens);
+    const semantic = Math.max(0, semanticSimilarity(queryVector, this.vectors[docIndex]));
+
+    const eff = effectivenessMap.get(skill.id);
+    let effectiveness: number;
+    const ratedCount = eff?.ratedCount ?? 0;
+    if (!eff || ratedCount < rc.explorationThreshold) {
+      effectiveness = rc.explorationBonus;
+    } else if (ratedCount < rc.establishedThreshold) {
+      const range = rc.establishedThreshold - rc.explorationThreshold;
+      const confidence = range > 0 ? (ratedCount - rc.explorationThreshold) / range : 1;
+      effectiveness = 0.5 * (1 - confidence) + eff.successRate * confidence;
+    } else {
+      effectiveness = Math.max(rc.effectivenessFloor, eff.successRate);
+    }
+
+    // Priority boost: +0 at priority 50 (neutral), ±0.05 at 0/100.
+    // Only a tie-breaker — keeps admin-curated skills ahead of equivalents.
+    const priorityBoost = ((clamp(skill.priority ?? 50, 0, 100) - 50) / 1000);
+    // Program specificity bonus: a program-matching skill edges out a
+    // global one at the same content score so "blender-sprite" ranks
+    // above "generic-file-handling" for a blender job.
+    const sp = skill.program.trim().toLowerCase();
+    const specificityBonus = sp && sp !== "global" ? 0.03 : 0;
+
+    const score =
+      lexical * rc.weightLexical +
+      semantic * rc.weightSemantic +
+      effectiveness * rc.weightEffectiveness +
+      priorityBoost +
+      specificityBonus;
+
+    return { score, lexical, semantic, effectiveness };
+  }
+
+  /**
+   * Hybrid lexical + semantic search over all indexed skills. Uses the
+   * shared scorer so results stay in sync with rankForJob / agent context.
    */
   search(
     query: string,
-    opts?: { program?: string; category?: string; limit?: number },
+    opts?: { program?: string; category?: string; limit?: number; rankingConfig?: Partial<SkillRankingConfig> },
   ): SkillSearchResult[] {
     this.ensureFresh();
 
     const limit = opts?.limit ?? 20;
+    const rc: SkillRankingConfig = { ...loadSkillRankingConfig(this.settingsRepo), ...(opts?.rankingConfig ?? {}) };
     const queryTokens = tokenize(query);
     const queryVector = buildSemanticVector(query);
+    const programFilter = opts?.program?.trim().toLowerCase() ?? "";
+    const effectivenessMap = this.buildEffectivenessMap();
 
-    // Score each skill
     const scored: Array<{ index: number; score: number }> = [];
 
     for (let i = 0; i < this.skills.length; i++) {
       const skill = this.skills[i];
-
-      // Filter by program/category if specified
-      if (opts?.program && skill.program !== opts.program && skill.program !== "global") continue;
-      if (opts?.category && skill.category !== opts.category) continue;
       if (!skill.enabled) continue;
 
-      // Lexical score: fraction of query tokens that hit this skill
-      let lexicalHits = 0;
-      for (const token of queryTokens) {
-        const postings = this.invertedIndex.get(token);
-        if (postings?.has(i)) lexicalHits++;
-      }
-      const lexicalScore = queryTokens.length > 0 ? lexicalHits / queryTokens.length : 0;
+      const sp = skill.program.trim().toLowerCase();
+      if (programFilter && sp && sp !== "global" && sp !== programFilter) continue;
+      if (opts?.category && skill.category !== opts.category) continue;
 
-      // Semantic score: cosine similarity
-      const semScore = semanticSimilarity(queryVector, this.vectors[i]);
-
-      // Hybrid: weighted combination (lexical heavier for short queries)
-      const score = lexicalScore * 0.65 + Math.max(0, semScore) * 0.35;
-
-      if (score > 0.05) {
+      const { score } = this.scoreSkill(i, queryTokens, queryVector, effectivenessMap, rc);
+      if (score >= rc.minScoreThreshold) {
         scored.push({ index: i, score });
       }
     }
 
-    // Sort by score descending
     scored.sort((a, b) => b.score - a.score);
 
     return scored.slice(0, limit).map(({ index, score }) => {
@@ -312,11 +479,29 @@ export class SkillIndex {
   }
 
   /**
-   * Rank skills for a specific job prompt using hybrid semantic + lexical + effectiveness scoring.
-   * Returns the top-N most relevant skills for injection into agent context.
-   *
-   * AutoFetch skills (coordinators, bridge scripts) are always included regardless of score.
-   * Effectiveness scoring uses a graduated confidence model with configurable thresholds.
+   * Pull current effectiveness stats for every known skill in one query.
+   * Cached per-refresh so repeated search() calls in the same tick reuse
+   * the same data. Falls back to an empty map if the repo isn't wired.
+   */
+  private buildEffectivenessMap(): Map<string, SkillEffectivenessInfo> {
+    if (!this.effectivenessRepo) return new Map();
+    const raw = this.effectivenessRepo.getRankingInfoForAllSkills();
+    const out = new Map<string, SkillEffectivenessInfo>();
+    for (const [id, stats] of raw) {
+      out.set(id, {
+        successRate: stats.successRate,
+        totalUsed: stats.totalUsed,
+        ratedCount: stats.ratedCount,
+      });
+    }
+    return out;
+  }
+
+  /**
+   * Rank skills for a specific job prompt. AutoFetch skills are always
+   * included (coordinators, bridge scripts), sorted by priority. Non-
+   * autofetch skills are scored via the shared lexical+semantic+effectiveness
+   * pipeline.
    */
   rankForJob(
     prompt: string,
@@ -330,8 +515,9 @@ export class SkillIndex {
     this.ensureFresh();
 
     const limit = opts?.limit ?? 8;
-    const effectivenessMap = opts?.effectivenessScores ?? new Map();
-    const rc = { ...DEFAULT_SKILL_RANKING_CONFIG, ...opts?.rankingConfig };
+    const effectivenessMap =
+      opts?.effectivenessScores ?? this.buildEffectivenessMap();
+    const rc: SkillRankingConfig = { ...loadSkillRankingConfig(this.settingsRepo), ...(opts?.rankingConfig ?? {}) };
     const queryTokens = tokenize(prompt);
     const queryVector = buildSemanticVector(prompt);
     const programLower = program.trim().toLowerCase();
@@ -344,58 +530,23 @@ export class SkillIndex {
       if (!skill.enabled) continue;
 
       const sp = skill.program.trim().toLowerCase();
-      // Filter by program: global + matching
       if (sp && sp !== "global" && programLower && sp !== programLower) continue;
 
-      // AutoFetch skills always get included (coordinator scripts, bridge scripts, etc.)
       if (skill.autoFetch) {
         autoFetchResults.push({ skill, score: 1.0, reason: "auto-fetch" });
         continue;
       }
 
-      const eff = effectivenessMap.get(skill.id);
-
-      // Lexical score: fraction of query tokens that hit this skill
-      let lexicalHits = 0;
-      for (const token of queryTokens) {
-        const postings = this.invertedIndex.get(token);
-        if (postings?.has(i)) lexicalHits++;
-      }
-      const lexicalScore = queryTokens.length > 0 ? lexicalHits / queryTokens.length : 0;
-
-      // Semantic score: cosine similarity
-      const semScore = Math.max(0, semanticSimilarity(queryVector, this.vectors[i]));
-
-      // Effectiveness score: graduated confidence model with configurable thresholds.
-      // Exploration → Transition → Established phases based on RATED usage
-      // count. Pending rows (e.g. search_skills touches that were never
-      // rated) do not advance the phase — otherwise a skill that shows up
-      // in many searches but is never actually used/rated would prematurely
-      // leave exploration with no outcome data to trust.
-      let effScore: number;
-      const ratedCount = eff?.ratedCount ?? 0;
-      if (!eff || ratedCount < rc.explorationThreshold) {
-        // Exploration phase: optimistic to encourage discovery
-        effScore = rc.explorationBonus;
-      } else if (ratedCount < rc.establishedThreshold) {
-        // Transition phase: blend neutral toward actual rate as confidence grows
-        const range = rc.establishedThreshold - rc.explorationThreshold;
-        const confidence = range > 0 ? (ratedCount - rc.explorationThreshold) / range : 1;
-        effScore = 0.5 * (1 - confidence) + eff.successRate * confidence;
-      } else {
-        // Established: trust the data, with a floor so skills aren't fully killed
-        effScore = Math.max(rc.effectivenessFloor, eff.successRate);
-      }
-
-      // Combined score with configurable weights
-      const score = lexicalScore * rc.weightLexical + semScore * rc.weightSemantic + effScore * rc.weightEffectiveness;
-
-      if (score > rc.minScoreThreshold) {
+      const { score } = this.scoreSkill(i, queryTokens, queryVector, effectivenessMap, rc);
+      if (score >= rc.minScoreThreshold) {
         ranked.push({ index: i, score });
       }
     }
 
-    // Sort by score descending, take top N
+    // Sort auto-fetch skills by priority DESC so coordinators (90) come
+    // before bridges (70) before custom auto-fetch skills (default 50).
+    autoFetchResults.sort((a, b) => (b.skill.priority ?? 0) - (a.skill.priority ?? 0));
+
     ranked.sort((a, b) => b.score - a.score);
     const topRanked = ranked.slice(0, limit).map(({ index, score }) => ({
       skill: this.skills[index],
@@ -403,7 +554,6 @@ export class SkillIndex {
       reason: "ranked" as const,
     }));
 
-    // AutoFetch first, then ranked by relevance
     return {
       results: [...autoFetchResults, ...topRanked],
     };
@@ -415,6 +565,41 @@ export class SkillIndex {
     return this.skills.find(
       (s) => s.slug === slug && (!program || s.program === program),
     ) ?? null;
+  }
+
+  /**
+   * Truncate markdown content at a safe boundary (never mid-code-fence,
+   * never mid-list-item). Returns `content` unchanged if it fits, or a
+   * truncated version with a trailing `…` marker. Keeps code fences
+   * balanced by closing any open ``` block before the cut.
+   */
+  static truncateMarkdown(content: string, maxChars: number): string {
+    if (!content || content.length <= maxChars) return content ?? "";
+    // Prefer a cut at the last paragraph break, then last sentence break,
+    // then last newline, then hard cut.
+    const window = content.slice(0, maxChars);
+    let cut = window.length;
+    const tryCut = (re: RegExp, min: number) => {
+      let best = -1;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(window)) !== null) {
+        if (m.index >= min) best = m.index;
+      }
+      if (best > 0) cut = Math.min(cut, best);
+    };
+    // Paragraph break
+    tryCut(/\n\n/g, Math.floor(maxChars * 0.5));
+    // Line break fallback
+    if (cut === window.length) tryCut(/\n/g, Math.floor(maxChars * 0.5));
+    let body = content.slice(0, cut).replace(/\s+$/, "");
+    // Balance code fences. If we have an odd number of ``` markers, the
+    // cut landed inside a code block — close it before handing the text
+    // to the agent, otherwise it bleeds into the surrounding prompt.
+    const fenceCount = (body.match(/```/g) || []).length;
+    if (fenceCount % 2 === 1) {
+      body += "\n```";
+    }
+    return `${body}\n\n…[truncated]`;
   }
 
   /** Return all skills matching filters (lightweight summaries). */

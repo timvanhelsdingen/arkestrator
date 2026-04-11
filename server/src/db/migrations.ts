@@ -479,6 +479,29 @@ const COLUMN_ADDITIONS = [
   // Pushed from the client after GH OAuth login; forwarded as Bearer by MCP tools
   // (search_community_skills, install_community_skill) when calling upstream.
   `ALTER TABLE users ADD COLUMN community_session_token TEXT`,
+  // Deduplicate any pre-existing duplicate usage rows so the UNIQUE index below
+  // can be created successfully. Keeps the oldest row per (skill_id, job_id).
+  `DELETE FROM skill_effectiveness
+    WHERE id NOT IN (
+      SELECT MIN(id) FROM skill_effectiveness
+       GROUP BY skill_id, job_id
+    )`,
+  // Enforce at most one usage row per (skill_id, job_id). Before this, the
+  // idempotency guarantee of recordUsageOnce depended on a racy
+  // SELECT-then-INSERT; with this index, INSERT OR IGNORE is safe under
+  // concurrent MCP calls.
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_skill_effectiveness_skill_job
+     ON skill_effectiveness(skill_id, job_id)`,
+  // Capture more metadata in the version snapshot so rollback actually
+  // restores the full skill state (title, category, priority, autoFetch,
+  // playbooks, related skills). Previously only content/keywords/description
+  // were preserved and a rollback silently dropped the rest.
+  `ALTER TABLE skill_versions ADD COLUMN title TEXT`,
+  `ALTER TABLE skill_versions ADD COLUMN category TEXT`,
+  `ALTER TABLE skill_versions ADD COLUMN priority INTEGER`,
+  `ALTER TABLE skill_versions ADD COLUMN auto_fetch INTEGER`,
+  `ALTER TABLE skill_versions ADD COLUMN playbooks TEXT`,
+  `ALTER TABLE skill_versions ADD COLUMN related_skills TEXT`,
 ];
 
 // Reset any jobs stuck in 'running' state (server crashed while they were active)

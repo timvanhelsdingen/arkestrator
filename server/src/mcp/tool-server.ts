@@ -12,6 +12,7 @@ import type { ProcessTracker } from "../agents/process-tracker.js";
 import { resolveBridgeTargets, type WorkerResourceLeaseManager } from "../agents/resource-control.js";
 import { executeBridgeCommand, listConnectedBridges, runHeadlessCheck } from "../routes/bridge-commands.js";
 import { newId } from "../utils/id.js";
+import { logger } from "../utils/logger.js";
 import { createHash } from "crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "fs";
 import { join, relative } from "path";
@@ -1726,7 +1727,9 @@ export function createMcpServer(deps: McpDeps): McpServer {
       if (!deps.skillIndex) {
         return { content: [{ type: "text" as const, text: "Skills system not initialized" }], isError: true };
       }
-      let results = deps.skillIndex.search(query, { program: program || undefined, category: category || undefined, limit });
+      // Cap caller-supplied limit so agents can't request huge result sets.
+      const safeLimit = Math.min(Math.max(1, limit ?? 10), 25);
+      let results = deps.skillIndex.search(query, { program: program || undefined, category: category || undefined, limit: safeLimit });
       // Hide verification helper skills entirely when the caller's job has
       // verification disabled — otherwise agents see them, try to rate them,
       // and pollute the stats for a skill that couldn't possibly have helped.
@@ -1735,22 +1738,13 @@ export function createMcpServer(deps: McpDeps): McpServer {
       if (verificationDisabled) {
         results = results.filter((r) => r.slug !== "verification" && r.category !== "verification");
       }
-      // Record a lightweight usage row for each returned result (deduped per
-      // job+skill). Agents often act on title+description from search alone
-      // without ever calling get_skill, so without this the skill is
-      // invisible to effectiveness tracking and rate_skill has nothing to
-      // update. recordUsageOnce is a no-op if a row already exists.
-      if (deps.skillEffectivenessRepo && deps.callerJobId && deps.jobsRepo && results.length > 0) {
-        const callerJob = callerJobForFilter;
-        const meta = (() => { try { const ctx = callerJob?.editorContext; return (typeof ctx === "object" && ctx !== null ? (ctx as any).metadata : null) || {}; } catch { return {}; } })();
-        const isSystem = meta.housekeeping || meta.coordinator_training_job || meta.coordinator_training_orchestrator || meta.coordinator_training_analysis_job;
-        if (!isSystem) {
-          for (const r of results) {
-            const skill = deps.skillIndex.get(r.slug, r.program || undefined);
-            if (skill) deps.skillEffectivenessRepo.recordUsageOnce(skill.id, deps.callerJobId);
-          }
-        }
-      }
+      // Deliberately do NOT record usage rows here. Previously every returned
+      // result was counted as "used" on the assumption that agents might act
+      // on title+description alone, but that inflated totalUsed on skills the
+      // agent never opened AND — worse — let the rate_job fallback stamp an
+      // outcome onto skills that were never actually consulted. Usage is only
+      // recorded when the agent calls `get_skill` (below), which is the
+      // point at which the content is actually inspected.
       const text = results.length === 0
         ? "No matching skills found."
         : results.map((r) => `- **${r.slug}** (${r.category}/${r.program}) score=${r.relevanceScore.toFixed(2)}\n  ${r.title}: ${r.description}`).join("\n\n");
@@ -1978,13 +1972,16 @@ export function createMcpServer(deps: McpDeps): McpServer {
         };
       }
 
-      // Record usage against the current job so the newly installed skill's
-      // outcome is tied back to the job that chose to install it.
-      if (deps.skillEffectivenessRepo && deps.callerJobId) {
-        try {
-          deps.skillEffectivenessRepo.recordUsageOnce(result.skill.id, deps.callerJobId);
-        } catch {}
-      }
+      // DO NOT record usage on install — the agent hasn't actually used
+      // the content yet, and stamping it here would let the rate_job
+      // fallback mark the new skill with an outcome it never earned.
+      // Usage is recorded only when the agent calls get_skill.
+
+      // Audit trail so operators can trace where installed community skills came from.
+      logger.info(
+        "mcp",
+        `Community skill installed by agent (job=${deps.callerJobId ?? "?"}, actingUser=${actingUserId ?? "?"}): ${result.slug} [${result.program}] (communityId=${communityId})`,
+      );
 
       const betaNote = result.beta ? " (free during beta — will become a paid feature later)" : "";
       return {
@@ -2037,7 +2034,13 @@ export function createMcpServer(deps: McpDeps): McpServer {
         return { content: [{ type: "text" as const, text: `Skipped: ${slug} — verification was disabled for this job, so this skill's effectiveness isn't tracked here.` }] };
       }
       const outcomeMap: Record<string, string> = { useful: "positive", not_useful: "negative", partial: "average" };
-      const outcome = outcomeMap[rating] || "average";
+      // Strict mapping — Zod already enforced the enum at the tool boundary,
+      // but fall through to an error rather than a silent `"average"` default
+      // if an unknown value somehow slips past.
+      const outcome = outcomeMap[rating];
+      if (!outcome) {
+        return { content: [{ type: "text" as const, text: `Invalid rating "${rating}" — expected useful | not_useful | partial` }], isError: true };
+      }
       deps.skillEffectivenessRepo.recordSkillOutcome(skill.id, deps.callerJobId, outcome);
       const notesSuffix = notes ? ` — ${notes}` : "";
       return { content: [{ type: "text" as const, text: `Recorded: ${slug} → ${rating}${notesSuffix}` }] };
@@ -2071,10 +2074,23 @@ export function createMcpServer(deps: McpDeps): McpServer {
         : "negative" as const;
       const notesTrimmed = (notes ?? "").trim();
       deps.jobsRepo.markOutcome(deps.callerJobId, storedRating, notesTrimmed, null);
-      // Update skill effectiveness for unrated skills
+      // Update skill effectiveness for unrated skills. On verification-disabled
+      // jobs, exclude verification helper skills from the stamp — they had no
+      // chance to help and their row should be dropped, not marked. We look
+      // up verification skills via the index and pass their ids to
+      // recordOutcomeExcluding (which also deletes pending rows for them).
       if (deps.skillEffectivenessRepo) {
         const skillOutcome = rating === "good" ? "positive" : rating === "poor" ? "negative" : "average";
-        deps.skillEffectivenessRepo.recordOutcome(deps.callerJobId, skillOutcome);
+        const verificationDisabled = job.runtimeOptions?.verificationMode === "disabled";
+        if (verificationDisabled && deps.skillIndex) {
+          const allSkills = deps.skillIndex.list({ includeDisabled: true });
+          const verificationIds = allSkills
+            .filter((s) => s.slug === "verification" || s.category === "verification")
+            .map((s) => s.id);
+          deps.skillEffectivenessRepo.recordOutcomeExcluding(deps.callerJobId, skillOutcome, verificationIds);
+        } else {
+          deps.skillEffectivenessRepo.recordOutcome(deps.callerJobId, skillOutcome);
+        }
       }
       // Broadcast the updated job to clients
       const updated = deps.jobsRepo.getById(deps.callerJobId);
@@ -2121,25 +2137,34 @@ export function createMcpServer(deps: McpDeps): McpServer {
       let injectedSlugs: string[] = [];
       if (deps.skillsRepo && deps.skillIndex) {
         try {
+          const { SkillIndex: SkillIndexCls } = await import("../skills/skill-index.js");
           const allEnabled = deps.skillsRepo.listAll({ enabled: true });
           const verificationDisabled = job.runtimeOptions?.verificationMode === "disabled";
-          const matching = allEnabled.filter((s: any) => {
-            if (!s.autoFetch) return false;
-            if (verificationDisabled && (s.slug === "verification" || s.category === "verification")) return false;
-            const sp = (s.program || "").trim().toLowerCase();
-            return !sp || sp === "global" || sp === normalized;
-          });
+          const matching = allEnabled
+            .filter((s: any) => {
+              if (!s.autoFetch) return false;
+              if (verificationDisabled && (s.slug === "verification" || s.category === "verification")) return false;
+              const sp = (s.program || "").trim().toLowerCase();
+              return !sp || sp === "global" || sp === normalized;
+            })
+            // Priority DESC so coordinators (90) come before bridges (70).
+            .sort((a: any, b: any) => (b.priority ?? 0) - (a.priority ?? 0));
+          // Dedupe by slug in case a global + program-specific skill collide.
+          const seen = new Set<string>();
           const MAX_TOTAL = 15_000;
           let total = 0;
           skillLines.push(`## Coordinator Knowledge (retargeted → ${normalized})`);
           for (const s of matching) {
+            if (seen.has(s.slug)) continue;
+            seen.add(s.slug);
             if (total >= MAX_TOTAL) break;
             const header = s.title || (s as any).name || s.slug;
             const tag = s.program && s.program !== "global" ? ` [${s.program}]` : "";
             skillLines.push(`### ${header}${tag}`);
             if (s.description) skillLines.push(s.description);
             if (s.content) {
-              const capped = s.content.slice(0, Math.min(4000, MAX_TOTAL - total));
+              const budget = Math.min(4000, MAX_TOTAL - total);
+              const capped = SkillIndexCls.truncateMarkdown(s.content, budget);
               skillLines.push(capped);
               total += capped.length;
             }
@@ -2230,6 +2255,15 @@ export function createMcpServer(deps: McpDeps): McpServer {
           autoFetch: false,
           enabled: true,
         };
+        // Final pre-write semantic validation. Rejects empty content, bad
+        // regex keywords, missing title. Agents creating garbage skills used
+        // to silently succeed and then pollute ranking — now they get a
+        // clear error so they can retry with a real body.
+        const validation = validateSkill(input as any, (s) => deps.skillIndex?.get(s) != null);
+        const validationErrors = validation.issues.filter((i) => i.severity === "error");
+        if (validationErrors.length > 0) {
+          return { content: [{ type: "text" as const, text: `Skill rejected: ${validationErrors.map((i) => i.message).join("; ")}` }], isError: true };
+        }
         if (deps.skillStore) {
           await deps.skillStore.upsertBySlugAndProgram(input);
         } else {

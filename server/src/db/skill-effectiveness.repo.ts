@@ -23,13 +23,19 @@ export interface SkillEffectivenessStats {
   averageOutcomes: number;
   poorOutcomes: number;
   pendingOutcomes: number;
+  /** Weighted success rate across rated rows: positive=1, average=0.5, negative=0. */
   successRate: number;
+  /** Number of rows that actually have an outcome — the phase counter used by the ranker. */
+  ratedCount: number;
 }
 
 export class SkillEffectivenessRepo {
   constructor(private db: Database) {}
 
-  /** Record that a skill was injected into a job. */
+  /**
+   * Record that a skill was injected into a job.
+   * Idempotent per (skill_id, job_id) via the UNIQUE index on those columns.
+   */
   recordUsage(skillId: string, jobId: string): void {
     try {
       this.db.prepare(
@@ -43,17 +49,13 @@ export class SkillEffectivenessRepo {
 
   /**
    * Record a usage row only if no row already exists for (skillId, jobId).
-   * Use this from any code path that may fire multiple times per job (search,
-   * get, auto-fetch) to avoid inflating usage counts.
+   * Safe under concurrency: uses INSERT OR IGNORE against the UNIQUE index on
+   * (skill_id, job_id) rather than a racy SELECT-then-INSERT.
    */
   recordUsageOnce(skillId: string, jobId: string): void {
     try {
-      const existing = this.db.prepare(
-        `SELECT id FROM skill_effectiveness WHERE skill_id = ? AND job_id = ? LIMIT 1`,
-      ).get(skillId, jobId);
-      if (existing) return;
       this.db.prepare(
-        `INSERT INTO skill_effectiveness (id, skill_id, job_id, created_at)
+        `INSERT OR IGNORE INTO skill_effectiveness (id, skill_id, job_id, created_at)
          VALUES (?, ?, ?, ?)`,
       ).run(newId(), skillId, jobId, new Date().toISOString());
     } catch {
@@ -68,6 +70,40 @@ export class SkillEffectivenessRepo {
       this.db.prepare(
         `UPDATE skill_effectiveness SET job_outcome = ? WHERE job_id = ? AND job_outcome IS NULL`,
       ).run(outcome, jobId);
+    } catch {
+      // Table may not exist
+    }
+  }
+
+  /**
+   * Like {@link recordOutcome}, but never touches rows for the given skill ids.
+   * Used by the rate_job fallback on verification-disabled jobs so that
+   * verification skill rows don't get stamped with an outcome they had no
+   * chance to earn (closes the last hole in the verification filter).
+   */
+  recordOutcomeExcluding(jobId: string, outcome: string, excludedSkillIds: string[]): void {
+    if (!excludedSkillIds || excludedSkillIds.length === 0) {
+      this.recordOutcome(jobId, outcome);
+      return;
+    }
+    try {
+      const placeholders = excludedSkillIds.map(() => "?").join(",");
+      this.db.prepare(
+        `UPDATE skill_effectiveness
+           SET job_outcome = ?
+         WHERE job_id = ?
+           AND job_outcome IS NULL
+           AND skill_id NOT IN (${placeholders})`,
+      ).run(outcome, jobId, ...excludedSkillIds);
+      // Also hard-delete any stray usage rows for excluded skills on this job
+      // — the skill had no chance to help, so it shouldn't keep pending rows
+      // inflating its totalUsed counter either.
+      this.db.prepare(
+        `DELETE FROM skill_effectiveness
+           WHERE job_id = ?
+             AND job_outcome IS NULL
+             AND skill_id IN (${placeholders})`,
+      ).run(jobId, ...excludedSkillIds);
     } catch {
       // Table may not exist
     }
@@ -117,9 +153,10 @@ export class SkillEffectivenessRepo {
         pendingOutcomes: pending,
         // positive=1, average=0.5, negative=0 — weighted success rate
         successRate: rated > 0 ? (good + average * 0.5) / rated : 0,
+        ratedCount: rated,
       };
     } catch {
-      return { totalUsed: 0, goodOutcomes: 0, averageOutcomes: 0, poorOutcomes: 0, pendingOutcomes: 0, successRate: 0 };
+      return { totalUsed: 0, goodOutcomes: 0, averageOutcomes: 0, poorOutcomes: 0, pendingOutcomes: 0, successRate: 0, ratedCount: 0 };
     }
   }
 
@@ -158,11 +195,45 @@ export class SkillEffectivenessRepo {
           poorOutcomes: poor,
           pendingOutcomes: pending,
           // positive=1, average=0.5, negative=0 — weighted success rate
-        successRate: rated > 0 ? (good + average * 0.5) / rated : 0,
+          successRate: rated > 0 ? (good + average * 0.5) / rated : 0,
+          ratedCount: rated,
         });
       }
     } catch {
       // Table may not exist
+    }
+    return result;
+  }
+
+  /**
+   * Global aggregate ranking info for every skill that has at least one usage
+   * row, in a single query. The ranker needs `{successRate, totalUsed, ratedCount}`
+   * per skill. Skills with no usage row simply aren't in the map — callers
+   * treat that as exploration phase.
+   */
+  getRankingInfoForAllSkills(): Map<string, { successRate: number; totalUsed: number; ratedCount: number }> {
+    const result = new Map<string, { successRate: number; totalUsed: number; ratedCount: number }>();
+    try {
+      const rows = this.db.prepare(
+        `SELECT skill_id,
+                COUNT(*) AS total,
+                SUM(CASE WHEN job_outcome IN ('positive','good') THEN 1 ELSE 0 END) AS good,
+                SUM(CASE WHEN job_outcome = 'average' THEN 1 ELSE 0 END) AS avg,
+                SUM(CASE WHEN job_outcome IN ('negative','poor') THEN 1 ELSE 0 END) AS poor,
+                SUM(CASE WHEN job_outcome IS NULL THEN 1 ELSE 0 END) AS pending
+           FROM skill_effectiveness
+          GROUP BY skill_id`,
+      ).all() as Array<{ skill_id: string; total: number; good: number; avg: number; poor: number; pending: number }>;
+      for (const row of rows) {
+        const rated = (row.total ?? 0) - (row.pending ?? 0);
+        result.set(row.skill_id, {
+          totalUsed: row.total ?? 0,
+          ratedCount: rated,
+          successRate: rated > 0 ? ((row.good ?? 0) + (row.avg ?? 0) * 0.5) / rated : 0,
+        });
+      }
+    } catch {
+      // Table may not exist on older DBs
     }
     return result;
   }

@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import type { SkillsRepo } from "../db/skills.repo.js";
 import type { SkillEffectivenessRepo } from "../db/skill-effectiveness.repo.js";
-import { type SkillIndex, DEFAULT_SKILL_RANKING_CONFIG, SKILL_RANKING_SETTINGS_KEYS, type SkillRankingConfig } from "../skills/skill-index.js";
+import { type SkillIndex, DEFAULT_SKILL_RANKING_CONFIG, SKILL_RANKING_SETTINGS_KEYS, type SkillRankingConfig, loadSkillRankingConfig } from "../skills/skill-index.js";
 import type { UsersRepo } from "../db/users.repo.js";
 import type { ApiKeysRepo } from "../db/apikeys.repo.js";
 import type { SettingsRepo } from "../db/settings.repo.js";
@@ -233,13 +233,26 @@ export function createSkillsRoutes(
       return errorResponse(c, 400, parsed.error.message, "VALIDATION_ERROR");
     }
 
+    // Run the semantic validator (empty content, bad regex keywords, etc.)
+    // and reject writes with error-severity issues. Warnings are allowed but
+    // surfaced to the caller so they can choose to clean up.
+    const validation = validateSkill(parsed.data as any, (s) => skillIndex.get(s) !== null);
+    const errors = validation.issues.filter((i) => i.severity === "error");
+    if (errors.length > 0) {
+      return errorResponse(c, 400, `Validation failed: ${errors.map((i) => i.message).join("; ")}`, "VALIDATION_ERROR");
+    }
+
     try {
       const skill = skillStore
         ? await skillStore.create(parsed.data)
         : skillsRepo.create(parsed.data);
       if (!skillStore) skillIndex.refresh();
-      return c.json({ skill }, 201);
+      return c.json({ skill, warnings: validation.issues.filter((i) => i.severity === "warning") }, 201);
     } catch (err: any) {
+      // Slug collision → 409 instead of opaque 500
+      if (String(err?.message).toUpperCase().includes("UNIQUE")) {
+        return errorResponse(c, 409, `A skill with slug "${parsed.data.slug}" already exists for this program`, "CONFLICT");
+      }
       return errorResponse(c, 500, err?.message ?? "Failed to create skill", "INTERNAL_ERROR");
     }
   });
@@ -252,6 +265,15 @@ export function createSkillsRoutes(
     const slug = c.req.param("slug");
     const program = c.req.query("program");
 
+    // Refuse to mutate a locked skill. Locking is the contract that
+    // housekeeping/training agents can't clobber curated content — if that
+    // promise only held at the MCP boundary, operators who only use the
+    // REST API would still get silently overwritten by a rogue client.
+    const existing = skillIndex.get(slug, program || undefined);
+    if (existing?.locked) {
+      return errorResponse(c, 423, `Skill "${slug}" is locked — unlock it before editing`, "LOCKED");
+    }
+
     let body: unknown;
     try {
       body = await c.req.json();
@@ -262,6 +284,17 @@ export function createSkillsRoutes(
     const parsed = SkillUpdateSchema.safeParse(body);
     if (!parsed.success) {
       return errorResponse(c, 400, parsed.error.message, "VALIDATION_ERROR");
+    }
+
+    // Validate the merged state (existing + patch) so we catch things like
+    // clearing content to empty, breaking keyword regex, etc.
+    if (existing) {
+      const merged = { ...existing, ...parsed.data };
+      const validation = validateSkill(merged as any, (s) => skillIndex.get(s) !== null);
+      const errors = validation.issues.filter((i) => i.severity === "error");
+      if (errors.length > 0) {
+        return errorResponse(c, 400, `Validation failed: ${errors.map((i) => i.message).join("; ")}`, "VALIDATION_ERROR");
+      }
     }
 
     const updated = skillStore
@@ -282,6 +315,13 @@ export function createSkillsRoutes(
 
     const slug = c.req.param("slug");
     const program = c.req.query("program");
+
+    // Same locked guarantee as PUT — a locked skill must be explicitly
+    // unlocked via the admin UI before it can be removed.
+    const existing = skillIndex.get(slug, program || undefined);
+    if (existing?.locked) {
+      return errorResponse(c, 423, `Skill "${slug}" is locked — unlock it before deleting`, "LOCKED");
+    }
     const deleted = program
       ? (skillStore ? await skillStore.deleteAny(slug, program) : skillsRepo.deleteAny(slug, program))
       : (skillStore ? await skillStore.delete(slug) : skillsRepo.delete(slug));
@@ -310,24 +350,18 @@ export function createSkillsRoutes(
       return errorResponse(c, 400, parsed.error.message, "VALIDATION_ERROR");
     }
 
+    // Cap the limit to avoid DoS via huge result requests.
+    const safeLimit = parsed.data.limit != null ? Math.min(Math.max(1, parsed.data.limit), 50) : 20;
     const results = skillIndex.search(parsed.data.query, {
       program: parsed.data.program,
       category: parsed.data.category,
-      limit: parsed.data.limit,
+      limit: safeLimit,
     });
-    // Mirror MCP search_skills: record a usage row for each returned skill
-    // when called inside a job (am CLI sends X-Job-Id). Deduped per job+skill.
-    const jobId = c.req.header("X-Job-Id") || c.req.header("x-job-id");
-    if (jobId && skillEffectivenessRepo && results.length > 0) {
-      try {
-        for (const r of results) {
-          const skill = skillIndex.get(r.slug, (r as any).program || undefined);
-          if (skill) skillEffectivenessRepo.recordUsageOnce((skill as any).id, jobId);
-        }
-      } catch {
-        // Best-effort — never fail search on tracking errors
-      }
-    }
+    // Intentionally do NOT record usage for every returned result: the agent
+    // may never fetch content, and the rate_job fallback would then stamp
+    // an outcome onto skills the agent never actually used. Usage is only
+    // recorded on `GET /:slug` (see route below) when the agent actually
+    // loads the content.
     return c.json({ results });
   });
 
@@ -456,12 +490,20 @@ export function createSkillsRoutes(
     }
   });
 
-  // POST /install-community — install a skill from the community (arkestrator.com)
-  // Free, unauthenticated path used by the client UI. For agent-driven installs
-  // with sponsor gating, see the install_community_skill MCP tool in tool-server.ts.
+  // POST /install-community — install a skill from the community (arkestrator.com).
+  //
+  // Gated by the same admin kill switch as the agent install path so operators
+  // who disable community installs get both UI and agent paths blocked. The
+  // caller can no longer supply an arbitrary `communityBaseUrl` — the server
+  // resolves it from config only, closing an authenticated SSRF vector.
   router.post("/install-community", async (c) => {
     const auth = await requireWriteAccess(c);
     if (!auth) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+
+    const { isAgentCommunityEnabled } = await import("../skills/community-install.js");
+    if (!isAgentCommunityEnabled(settingsRepo)) {
+      return errorResponse(c, 403, "Community skill install is disabled on this server. Ask your admin to enable it in Settings → Community.", "COMMUNITY_DISABLED");
+    }
 
     let body: unknown;
     try {
@@ -471,15 +513,14 @@ export function createSkillsRoutes(
     }
 
     const parsed = z.object({
-      communityId: z.string().min(1),
-      communityBaseUrl: z.string().url().optional(),
+      communityId: z.string().min(1).max(256),
     }).safeParse(body);
     if (!parsed.success) {
       return errorResponse(c, 400, parsed.error.message, "VALIDATION_ERROR");
     }
 
-    const { communityId, communityBaseUrl } = parsed.data;
-    const baseUrl = communityBaseUrl ?? resolveCommunityBaseUrl(settingsRepo);
+    const { communityId } = parsed.data;
+    const baseUrl = resolveCommunityBaseUrl(settingsRepo);
 
     const result = await installCommunitySkill({
       communityId,
@@ -492,10 +533,13 @@ export function createSkillsRoutes(
 
     if (!result.ok) {
       const status = result.error === "not_found" ? 404
+        : result.error === "invalid_content" || result.error === "content_too_large" ? 422
         : result.error === "unreachable" || result.error === "download_failed" ? 502
         : 500;
       return errorResponse(c, status, result.message, "UPSTREAM_ERROR");
     }
+
+    logger.info("skills", `Community skill installed via UI: ${result.slug} [${result.program}] (communityId=${result.communityId})`);
 
     return c.json(
       { skill: result.skill, communityId: result.communityId, slug: result.slug, program: result.program },
@@ -871,7 +915,9 @@ export function createSkillsRoutes(
     return c.json({ ok: true, imported, updated, skipped, depsInstalled, errors: errors.slice(0, 20) });
   });
 
-  // POST /import — import standard Agent Skills from a GitHub repo
+  // POST /import — import standard Agent Skills from a GitHub repo.
+  // URL must point at github.com (https) so users can't smuggle SSRF targets,
+  // and subPath is sanitised to reject `..` or absolute paths.
   router.post("/import", async (c) => {
     const auth = await requireWriteAccess(c);
     if (!auth) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
@@ -884,6 +930,29 @@ export function createSkillsRoutes(
 
     if (!repoUrl || typeof repoUrl !== "string") {
       return errorResponse(c, 400, "repoUrl is required", "BAD_REQUEST");
+    }
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(repoUrl);
+    } catch {
+      return errorResponse(c, 400, "repoUrl is not a valid URL", "BAD_REQUEST");
+    }
+    if (parsedUrl.protocol !== "https:" || parsedUrl.host !== "github.com") {
+      return errorResponse(c, 400, "repoUrl must be an https://github.com/... URL", "BAD_REQUEST");
+    }
+    if (!/^\/[^/]+\/[^/]+\/?$/.test(parsedUrl.pathname.replace(/\.git$/, ""))) {
+      return errorResponse(c, 400, "repoUrl must point at a repository (owner/repo)", "BAD_REQUEST");
+    }
+    if (subPath != null) {
+      if (typeof subPath !== "string") {
+        return errorResponse(c, 400, "subPath must be a string", "BAD_REQUEST");
+      }
+      if (subPath.includes("..") || subPath.startsWith("/") || subPath.startsWith("\\")) {
+        return errorResponse(c, 400, "subPath must be a relative path without '..'", "BAD_REQUEST");
+      }
+    }
+    if (typeof targetProgram !== "string" || targetProgram.length > 64) {
+      return errorResponse(c, 400, "program must be a short identifier", "BAD_REQUEST");
     }
 
     try {
@@ -1167,11 +1236,7 @@ export function createSkillsRoutes(
     const auth = await requireWriteAccess(c);
     if (!auth) return errorResponse(c, 403, "Admin or editCoordinator required", "FORBIDDEN");
 
-    const config: Record<string, number> = {};
-    for (const [field, dbKey] of Object.entries(SKILL_RANKING_SETTINGS_KEYS)) {
-      const stored = settingsRepo?.getNumber(dbKey) ?? null;
-      config[field] = stored ?? DEFAULT_SKILL_RANKING_CONFIG[field as keyof SkillRankingConfig];
-    }
+    const config = loadSkillRankingConfig(settingsRepo ?? null);
     return c.json({ config, defaults: DEFAULT_SKILL_RANKING_CONFIG });
   });
 
@@ -1188,26 +1253,41 @@ export function createSkillsRoutes(
       return errorResponse(c, 400, "Invalid JSON body", "BAD_REQUEST");
     }
 
+    // Per-field upper bounds so bad admin input can't blow up the ranker.
+    const BOUNDS: Record<keyof SkillRankingConfig, [number, number]> = {
+      explorationThreshold: [0, 10_000],
+      establishedThreshold: [0, 10_000],
+      explorationBonus: [0, 1],
+      effectivenessFloor: [0, 1],
+      weightLexical: [0, 10],
+      weightSemantic: [0, 10],
+      weightEffectiveness: [0, 10],
+      minScoreThreshold: [0, 1],
+    };
+
     const updated: string[] = [];
-    for (const [field, dbKey] of Object.entries(SKILL_RANKING_SETTINGS_KEYS)) {
+    for (const [field, dbKey] of Object.entries(SKILL_RANKING_SETTINGS_KEYS) as Array<[keyof SkillRankingConfig, string]>) {
       if (!(field in body)) continue;
       const val = Number(body[field]);
-      if (!Number.isFinite(val) || val < 0) {
-        return errorResponse(c, 400, `Invalid value for ${field}: must be a non-negative number`, "BAD_REQUEST");
+      if (!Number.isFinite(val)) {
+        return errorResponse(c, 400, `Invalid value for ${field}: must be a number`, "BAD_REQUEST");
+      }
+      const [lo, hi] = BOUNDS[field];
+      if (val < lo || val > hi) {
+        return errorResponse(c, 400, `Invalid value for ${field}: must be in [${lo}, ${hi}]`, "BAD_REQUEST");
       }
       settingsRepo.setNumber(dbKey, val);
       updated.push(field);
     }
 
-    // Read back current state
-    const config: Record<string, number> = {};
-    for (const [field, dbKey] of Object.entries(SKILL_RANKING_SETTINGS_KEYS)) {
-      const stored = settingsRepo.getNumber(dbKey) ?? null;
-      config[field] = stored ?? DEFAULT_SKILL_RANKING_CONFIG[field as keyof SkillRankingConfig];
+    // Cross-field sanity: explorationThreshold must be <= establishedThreshold.
+    const snapshot = loadSkillRankingConfig(settingsRepo);
+    if (snapshot.explorationThreshold > snapshot.establishedThreshold) {
+      return errorResponse(c, 400, "explorationThreshold must be <= establishedThreshold", "BAD_REQUEST");
     }
 
     logger.info("skills", `Skill ranking config updated: ${updated.join(", ")}`);
-    return c.json({ ok: true, updated, config });
+    return c.json({ ok: true, updated, config: snapshot });
   });
 
   /** POST /ranking-config/reset — reset ranking config to defaults */
