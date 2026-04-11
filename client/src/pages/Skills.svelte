@@ -59,6 +59,8 @@
   let skillEditPriority = $state(50);
   let skillEditEnabled = $state(true);
   let skillEditAutoFetch = $state(false);
+  let skillEditRelatedSkills = $state<string[]>([]);
+  let skillRelatedPickerValue = $state("");
   let skillSaving = $state(false);
   let skillVersions = $state<Array<{ id: string; version: number; content: string; keywords: string[]; description: string; createdAt: string }>>([]);
   let skillCurrentVersion = $state(0);
@@ -446,7 +448,19 @@
     skillEditPriority = skillViewData.priority ?? 50;
     skillEditEnabled = skillViewData.enabled !== false;
     skillEditAutoFetch = skillViewData.autoFetch === true;
+    skillEditRelatedSkills = [...(skillViewData.relatedSkills ?? [])];
+    skillRelatedPickerValue = "";
     skillEditMode = true;
+  }
+
+  function addSkillRelated(slug: string) {
+    if (!slug || skillEditRelatedSkills.includes(slug)) return;
+    skillEditRelatedSkills = [...skillEditRelatedSkills, slug];
+    skillRelatedPickerValue = "";
+  }
+
+  function removeSkillRelated(slug: string) {
+    skillEditRelatedSkills = skillEditRelatedSkills.filter((s) => s !== slug);
   }
 
   async function saveSkillEdit() {
@@ -460,6 +474,7 @@
         priority: skillEditPriority,
         enabled: skillEditEnabled,
         autoFetch: skillEditAutoFetch,
+        relatedSkills: skillEditRelatedSkills,
       }, skillViewData.program);
       info = "Skill updated";
       skillEditMode = false;
@@ -1179,6 +1194,28 @@
               <span class="label">Content</span>
               <textarea rows="15" style="font-family: var(--font-mono); width: 100%; resize: vertical; font-size: 0.85em;" bind:value={skillEditContent}></textarea>
             </label>
+            <label>
+              <span class="label">Related Skills</span>
+              {#if skillEditRelatedSkills.length > 0}
+                <div class="related-chip-list">
+                  {#each skillEditRelatedSkills as relSlug}
+                    <span class="related-chip">
+                      {relSlug}
+                      <button type="button" class="chip-remove" onclick={() => removeSkillRelated(relSlug)} aria-label="Remove">×</button>
+                    </span>
+                  {/each}
+                </div>
+              {/if}
+              <select
+                bind:value={skillRelatedPickerValue}
+                onchange={(e) => { addSkillRelated(e.currentTarget.value); e.currentTarget.value = ""; }}
+              >
+                <option value="">+ Add related skill…</option>
+                {#each skills.filter(s => s.slug !== skillViewData?.slug && !skillEditRelatedSkills.includes(s.slug)) as s}
+                  <option value={s.slug}>{s.slug}{s.program ? " (" + s.program + ")" : ""}</option>
+                {/each}
+              </select>
+            </label>
             <div class="form-row" style="justify-content: flex-end;">
               <button class="btn-sm" onclick={() => { skillEditMode = false; }} disabled={skillSaving}>Cancel</button>
               <button class="btn-sm" onclick={saveSkillEdit} disabled={skillSaving}>{skillSaving ? "Saving..." : "Save"}</button>
@@ -1464,4 +1501,8 @@
     padding: 8px 12px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;
     font-size: var(--font-size-sm); color: var(--status-failed);
   }
+  .related-chip-list { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+  .related-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; background: var(--bg-elevated, rgba(255,255,255,0.05)); border: 1px solid var(--border); border-radius: var(--radius-sm); font-family: var(--font-mono); font-size: 0.82em; }
+  .related-chip .chip-remove { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 0 2px; font-size: 1em; line-height: 1; }
+  .related-chip .chip-remove:hover { color: var(--status-failed, #e05555); }
 </style>

@@ -54,6 +54,11 @@
   let filterProgram = $state("");
   let filterCategory = $state("");
   let filterSource = $state("");
+  let filterType = $state<"" | "api" | "dcc">("");
+  let filterEnabled = $state<"" | "enabled" | "disabled">("");
+  let filterKeyword = $state("");
+  let filterSearch = $state("");
+  let apiBridgeNames = $state<Set<string>>(new Set());
 
   // Import
   let importFileInput: HTMLInputElement | undefined = $state(undefined);
@@ -96,6 +101,8 @@
   let editPriority = $state(50);
   let editEnabled = $state(true);
   let editAutoFetch = $state(false);
+  let editRelatedSkills = $state<string[]>([]);
+  let relatedPickerValue = $state("");
   let saving = $state(false);
 
   // Version history
@@ -174,13 +181,58 @@
     if (filterSource) {
       result = result.filter((s) => s.source === filterSource);
     }
+    if (filterType === "api") {
+      result = result.filter((s) => s.program && apiBridgeNames.has(s.program.toLowerCase()));
+    } else if (filterType === "dcc") {
+      result = result.filter((s) => s.program === "global" || (s.program && !apiBridgeNames.has(s.program.toLowerCase())));
+    }
+    if (filterEnabled === "enabled") {
+      result = result.filter((s) => s.enabled !== false);
+    } else if (filterEnabled === "disabled") {
+      result = result.filter((s) => s.enabled === false);
+    }
+    if (filterKeyword) {
+      const kw = filterKeyword.toLowerCase();
+      result = result.filter((s) => s.keywords?.some((k) => k.toLowerCase() === kw));
+    }
+    if (filterSearch) {
+      const q = filterSearch.toLowerCase().trim();
+      result = result.filter((s) =>
+        s.slug.toLowerCase().includes(q) ||
+        (s.title ?? "").toLowerCase().includes(q) ||
+        (s.program ?? "").toLowerCase().includes(q) ||
+        (s.category ?? "").toLowerCase().includes(q) ||
+        (s.description ?? "").toLowerCase().includes(q) ||
+        (s.keywords ?? []).some((k) => k.toLowerCase().includes(q)),
+      );
+    }
     return result;
   });
+
+  const activeFilterCount = $derived(
+    (filterProgram ? 1 : 0) +
+    (filterCategory ? 1 : 0) +
+    (filterSource ? 1 : 0) +
+    (filterType ? 1 : 0) +
+    (filterEnabled ? 1 : 0) +
+    (filterKeyword ? 1 : 0) +
+    (filterSearch ? 1 : 0)
+  );
+
+  function clearAllFilters() {
+    filterProgram = "";
+    filterCategory = "";
+    filterSource = "";
+    filterType = "";
+    filterEnabled = "";
+    filterKeyword = "";
+    filterSearch = "";
+  }
 
   // Clear selection when filters change
   $effect(() => {
     // Subscribe to filter values
-    filterProgram; filterCategory; filterSource;
+    filterProgram; filterCategory; filterSource; filterType; filterEnabled; filterKeyword; filterSearch;
     selectedSlugs = new Set();
   });
 
@@ -208,6 +260,14 @@
     return Array.from(set).sort();
   });
 
+  let allKeywords = $derived.by(() => {
+    const set = new Set<string>();
+    for (const s of skills) {
+      if (s.keywords) for (const k of s.keywords) if (k?.trim()) set.add(k.trim().toLowerCase());
+    }
+    return Array.from(set).sort();
+  });
+
   async function load() {
     loading = true;
     try {
@@ -222,6 +282,18 @@
         } catch {
           effectivenessStats = {};
         }
+      }
+      // Build the api-bridge name set so the Type filter can separate API from DCC.
+      try {
+        const apiBridges = await api.apiBridges.list();
+        const names = new Set<string>();
+        for (const ab of Array.isArray(apiBridges) ? apiBridges : []) {
+          const name = String((ab as any)?.name ?? "").trim().toLowerCase();
+          if (name) names.add(name);
+        }
+        apiBridgeNames = names;
+      } catch {
+        // Non-fatal: leave the set empty, the api/dcc filter just behaves like "all"
       }
     } catch (err: any) {
       toast.error(err.message ?? "Failed to load skills");
@@ -439,7 +511,19 @@
     editPriority = detailSkill.priority ?? 50;
     editEnabled = detailSkill.enabled !== false;
     editAutoFetch = detailSkill.autoFetch === true;
+    editRelatedSkills = [...(detailSkill.relatedSkills ?? [])];
+    relatedPickerValue = "";
     editMode = true;
+  }
+
+  function addRelatedSkill(slug: string) {
+    if (!slug || editRelatedSkills.includes(slug)) return;
+    editRelatedSkills = [...editRelatedSkills, slug];
+    relatedPickerValue = "";
+  }
+
+  function removeRelatedSkill(slug: string) {
+    editRelatedSkills = editRelatedSkills.filter((s) => s !== slug);
   }
 
   async function saveEdit() {
@@ -453,6 +537,7 @@
         priority: editPriority,
         enabled: editEnabled,
         autoFetch: editAutoFetch,
+        relatedSkills: editRelatedSkills,
       }, detailSkill.program || undefined);
       toast.success("Skill updated");
       editMode = false;
@@ -642,6 +727,11 @@
           <option value={p}>{p}</option>
         {/each}
       </select>
+      <select bind:value={filterType}>
+        <option value="">All Types</option>
+        <option value="api">API Bridge</option>
+        <option value="dcc">DCC Bridge</option>
+      </select>
       <select bind:value={filterCategory}>
         <option value="">All Categories</option>
         {#each uniqueCategories as c}
@@ -654,6 +744,23 @@
           <option value={s}>{s}</option>
         {/each}
       </select>
+      <select bind:value={filterEnabled}>
+        <option value="">All Status</option>
+        <option value="enabled">Enabled</option>
+        <option value="disabled">Disabled</option>
+      </select>
+      <select bind:value={filterKeyword}>
+        <option value="">All Keywords</option>
+        {#each allKeywords as kw}
+          <option value={kw}>{kw}</option>
+        {/each}
+      </select>
+      <input type="text" placeholder="Search skills..." bind:value={filterSearch} class="filter-search" />
+      {#if activeFilterCount > 0}
+        <button class="btn-secondary filter-clear" onclick={clearAllFilters}>
+          Clear ({activeFilterCount})
+        </button>
+      {/if}
     </div>
     <div class="toolbar-actions">
       <button class="btn-secondary" onclick={() => (createOpen = true)}>Create Skill</button>
@@ -915,6 +1022,28 @@
         <span>Content</span>
         <textarea bind:value={editContent} rows="15" class="content-editor"></textarea>
       </label>
+      <label class="field">
+        <span>Related Skills</span>
+        {#if editRelatedSkills.length > 0}
+          <div class="related-chip-list">
+            {#each editRelatedSkills as relSlug}
+              <span class="related-chip">
+                {relSlug}
+                <button type="button" class="chip-remove" onclick={() => removeRelatedSkill(relSlug)} aria-label="Remove">×</button>
+              </span>
+            {/each}
+          </div>
+        {/if}
+        <select
+          bind:value={relatedPickerValue}
+          onchange={(e) => { addRelatedSkill(e.currentTarget.value); e.currentTarget.value = ""; }}
+        >
+          <option value="">+ Add related skill…</option>
+          {#each skills.filter(s => s.slug !== detailSkill?.slug && !editRelatedSkills.includes(s.slug)) as s}
+            <option value={s.slug}>{s.slug}{s.program ? " (" + s.program + ")" : ""}</option>
+          {/each}
+        </select>
+      </label>
       <div class="actions">
         <button class="btn-secondary" onclick={() => { editMode = false; }}>Cancel</button>
         <button class="btn-primary" onclick={saveEdit} disabled={saving}>{saving ? "Saving..." : "Save"}</button>
@@ -1118,8 +1247,10 @@
 
 <style>
   .page { padding: 24px; }
-  .toolbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 14px; }
-  .filters { display: flex; gap: 8px; }
+  .toolbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .filter-search { min-width: 180px; padding: 5px 8px; background: var(--bg-elevated, rgba(255,255,255,0.04)); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text); }
+  .filter-clear { font-size: var(--font-size-sm); }
   .filters select { font-size: var(--font-size-sm); padding: 6px 8px; }
   .btn-link { background: none; border: none; color: var(--accent); cursor: pointer; text-decoration: underline; padding: 0; font-size: inherit; }
   .btn-link:hover { opacity: 0.8; }
@@ -1200,6 +1331,10 @@
   .playbook-content-view { white-space: pre-wrap; font-family: var(--font-mono); font-size: 0.8em; max-height: 400px; overflow-y: auto; padding: 8px; background: var(--bg-elevated, rgba(0,0,0,0.2)); border-radius: var(--radius-sm); margin-top: 4px; }
   .playbook-error { color: #e05555; font-size: var(--font-size-sm); }
   .related-skills { display: flex; flex-wrap: wrap; gap: 6px; }
+  .related-chip-list { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+  .related-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; background: var(--bg-elevated, rgba(255,255,255,0.05)); border: 1px solid var(--border); border-radius: var(--radius-sm); font-family: var(--font-mono); font-size: 0.82em; }
+  .related-chip .chip-remove { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 0 2px; font-size: 1em; line-height: 1; }
+  .related-chip .chip-remove:hover { color: #e05555; }
   .registry-list { display: flex; flex-direction: column; gap: 8px; max-height: 400px; overflow-y: auto; margin-bottom: 12px; }
   .registry-item { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
   .registry-info { flex: 1; min-width: 0; }
