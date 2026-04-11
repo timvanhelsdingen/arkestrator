@@ -1085,7 +1085,7 @@ Check before final completion, after long-running steps, and before irreversible
 **When stuck:** STOP and \`search_skills\` for the specific problem before retrying. Do NOT simplify or drop work due to limitations — search for workarounds first.
 **If the actual target bridge turns out to be different from the one this job was tagged with:** call \`retarget_job(program, reason)\` immediately. This updates the job's bridge_program tag, reloads the correct auto-fetch coordinator/bridge skills inline in the response, and aligns effectiveness tracking so your work isn't attributed to the wrong program. Do this the moment you notice the mismatch — before writing any execution code.
 **After completion:** If you learned ANYTHING non-trivial — a working script, a parameter combo that matters, a gotcha, a version quirk, a multi-step order-of-operations — call \`create_skill\` before exiting. Do not set the bar at "groundbreaking insight". The bar is "future-me on a similar task would be faster if they read this". Skip only if the task was truly trivial (single one-liner, already documented everywhere).
-**MANDATORY rating:** Before exiting you MUST call \`rate_skill(slug, "useful"|"not_useful"|"partial")\` for every skill you touched (auto-fetched, searched, or got) and \`rate_job("good"|"average"|"poor")\` for your own outcome. Skipping this breaks the learning loop.
+**MANDATORY rating:** Before exiting you MUST call \`rate_skill(slug, "useful"|"not_useful"|"partial", notes)\` for every skill you touched (auto-fetched, searched, or got) and \`rate_job("good"|"average"|"poor", notes)\` for your own outcome. Always pass a short one-sentence \`notes\` reason on \`rate_skill\` — humans read these in the admin UI to see *why* you rated it that way. Skipping this breaks the learning loop.
 
 ---
 
@@ -1111,7 +1111,7 @@ Organize render outputs in \`{projectRoot}/renders/{bridge}/\`.
 1. Summarize completed work.
 2. Include PASS/FAIL verification evidence.
 3. **Create skills (REQUIRED when you learned anything reusable)** — call \`create_skill(slug, title, program, content, keywords)\` for every non-trivial pattern, working snippet, gotcha, version quirk, or multi-step recipe you used or discovered. Include the actual working code, specific parameter values, and any pitfalls. Default to creating. Skip ONLY if the task was a true one-liner already documented everywhere. Recent job history shows this step is being skipped too often — assume future-you will need this.
-4. **Rate skills (REQUIRED)** — call \`rate_skill(slug, "useful"|"not_useful"|"partial")\` for every skill listed in the Coordinator Knowledge section and every skill you fetched or saw in search. No skill = no rating call is acceptable.
+4. **Rate skills (REQUIRED)** — call \`rate_skill(slug, "useful"|"not_useful"|"partial", notes)\` for every skill listed in the Coordinator Knowledge section and every skill you fetched or saw in search. Always include a short one-sentence \`notes\` reason. No skill = no rating call is acceptable.
 5. **Rate the job (REQUIRED)** — call \`rate_job("good"|"average"|"poor")\` with a brief note. Do this exactly once, near the end.
 6. Include a **Skills Report** listing skills created, updated, used, or rated.
 7. Exit cleanly.

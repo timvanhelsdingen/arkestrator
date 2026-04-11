@@ -1808,7 +1808,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
           }
         }
       }
-      const rateReminder = `\n\n---\n_After using this skill, call \`rate_skill("${slug}", "useful"|"not_useful"|"partial")\` to help improve future recommendations._`;
+      const rateReminder = `\n\n---\n_After using this skill, call \`rate_skill("${slug}", "useful"|"not_useful"|"partial", notes: "<short reason>")\` — always include a one-sentence \`notes\` reason so humans can see why you rated it that way._`;
 
       // Layer 2: untrusted-content framing for community-sourced skills.
       // The skill body is concatenated directly into the agent's tool result
@@ -2034,11 +2034,12 @@ export function createMcpServer(deps: McpDeps): McpServer {
   server.tool(
     "rate_skill",
     "Rate how useful a skill was for your current task. Call this after completing work to improve skill effectiveness tracking. " +
-      "Rate each auto-fetched skill that was injected into your prompt.",
+      "Rate each auto-fetched skill that was injected into your prompt. " +
+      "Always include a short `notes` reason (one sentence is fine) — this is shown in the admin UI and is the primary way humans see *why* a skill was rated the way it was.",
     {
       slug: z.string().describe("The skill slug"),
       rating: z.enum(["useful", "not_useful", "partial"]).describe("How useful was this skill for the current task"),
-      notes: z.string().optional().describe("Brief reason (e.g. 'naming conventions matched perfectly' or 'not relevant to this task')"),
+      notes: z.string().max(500).optional().describe("Short reason for the rating (~1 sentence). Examples: 'naming conventions matched perfectly', 'wrong bridge — meant for Blender, I was in Godot', 'outdated API reference'. Keep it terse; this is persisted and surfaced to humans."),
     },
     async ({ slug, rating, notes }) => {
       if (!deps.skillEffectivenessRepo || !deps.callerJobId) {
@@ -2072,7 +2073,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
       if (!outcome) {
         return { content: [{ type: "text" as const, text: `Invalid rating "${rating}" — expected useful | not_useful | partial` }], isError: true };
       }
-      deps.skillEffectivenessRepo.recordSkillOutcome(skill.id, deps.callerJobId, outcome);
+      deps.skillEffectivenessRepo.recordSkillOutcome(skill.id, deps.callerJobId, outcome, notes ?? null);
       const notesSuffix = notes ? ` — ${notes}` : "";
       return { content: [{ type: "text" as const, text: `Recorded: ${slug} → ${rating}${notesSuffix}` }] };
     },

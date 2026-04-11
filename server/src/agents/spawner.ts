@@ -2019,8 +2019,11 @@ export async function spawnAgent(
         "already documented everywhere. When in doubt, create.\n" +
         "2. **rate_job** — Call `rate_job(\"good\"|\"average\"|\"poor\", notes)` exactly once near the end. This is " +
         "your self-assessment of how the whole task went.\n" +
-        "3. **rate_skill** — Call `rate_skill(slug, \"useful\"|\"not_useful\"|\"partial\")` for every skill you " +
-        "touched: the auto-fetched Coordinator Knowledge skills AND anything you loaded via search_skills/get_skill." +
+        "3. **rate_skill** — Call `rate_skill(slug, \"useful\"|\"not_useful\"|\"partial\", notes)` for every skill you " +
+        "touched: the auto-fetched Coordinator Knowledge skills AND anything you loaded via search_skills/get_skill. " +
+        "Always include a short `notes` reason (one sentence is enough) so humans can see *why* you rated it that way — " +
+        "e.g. \"naming conventions matched perfectly\", \"wrong bridge, content was Blender-specific\", or " +
+        "\"outdated API reference\". Ratings without notes are much less useful for tuning." +
         (autoFetchSlugs.length > 0
           ? `\n   Auto-fetched skills that MUST be rated: ${autoFetchSlugs.map((s) => `\`${s}\``).join(", ")}.`
           : "") +
