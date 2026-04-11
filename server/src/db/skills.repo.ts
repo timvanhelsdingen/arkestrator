@@ -78,6 +78,13 @@ export interface Skill {
   authorVerified: boolean;
   /** Full author metadata snapshot at install time. */
   authorMeta: SkillAuthorMeta | null;
+  /**
+   * For community-sourced skills: the upstream arkestrator.com skill id,
+   * used to push rate_skill outcomes back to the marketplace as 1-5 stars.
+   * null for non-community skills and for community skills installed before
+   * this column existed.
+   */
+  communityId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -128,6 +135,7 @@ interface SkillRow {
   author_login: string | null;
   author_verified: number;
   author_meta: string | null;
+  community_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -164,6 +172,8 @@ export interface CreateSkillInput {
   authorLogin?: string | null;
   authorVerified?: boolean;
   authorMeta?: SkillAuthorMeta | null;
+  /** Upstream arkestrator.com skill id (community installs only). */
+  communityId?: string | null;
 }
 
 /** Fields accepted when updating a skill. All optional. */
@@ -235,6 +245,7 @@ function rowToSkill(row: SkillRow): Skill {
     authorLogin: row.author_login ?? null,
     authorVerified: row.author_verified === 1,
     authorMeta: parseAuthorMeta(row.author_meta),
+    communityId: row.community_id ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -277,12 +288,12 @@ export class SkillsRepo {
       "SELECT * FROM skills WHERE slug = ? AND program = ? LIMIT 1",
     );
     this.insertStmt = db.prepare(`
-      INSERT INTO skills (id, name, slug, program, mcp_preset_id, category, title, description, keywords, content, playbooks, related_skills, source, source_path, priority, auto_fetch, enabled, version, app_version, repo_content_hash, trust_tier, flagged, flagged_reasons, author_login, author_verified, author_meta, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO skills (id, name, slug, program, mcp_preset_id, category, title, description, keywords, content, playbooks, related_skills, source, source_path, priority, auto_fetch, enabled, version, app_version, repo_content_hash, trust_tier, flagged, flagged_reasons, author_login, author_verified, author_meta, community_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     this.upsertStmt = db.prepare(`
-      INSERT INTO skills (id, name, slug, program, mcp_preset_id, category, title, description, keywords, content, playbooks, related_skills, source, source_path, priority, auto_fetch, enabled, version, app_version, repo_content_hash, trust_tier, flagged, flagged_reasons, author_login, author_verified, author_meta, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO skills (id, name, slug, program, mcp_preset_id, category, title, description, keywords, content, playbooks, related_skills, source, source_path, priority, auto_fetch, enabled, version, app_version, repo_content_hash, trust_tier, flagged, flagged_reasons, author_login, author_verified, author_meta, community_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(slug, program) DO UPDATE SET
         name = excluded.name, mcp_preset_id = excluded.mcp_preset_id,
         category = excluded.category, title = excluded.title,
@@ -297,6 +308,7 @@ export class SkillsRepo {
         author_login = COALESCE(excluded.author_login, author_login),
         author_verified = excluded.author_verified,
         author_meta = COALESCE(excluded.author_meta, author_meta),
+        community_id = COALESCE(excluded.community_id, community_id),
         updated_at = excluded.updated_at
     `);
     this.deleteBySlugStmt = db.prepare("DELETE FROM skills WHERE slug = ?");
@@ -354,6 +366,7 @@ export class SkillsRepo {
       input.authorLogin ?? null,
       (input.authorVerified ?? false) ? 1 : 0,
       input.authorMeta ? JSON.stringify(input.authorMeta) : null,
+      input.communityId ?? null,
       now, now,
     );
     return this.get(input.slug, program)!;
@@ -516,6 +529,7 @@ export class SkillsRepo {
       input.authorLogin ?? null,
       (input.authorVerified ?? false) ? 1 : 0,
       input.authorMeta ? JSON.stringify(input.authorMeta) : null,
+      input.communityId ?? null,
       now, now,
     );
     return this.get(input.slug, program)!;

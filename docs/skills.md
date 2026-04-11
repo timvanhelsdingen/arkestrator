@@ -389,9 +389,28 @@ The community install pipeline (client UI + agent MCP) enforces:
 - **No caller-supplied base URL:** `POST /install-community` no longer accepts `communityBaseUrl` in the request body — the server always resolves it from config. This closes an authenticated SSRF vector where any user with write access could force the server to fetch from an arbitrary host.
 - **Resolution priority:** `server_settings community.baseUrl` > `ARKESTRATOR_COMMUNITY_BASE_URL` env var > default. The admin UI is authoritative over the env var.
 
+### Star rating feedback loop
+
+Community skills have a 1-5 star rating on arkestrator.com (`avg_rating` + `rating_count` per skill). Ratings flow in two ways:
+
+**Agent-driven (rolling average).** When an agent calls `rate_skill` on a community-sourced skill, the server:
+
+1. Records the internal `useful | partial | not_useful` outcome as usual.
+2. Looks up the acting user's community session token from `users.community_session_token`.
+3. Computes a per-user rolling tally for that skill via `SkillEffectivenessRepo.getUserOutcomeTally`, which joins `skill_effectiveness` with `jobs` on `submitted_by` so other users' ratings on the same server don't leak into your public score.
+4. Maps outcomes to stars (`positive=5`, `average=3`, `negative=1`), computes the mean, rounds, clamps to `[1,5]`.
+5. POSTs to `arkestrator.com/api/skills/:communityId/rate` with a Bearer token. The upstream endpoint is upsert-per-user, so a later job's rating replaces the previous one — this is what "adjust rating with new jobs" means.
+
+The local internal rating is the source of truth — any upstream push failure is logged but never fails `rate_skill`. Non-community skills skip the push entirely. The upstream `communityId` is stored in the new `skills.community_id` column at install time; community skills installed before this column existed carry a null and will silently skip the upstream push.
+
+**Manual (client UI).** The skill detail modal in the desktop client includes a StarRating widget under the description. When the user has an active community auth token in `Settings → Community`, they can click to submit a 1-5 star rating directly to arkestrator.com via `communityApi.rateSkill`; the same `GET /api/skills/:id/rating` endpoint pre-populates their previous choice when the modal opens. The aggregate (`avg_rating` + `rating_count`) renders in both the SkillCard and the modal header.
+
+A parallel server proxy route exists at `GET/POST /api/skills/community/:communityId/rating` (and `/rate`) for `am` CLI users or other headless clients that prefer to forward through the local server rather than hit arkestrator.com directly.
+
 ### Server files
 
 - `server/src/skills/community-install.ts` — shared install helper with forward-compatible error handling (used by both `POST /install-community` HTTP route and the `install_community_skill` MCP tool)
+- `server/src/skills/community-rating.ts` — `pushCommunityRating` / `fetchCommunityUserRating` helpers used by the `rate_skill` MCP hook and the manual-rating HTTP routes
 - `server/src/mcp/tool-server.ts` — MCP tool registration for `search_community_skills` and `install_community_skill`
 - `server/src/routes/settings-general.ts` — `PUT /api/settings/community-session` (per-user), admin community kill-switch/base-url endpoints
 - `server/src/db/users.repo.ts` — `setCommunitySessionToken`, `getCommunitySessionToken`, `listWithCommunitySession`

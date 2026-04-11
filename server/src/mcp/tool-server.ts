@@ -1856,7 +1856,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
     "Search the Arkestrator community skill registry at arkestrator.com. " +
       "Use this as a FALLBACK only when search_skills returns no relevant local skills for your task. " +
       "Results include an 'alreadyInstalledLocally' flag — if true, the skill is already available via get_skill with the local slug, so DO NOT call install_community_skill for it. " +
-      "Free for all users. Returns { skills: [{ id, slug, title, description, program, category, alreadyInstalledLocally }], unreachable?: true }. " +
+      "Results also include crowd ratings: 'avg_rating' (1-5 stars or null if never rated) and 'rating_count' — prefer higher-rated skills when multiple candidates match your task. " +
+      "Free for all users. Returns { skills: [{ id, slug, title, description, program, category, alreadyInstalledLocally, avg_rating, rating_count }], unreachable?: true }. " +
       "If unreachable is true, the community registry is temporarily offline — proceed with whatever local skills you have.",
     {
       query: z.string().describe("Natural language description of the skill or guidance you need"),
@@ -2074,8 +2075,65 @@ export function createMcpServer(deps: McpDeps): McpServer {
         return { content: [{ type: "text" as const, text: `Invalid rating "${rating}" — expected useful | not_useful | partial` }], isError: true };
       }
       deps.skillEffectivenessRepo.recordSkillOutcome(skill.id, deps.callerJobId, outcome, notes ?? null);
+
+      // Push a 1-5 star rating upstream when this is a community-sourced skill.
+      // We compute a rolling average of the acting user's internal outcomes for
+      // this skill (just inserted one is included) and submit the rounded star
+      // score to arkestrator.com. The upstream endpoint is upsert-per-user, so
+      // re-rating on a later job replaces the previous submission — this is the
+      // "adjust rating with new jobs" behavior the user asked for.
+      //
+      // Any failure here is swallowed (logged, reported in the tool text) —
+      // the local rating is the source of truth and a network blip should
+      // never fail rate_skill itself.
+      let communityNote = "";
+      try {
+        if (skill.source === "community" && skill.communityId && deps.usersRepo && deps.jobsRepo) {
+          const actingJob = deps.jobsRepo.getById(deps.callerJobId);
+          const actingUserId = actingJob?.submittedBy ?? null;
+          const { resolveCommunityPolicy, resolveCommunityBaseUrl } = await import("../skills/community-install.js");
+          const policy = resolveCommunityPolicy(deps.settingsRepo);
+          if (!policy.allowCommunity) {
+            communityNote = " (community: skipped — community skills disabled on this server)";
+          } else if (!actingUserId) {
+            communityNote = " (community: skipped — no acting user on this job)";
+          } else {
+            const sessionToken = deps.usersRepo.getCommunitySessionToken(actingUserId);
+            if (!sessionToken) {
+              communityNote = " (community: skipped — user not connected to arkestrator.com)";
+            } else {
+              const tally = deps.skillEffectivenessRepo.getUserOutcomeTally(skill.id, actingUserId);
+              const { outcomeTallyToStars, submitRatingForJob } = await import("../skills/community-rating.js");
+              const stars = outcomeTallyToStars(tally);
+              if (stars == null) {
+                communityNote = " (community: skipped — no rated samples yet)";
+              } else {
+                const baseUrl = resolveCommunityBaseUrl(deps.settingsRepo);
+                const pushResult = await submitRatingForJob({
+                  communityId: skill.communityId,
+                  baseUrl,
+                  sessionToken,
+                  score: stars,
+                  userId: actingUserId,
+                  jobId: deps.callerJobId,
+                  skillSlug: skill.slug,
+                });
+                if (pushResult.ok) {
+                  communityNote = ` (community: submitted ${stars}★ to arkestrator.com — avg ${pushResult.avg_rating.toFixed(1)} across ${pushResult.rating_count})`;
+                } else {
+                  communityNote = ` (community: upstream ${pushResult.error} — ${pushResult.message})`;
+                }
+              }
+            }
+          }
+        }
+      } catch (err: any) {
+        logger.warn("community-rating", `rate_skill upstream hook threw: ${err?.message ?? err}`);
+        communityNote = " (community: upstream push failed with an internal error — local rating still recorded)";
+      }
+
       const notesSuffix = notes ? ` — ${notes}` : "";
-      return { content: [{ type: "text" as const, text: `Recorded: ${slug} → ${rating}${notesSuffix}` }] };
+      return { content: [{ type: "text" as const, text: `Recorded: ${slug} → ${rating}${notesSuffix}${communityNote}` }] };
     },
   );
 

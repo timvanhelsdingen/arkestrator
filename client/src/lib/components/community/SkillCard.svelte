@@ -65,6 +65,12 @@
     </span>
     <span class="meta-item">v{skill.version}</span>
     <span class="meta-item">&#8681; {skill.downloads ?? 0}</span>
+    {#if (skill.rating_count ?? 0) > 0 && skill.avg_rating != null}
+      <span class="meta-item meta-rating" title={`${skill.avg_rating.toFixed(1)} average across ${skill.rating_count} rating${skill.rating_count === 1 ? "" : "s"}`}>
+        <span class="star">★</span> {skill.avg_rating.toFixed(1)}
+        <span class="rating-count">({skill.rating_count})</span>
+      </span>
+    {/if}
   </div>
 
   <div class="card-actions">
@@ -211,6 +217,20 @@
   }
   .meta-item {
     white-space: nowrap;
+  }
+  .meta-rating {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    color: var(--text-secondary);
+  }
+  .meta-rating .star {
+    color: #f5b301;
+    font-size: calc(var(--card-scale, 1) * 12px);
+    line-height: 1;
+  }
+  .meta-rating .rating-count {
+    color: var(--text-muted);
   }
 
   .card-actions {

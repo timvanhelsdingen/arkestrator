@@ -141,6 +141,40 @@ export class SkillEffectivenessRepo {
     }
   }
 
+  /**
+   * Per-user outcome tally for a skill. Joins skill_effectiveness with jobs
+   * on job_id and filters to the target user, so each caller's rolling
+   * average is isolated from other users on the same local server.
+   *
+   * Used by the community-rating push: we compute a user's rolling average
+   * across every internal rating they've ever left for a skill, map it to
+   * stars, and upsert it on arkestrator.com.
+   *
+   * Pending rows (job_outcome IS NULL) are ignored so one-shot search_skills
+   * touches that were never rated don't drag the average down.
+   */
+  getUserOutcomeTally(skillId: string, userId: string): { positive: number; average: number; negative: number; samples: number } {
+    try {
+      const row = this.db.prepare(
+        `SELECT
+            SUM(CASE WHEN se.job_outcome IN ('positive','good') THEN 1 ELSE 0 END) AS pos,
+            SUM(CASE WHEN se.job_outcome = 'average' THEN 1 ELSE 0 END) AS avg,
+            SUM(CASE WHEN se.job_outcome IN ('negative','poor') THEN 1 ELSE 0 END) AS neg
+           FROM skill_effectiveness se
+           JOIN jobs j ON j.id = se.job_id
+          WHERE se.skill_id = ?
+            AND j.submitted_by = ?
+            AND se.job_outcome IS NOT NULL`,
+      ).get(skillId, userId) as { pos: number | null; avg: number | null; neg: number | null } | null;
+      const positive = row?.pos ?? 0;
+      const average = row?.avg ?? 0;
+      const negative = row?.neg ?? 0;
+      return { positive, average, negative, samples: positive + average + negative };
+    } catch {
+      return { positive: 0, average: 0, negative: 0, samples: 0 };
+    }
+  }
+
   /** Get effectiveness stats for a specific skill. */
   getStats(skillId: string): SkillEffectivenessStats {
     try {

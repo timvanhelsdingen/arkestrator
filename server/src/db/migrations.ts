@@ -527,6 +527,13 @@ const COLUMN_ADDITIONS = [
   `ALTER TABLE skills ADD COLUMN author_verified INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE skills ADD COLUMN author_meta TEXT`,
   `CREATE INDEX IF NOT EXISTS idx_skills_flagged ON skills(flagged) WHERE flagged = 1`,
+  // community_id: the upstream arkestrator.com skill id for skills installed
+  // from the community registry (source='community'). Needed server-side so
+  // that rate_skill can push a 1-5 star rating upstream via
+  // POST /api/skills/:communityId/rate — the client-side localStorage manifest
+  // is not accessible from inside the MCP tool. Null for non-community skills.
+  `ALTER TABLE skills ADD COLUMN community_id TEXT`,
+  `CREATE INDEX IF NOT EXISTS idx_skills_community_id ON skills(community_id) WHERE community_id IS NOT NULL`,
 ];
 
 // Reset any jobs stuck in 'running' state (server crashed while they were active)
@@ -726,6 +733,7 @@ function rebuildSkillsTableIfNeeded(db: Database) {
       author_login      TEXT,
       author_verified   INTEGER NOT NULL DEFAULT 0,
       author_meta       TEXT,
+      community_id      TEXT,
       created_at        TEXT NOT NULL,
       updated_at        TEXT NOT NULL,
       UNIQUE(slug, program)
