@@ -1,6 +1,8 @@
 import { Database } from "bun:sqlite";
 import type { Worker } from "@arkestrator/protocol";
 import { newId } from "../utils/id.js";
+import { sanitizeLastProjectPath } from "../utils/project-path.js";
+import { logger } from "../utils/logger.js";
 
 interface WorkerRow {
   id: string;
@@ -173,6 +175,32 @@ export class WorkersRepo {
     const normalizedName = this.normalizeName(name);
     const normalizedMachineId = this.normalizeMachineId(machineId);
     const now = new Date().toISOString();
+
+    // Refuse to persist "sentinel" project paths like the user's home
+    // directory or an OS root. Bridges in an Untitled session sometimes
+    // report these as projectPath, and if they land in the workers row
+    // the job resolver will later inject them as a job's projectRoot —
+    // which spawns agent subprocesses with `cwd = <home>`, which on
+    // 2026-04-11 walked straight into the live SQLite file and
+    // corrupted the DB (see docs/reports/2026-04-11-db-corruption-postmortem.md).
+    //
+    // When the sanitiser rejects the path we log a WARN and treat it
+    // as "no projectPath supplied" — the existing last_project_path on
+    // the row is preserved via COALESCE, so a worker with a previously
+    // good path keeps it and never silently regresses to home.
+    let sanitizedProjectPath: string | undefined = projectPath;
+    if (projectPath) {
+      const check = sanitizeLastProjectPath(projectPath);
+      if (!check.ok) {
+        logger.warn(
+          "workers",
+          `Dropping unsafe lastProjectPath for worker ${normalizedName}: ${check.reason}`,
+        );
+        sanitizedProjectPath = undefined;
+      } else {
+        sanitizedProjectPath = check.path;
+      }
+    }
     const existing = normalizedMachineId
       ? (this.getByMachineId(normalizedMachineId) ?? this.getByName(normalizedName))
       : this.getByName(normalizedName);
@@ -208,7 +236,7 @@ export class WorkersRepo {
         normalizedMachineId ?? null,
         normalizedName,
         program ?? null,
-        projectPath ?? null,
+        sanitizedProjectPath ?? null,
         ip ?? null,
         now,
         existing.id,
@@ -241,7 +269,7 @@ export class WorkersRepo {
       normalizedMachineId ?? null,
       normalizedName,
       program ?? null,
-      projectPath ?? null,
+      sanitizedProjectPath ?? null,
       ip ?? null,
       now,
       now,

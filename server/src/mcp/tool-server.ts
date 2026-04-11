@@ -2224,6 +2224,23 @@ export function createMcpServer(deps: McpDeps): McpServer {
       if (!deps.skillsRepo && !deps.skillStore) {
         return { content: [{ type: "text" as const, text: "Skills system not available" }], isError: true };
       }
+      // Refuse to clobber a locked skill via the upsert path. update_skill
+      // already guards this, but create_skill ends up at
+      // upsertBySlugAndProgram which blindly overwrites — so agents can
+      // silently stomp curated content by "creating" over an existing slug.
+      // Checked via skillIndex (refreshed on every write) for the live state.
+      if (deps.skillIndex) {
+        const existing = deps.skillIndex.get(slug, program || undefined);
+        if (existing?.locked) {
+          return {
+            content: [{
+              type: "text" as const,
+              text: `Skill "${slug}" is locked and cannot be edited by agents. Only humans can unlock it via the UI.`,
+            }],
+            isError: true,
+          };
+        }
+      }
       try {
         // Validate and strip invalid relatedSkills references
         let validatedRelated = relatedSkills || [];
