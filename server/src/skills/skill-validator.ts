@@ -265,8 +265,103 @@ const INJECTION_SCAN_RULES: ScanRule[] = [
     reason: "Contains model system-prompt delimiter tokens — these should never appear in user content.",
     test: /<\|(?:system|im_start|im_end|endoftext)\|>|\[INST\]|\[\/INST\]|<\|start_header_id\|>|^### System:/im,
   },
+  // ── Destructive capability rules ───────────────────────────────────
+  // These target instructions that describe destructive OS/filesystem
+  // actions rather than prompt-injection language. A skill telling the
+  // agent to `rm -rf ~` is just as dangerous as one telling it to ignore
+  // prior instructions — arguably more so, because the payload is the
+  // shell command itself, not the framing around it. None of these
+  // patterns have a legitimate place in a SKILL.md, so they block.
+  {
+    pattern: "destructive_rm_recursive",
+    severity: "block",
+    reason: "Recursive rm targeting filesystem root, home, or a critical system directory.",
+    // Matches `rm` + a short-flag bundle containing BOTH r and f (in any
+    // order: -rf, -fr, -rvf, -Rf, etc.) + a catastrophic target:
+    //   /              (bare root)
+    //   /*             (root glob)
+    //   /etc, /usr, /var (not /var/tmp), /boot, /bin, /sbin, /lib, /System
+    //   ~              (home)
+    //   ~/...          (anything inside home)
+    //   $HOME, $USERPROFILE (with or without braces)
+    // Deliberately does NOT match relative paths (`./build`, `.next`,
+    // `node_modules`) or scratch dirs (`/tmp/...`) — those are legitimate
+    // cleanup idioms that appear in build skills.
+    test: /\brm\s+(?:--no-preserve-root\s+)?(?=-[a-zA-Z]*r)(?=-[a-zA-Z]*f)-[a-zA-Z]+\s+(?:-[a-zA-Z]+\s+)*(?:\/(?=$|[^\w/])|\/(?:etc|usr|boot|bin|sbin|lib|System)\b|\/var(?!\/tmp)\b|~(?=$|[^\w])|\$\{?HOME\}?|\$\{?USERPROFILE\}?)/i,
+  },
+  {
+    pattern: "destructive_python_rmtree",
+    severity: "block",
+    reason: "Python recursive delete (shutil.rmtree / os.removedirs) targeting user home or root.",
+    test: /\bshutil\.rmtree\s*\([^)]*(?:expanduser|['"]~|HOME|USERPROFILE|['"]\/['"])/i,
+  },
+  {
+    pattern: "destructive_powershell_remove",
+    severity: "block",
+    reason: "PowerShell Remove-Item -Recurse -Force targeting home or system drive.",
+    // Order of -Recurse / -Force is not fixed in PS, so we check both words
+    // exist near Remove-Item and a dangerous target.
+    test: /\bRemove-Item\b(?=[\s\S]{0,80}-Recurse\b)(?=[\s\S]{0,80}-Force\b)[\s\S]{0,120}(?:\$HOME|\$env:USERPROFILE|\$env:HOMEDRIVE|[A-Z]:\\|\\\*)/i,
+  },
+  {
+    pattern: "destructive_disk_wipe",
+    severity: "block",
+    reason: "Disk wipe pattern (dd to a block device, mkfs on a device, wipefs).",
+    test: /\bdd\s+[^\n]*\bof=\/dev\/(?:sd[a-z]|nvme\d|hd[a-z]|xvd[a-z]|vd[a-z])|\bmkfs(?:\.[a-z0-9]+)?\s+\/dev\/|\bwipefs\s+(?:-a\s+)?\/dev\//i,
+  },
+  {
+    pattern: "destructive_format_drive",
+    severity: "block",
+    reason: "Windows drive format command.",
+    test: /\bformat\s+[A-Za-z]:\s*(?:\/[qyxp]\s*){1,}|\bformat\s+[A-Za-z]:\s*\/fs:/i,
+  },
+  {
+    pattern: "reverse_shell_devtcp",
+    severity: "block",
+    reason: "Bash reverse shell via /dev/tcp.",
+    test: /\/dev\/tcp\/[^/\s]+\/\d+/,
+  },
+  {
+    pattern: "fork_bomb",
+    severity: "block",
+    reason: "Classic bash fork bomb.",
+    test: /:\(\)\s*\{\s*:\s*\|\s*:&?\s*\}\s*;\s*:/,
+  },
+  {
+    pattern: "chmod_world_writable_root",
+    severity: "block",
+    reason: "Recursive chmod 777 against filesystem root or home.",
+    test: /\bchmod\s+-R\s+0?777\s+(?:\/|~|\$HOME|\$\{HOME\})/i,
+  },
+  {
+    pattern: "data_exfil_archive_pipe",
+    severity: "block",
+    reason: "Archive of home directory piped to an outbound HTTP upload (exfiltration pattern).",
+    // `~` is not a word boundary char, so we can't use \b~. Match the tar
+    // command, then any non-newline chars, then a home-shaped target, then
+    // a pipe into curl/wget/nc with an outbound URL or POST flag.
+    test: /\btar\s+[^\n]*(?:\s~(?:\s|\/)|\$HOME|\/home\/|\/Users\/)[^\n]*\|\s*(?:curl|wget|nc)\b[^\n]*(?:https?:\/\/|--data-binary|-X\s+POST)/i,
+  },
 
   // ── FLAG rules ─────────────────────────────────────────────────────
+  {
+    pattern: "git_force_push_protected",
+    severity: "flag",
+    reason: "Force-push to a protected branch (main/master/develop/release).",
+    test: /\bgit\s+push\s+(?:-f\b|--force(?:-with-lease)?\b)[^\n]*\b(?:main|master|develop|release)\b/i,
+  },
+  {
+    pattern: "kill_all_user_processes",
+    severity: "flag",
+    reason: "Kills every process belonging to the current user.",
+    test: /\bkill(?:all)?\s+-9?\s+-1\b|\bpkill\s+-9?\s+-u\s+\$?\w+/i,
+  },
+  {
+    pattern: "npm_install_hook_curl",
+    severity: "flag",
+    reason: "npm pre/postinstall script downloading and executing a remote payload.",
+    test: /"(?:pre|post)install"\s*:\s*"[^"]*(?:curl|wget)\s+[^"]*\|\s*(?:sh|bash|node|python)/i,
+  },
   {
     pattern: "long_base64_blob",
     severity: "flag",
