@@ -55,6 +55,15 @@ class CommunitySkillsState {
 
   // Installation manifest
   private _manifest = $state<Manifest>(this._loadManifest());
+  /**
+   * Community IDs of locally-installed skills discovered from the server's
+   * GET /api/skills response. Reconciled on demand (see reconcileFromServer).
+   * Merged with the localStorage manifest by `isInstalled`, so community
+   * skills that were installed by an agent via `install_community_skill`
+   * (and therefore never touched the client's localStorage) still render as
+   * "Installed" in the Community tab the moment the tab refreshes.
+   */
+  private _serverInstalledIds = $state<Set<string>>(new Set());
 
   // Update detection
   updatesAvailable = $state<Record<string, number>>({}); // communityId -> remote version
@@ -100,7 +109,52 @@ class CommunitySkillsState {
   }
 
   isInstalled(communityId: string): boolean {
-    return communityId in this._manifest;
+    // Check both sources so agent-installed community skills (which the
+    // client's localStorage manifest never learns about) still show as
+    // installed after `reconcileFromServer()` runs.
+    return communityId in this._manifest || this._serverInstalledIds.has(communityId);
+  }
+
+  /**
+   * Sync the "installed" set with the server's list of local community
+   * skills. Call this when opening the Community tab so agent-installed
+   * skills render with the correct state without waiting for the next full
+   * page reload. Also back-fills the localStorage manifest with stub entries
+   * for any community skill the server knows about but the manifest doesn't,
+   * so features keyed off `_manifest` (uninstall, update check, etc.) keep
+   * working after an agent-driven install.
+   */
+  async reconcileFromServer(): Promise<void> {
+    try {
+      const data = await api.skills.list();
+      const skills = Array.isArray((data as any)?.skills) ? (data as any).skills : [];
+      const nextIds = new Set<string>();
+      let manifestMutated = false;
+      for (const s of skills) {
+        if (s?.source !== "community" || !s?.communityId) continue;
+        nextIds.add(s.communityId);
+        if (!(s.communityId in this._manifest)) {
+          this._manifest = {
+            ...this._manifest,
+            [s.communityId]: {
+              communityId: s.communityId,
+              localSlug: s.slug,
+              localProgram: s.program ?? "global",
+              installedVersion: s.version ?? 1,
+              enabled: s.enabled ?? true,
+              installedAt: s.createdAt ?? new Date().toISOString(),
+            },
+          };
+          manifestMutated = true;
+        }
+      }
+      this._serverInstalledIds = nextIds;
+      if (manifestMutated) this._saveManifest();
+    } catch {
+      // Non-fatal — we'll still show whatever state the localStorage
+      // manifest has. The Community tab already handles network errors
+      // on its own search path.
+    }
   }
 
   getInstalled(communityId: string): InstalledCommunitySkill | undefined {

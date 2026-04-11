@@ -11,6 +11,27 @@
   import { nav } from "../lib/stores/navigation.svelte";
   import { jobs } from "../lib/stores/jobs.svelte";
   import { toast } from "../lib/stores/toast.svelte";
+  import { open as openExternal } from "@tauri-apps/plugin-shell";
+
+  /**
+   * Open the marketplace page for a locally-installed community skill in
+   * the user's default browser. The skill detail modal already renders a
+   * "View on marketplace" text link next to the author; this toolbar
+   * button is the prominent action-style entry point for users who want
+   * to report a skill or check for updates without hunting through the
+   * info grid. Uses the server-provided `communityUrl` (built with the
+   * configured `community.baseUrl`) so self-hosted marketplaces link back
+   * to themselves instead of arkestrator.com.
+   */
+  async function openSkillOnCommunity(skill: SkillEntry | null | undefined): Promise<void> {
+    const url = skill?.communityUrl;
+    if (!url) return;
+    try {
+      await openExternal(url);
+    } catch (err: any) {
+      toast.error(`Couldn't open link: ${err?.message ?? err}`);
+    }
+  }
 
   const canManage = $derived(connection.canEditCoordinator || connection.userRole === "admin");
   const isAdmin = $derived(connection.userRole === "admin");
@@ -221,11 +242,18 @@
 
   function switchToSkillsView(view: SkillsView) {
     skillsView = view;
-    if (view === "community" && !communityInitialized) {
-      communityInitialized = true;
-      communitySkills.loadFilters();
-      communitySkills.search();
-      communitySkills.checkForUpdates();
+    if (view === "community") {
+      // Always reconcile the installed-state with the server so community
+      // skills installed by agents during a job (via install_community_skill)
+      // render as "Installed" without needing a full app reload. The first
+      // visit additionally kicks off filter load + initial search.
+      communitySkills.reconcileFromServer();
+      if (!communityInitialized) {
+        communityInitialized = true;
+        communitySkills.loadFilters();
+        communitySkills.search();
+        communitySkills.checkForUpdates();
+      }
     }
   }
 
@@ -1174,6 +1202,15 @@
             {@const rkey = `${skillViewData.program}:${skillViewData.slug}`}
             <button class="btn-sm" onclick={() => refreshSkillFromSource(skillViewData!)} disabled={refreshingSkills.has(rkey)}>
               {refreshingSkills.has(rkey) ? "Updating..." : "Update from Source"}
+            </button>
+          {/if}
+          {#if skillViewData?.source === "community" && skillViewData.communityUrl}
+            <button
+              class="btn-sm"
+              onclick={() => openSkillOnCommunity(skillViewData!)}
+              title="Open this skill's marketplace page (to read the full description, see ratings, or report it)"
+            >
+              View on marketplace
             </button>
           {/if}
           {#if canManage && !skillEditMode && skillViewData}

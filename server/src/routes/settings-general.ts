@@ -4223,10 +4223,13 @@ export function createSettingsGeneralRoutes(deps: SettingsRouteDeps) {
   router.get("/community", async (c) => {
     const user = requireAdmin(c, usersRepo);
     if (!user) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+    // Matches resolveCommunityPolicy: defaults to OFF when unset. Previously
+    // this defaulted to TRUE, which made the admin dashboard display the
+    // toggle as checked while the runtime gate silently blocked every
+    // community tool call — users saw "✓ Ready" but agents got community_disabled.
     const agentAutoInstallEnabled = (() => {
       const raw = settingsRepo.get("community.agentAutoInstallEnabled");
-      if (raw == null) return true;
-      return String(raw).toLowerCase() !== "false";
+      return raw != null && String(raw).toLowerCase() === "true";
     })();
     const baseUrl = (() => {
       const raw = settingsRepo.get("community.baseUrl");
@@ -4272,12 +4275,13 @@ export function createSettingsGeneralRoutes(deps: SettingsRouteDeps) {
     });
   });
 
-  // Per-server "Allow community skills" toggle. Any authenticated user can
-  // flip this UNLESS admin has hard-disabled the feature, in which case the
-  // request is rejected.
+  // Per-server "Allow community skills" toggle. Admin-only: this is global
+  // state that affects every user on the server, so letting non-admins flip
+  // it silently changes policy for everyone. The master kill switch and the
+  // agent-auto-install toggle are already admin-only — keep this consistent.
   router.put("/community/allow-on-client", async (c) => {
-    const user = getAuthenticatedUser(c, usersRepo);
-    if (!user) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+    const user = requireAdmin(c, usersRepo);
+    if (!user) return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
     const adminHardDisabled = String(settingsRepo.get("community.adminHardDisabled") ?? "").toLowerCase() === "true";
     if (adminHardDisabled) {
       return errorResponse(c, 403, "Community skills are hard-disabled by the administrator on this server.", "LOCKED");

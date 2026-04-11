@@ -283,6 +283,25 @@ export class SkillEffectivenessRepo {
   }
 
   /**
+   * Whether an effectiveness row already exists for this (skillId, jobId) pair.
+   * Used by the `rate_skill` MCP tool guard: agents can only rate skills that
+   * were actually injected into their prompt (auto-fetch) or explicitly
+   * fetched during the job (`get_skill`, both of which call `recordUsageOnce`).
+   * Prevents hallucinated ratings against skills the agent never saw from
+   * polluting the effectiveness stats.
+   */
+  hasUsageForJob(skillId: string, jobId: string): boolean {
+    try {
+      const row = this.db.prepare(
+        `SELECT 1 FROM skill_effectiveness WHERE skill_id = ? AND job_id = ? LIMIT 1`,
+      ).get(skillId, jobId);
+      return row != null;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Remove any effectiveness rows for a specific skill+job pair. Used when a
    * rating should be voided (e.g. verification skills on verification-disabled
    * jobs) so the rate_job fallback can't later stamp an outcome onto them.
