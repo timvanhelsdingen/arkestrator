@@ -9,6 +9,7 @@
     "comfyui:mac": "bash scripts/start-comfyui-bridge-mac.sh",
     "reset:dev": "pnpm --filter @arkestrator/server reset:state",
     "build": "pnpm -r build",
+    "build:all": "node scripts/build-all.mjs",
     "clean": "pnpm -r clean",
     "setup": "pnpm install && pnpm --filter @arkestrator/protocol build",
     "build:sidecar": "pnpm --filter @arkestrator/protocol build && pnpm --filter @arkestrator/server build:sidecar",
