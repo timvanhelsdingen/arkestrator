@@ -47,7 +47,7 @@ jobs:
             # ELF sections (tauri-apps/tauri#14796). Ship deb + rpm for now.
             # Re-enable when tauri-apps/tauri#12491 (new AppImage bundler) ships.
             args: "--bundles deb,rpm"
-          - platform: macos-14             # arm64 (Apple Silicon) — pinned: macos-latest (15/Sequoia) breaks hdiutil DMG creation
+          - platform: macos-latest        # arm64 (Apple Silicon)
             args: ""
           - platform: windows-latest      # x64
             args: ""
